@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bioseqbench"
+version = "0.1.0"
+description = "Unified biological sequence-function surrogate benchmark"
+requires-python = ">=3.10"
+dependencies = ["numpy>=1.24", "pandas>=2", "pyarrow>=14", "torch>=2.1", "scipy>=1.10", "scikit-learn>=1.3"]
+
+[tool.setuptools.packages.find]
+include = ["BioSeqBench*", "sequence_optimization*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

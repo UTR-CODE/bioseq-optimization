@@ -1,0 +1,306 @@
+"""Public data types and model adapters for sequence optimization."""
+
+from __future__ import annotations
+
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass, field
+from typing import Any, Protocol
+
+import numpy as np
+
+
+class SequenceScorer(Protocol):
+    """A model shell: sequence strings in, one or more activities out."""
+
+    def score(self, sequences: Sequence[str] | np.ndarray) -> "ScoreBatch": ...
+
+
+@dataclass(frozen=True)
+class ScoreBatch:
+    """One activity vector per sequence.
+
+    ``scores`` may have shape ``[N]`` for a scalar model or ``[N, T]`` for a
+    model with ``T`` activity outputs. Optimizers scalarize these activities
+    with an objective before searching.
+    """
+
+    scores: np.ndarray
+    uncertainties: np.ndarray | None = None
+
+    def __post_init__(self) -> None:
+        scores = np.asarray(self.scores, dtype=np.float64)
+        if scores.ndim == 0:
+            scores = scores.reshape(1)
+        if scores.ndim not in {1, 2}:
+            raise ValueError("scores must have shape [N] or [N, tasks]")
+        if not np.isfinite(scores).all():
+            raise ValueError("scorer returned non-finite scores")
+        uncertainty = self.uncertainties
+        if uncertainty is not None:
+            uncertainty = np.asarray(uncertainty, dtype=np.float64)
+            if uncertainty.ndim == 0:
+                uncertainty = uncertainty.reshape(1)
+            if uncertainty.shape != scores.shape:
+                raise ValueError("uncertainties must have the same shape as scores")
+            if not np.isfinite(uncertainty).all():
+                raise ValueError("scorer returned non-finite uncertainties")
+        object.__setattr__(self, "scores", scores)
+        object.__setattr__(self, "uncertainties", uncertainty)
+
+
+class CallableScorer:
+    """Adapt a callable returning scores, ``(scores, uncertainty)``, or ScoreBatch."""
+
+    def __init__(self, function: Callable[[np.ndarray], Any], *, task_names: Sequence[str] | None = None) -> None:
+        self.function = function
+        self.task_names = _validate_task_names(task_names)
+
+    def score(self, sequences: Sequence[str] | np.ndarray) -> ScoreBatch:
+        values = np.asarray(sequences, dtype=str).reshape(-1)
+        result = self.function(values)
+        if isinstance(result, ScoreBatch):
+            return result
+        if isinstance(result, tuple) and len(result) == 2:
+            return ScoreBatch(result[0], result[1])
+        return ScoreBatch(result)
+
+
+class TorchSequenceScorer:
+    """Wrap any frozen PyTorch model with a user-supplied string encoder."""
+
+    def __init__(
+        self,
+        model: Any,
+        encoder: Callable[[np.ndarray], Any],
+        *,
+        device: Any = None,
+        batch_size: int = 4096,
+        task_names: Sequence[str] | None = None,
+    ) -> None:
+        if batch_size < 1:
+            raise ValueError("batch_size must be positive")
+        self.model, self.encoder, self.device, self.batch_size = model, encoder, device, batch_size
+        self.task_names = _validate_task_names(task_names)
+        if device is not None and hasattr(model, "to"):
+            model.to(device)
+        if hasattr(model, "eval"):
+            model.eval()
+
+    def score(self, sequences: Sequence[str] | np.ndarray) -> ScoreBatch:
+        import torch
+
+        values = np.asarray(sequences, dtype=str).reshape(-1)
+        scores, uncertainties = [], []
+        with torch.no_grad():
+            for start in range(0, len(values), self.batch_size):
+                batch = values[start : start + self.batch_size]
+                inputs = self.encoder(batch)
+                if self.device is not None and hasattr(inputs, "to"):
+                    inputs = inputs.to(self.device)
+                output = self.model(inputs)
+                if isinstance(output, ScoreBatch):
+                    current = output
+                elif isinstance(output, tuple) and len(output) == 2:
+                    to_numpy = lambda item: item.detach().cpu().numpy() if hasattr(item, "detach") else item
+                    current = ScoreBatch(to_numpy(output[0]), to_numpy(output[1]))
+                else:
+                    current = ScoreBatch(output.detach().cpu().numpy() if hasattr(output, "detach") else output)
+                if len(current.scores) != len(batch):
+                    raise ValueError(
+                        f"model returned {len(current.scores)} rows for a batch of {len(batch)} sequences"
+                    )
+                scores.append(current.scores)
+                uncertainties.append(
+                    np.zeros_like(current.scores)
+                    if current.uncertainties is None
+                    else current.uncertainties
+                )
+        combined = np.concatenate(scores, axis=0) if scores else np.empty(0)
+        combined_uncertainty = (
+            np.concatenate(uncertainties, axis=0)
+            if uncertainties
+            else np.zeros_like(combined)
+        )
+        return ScoreBatch(combined, combined_uncertainty)
+
+
+def _validate_task_names(task_names: Sequence[str] | None) -> tuple[str, ...] | None:
+    if task_names is None:
+        return None
+    result = tuple(str(name).strip() for name in task_names)
+    if not result or any(not name for name in result) or len(set(result)) != len(result):
+        raise ValueError("task_names must contain unique, non-empty names")
+    return result
+
+
+class BudgetExceeded(RuntimeError):
+    """The optimizer requested more evaluations than its configured budget."""
+
+
+class CachedScorer:
+    """Add duplicate caching and query accounting to any scorer."""
+
+    def __init__(self, scorer: SequenceScorer, budget: int | None = None, *, count_repeated: bool = False) -> None:
+        if budget is not None and budget < 0:
+            raise ValueError("budget must be non-negative or None")
+        self.scorer, self.budget, self.count_repeated = scorer, budget, count_repeated
+        self.query_count = 0
+        self._cache: dict[str, tuple[np.ndarray, np.ndarray]] = {}
+
+    @property
+    def remaining(self) -> int | None:
+        return None if self.budget is None else self.budget - self.query_count
+
+    def score(self, sequences: Sequence[str] | np.ndarray) -> ScoreBatch:
+        values = np.asarray(sequences, dtype=str).reshape(-1)
+        if not len(values):
+            return ScoreBatch(np.empty(0), np.empty(0))
+        missing = list(dict.fromkeys(str(value) for value in values if str(value) not in self._cache))
+        cost = len(values) if self.count_repeated else len(missing)
+        if self.budget is not None and cost > self.remaining:
+            raise BudgetExceeded(f"query budget exceeded: requested {cost}, remaining {self.remaining}")
+        if missing:
+            current = self.scorer.score(np.asarray(missing, dtype=str))
+            if len(current.scores) != len(missing):
+                raise ValueError(
+                    f"scorer returned {len(current.scores)} rows for {len(missing)} sequences"
+                )
+            uncertainty = np.zeros_like(current.scores) if current.uncertainties is None else current.uncertainties
+            self._cache.update(
+                {
+                    key: (
+                        np.asarray(score, dtype=np.float64).copy(),
+                        np.asarray(std, dtype=np.float64).copy(),
+                    )
+                    for key, score, std in zip(missing, current.scores, uncertainty)
+                }
+            )
+        self.query_count += cost
+        return ScoreBatch(
+            np.stack([self._cache[str(value)][0] for value in values]),
+            np.stack([self._cache[str(value)][1] for value in values]),
+        )
+
+
+@dataclass(frozen=True)
+class SequenceSpace:
+    length: int
+    alphabet: str = "ACGT"
+
+    def __post_init__(self) -> None:
+        if self.length < 1 or len(self.alphabet) < 2 or len(set(self.alphabet)) != len(self.alphabet):
+            raise ValueError("length must be positive and alphabet must contain unique symbols")
+
+    @property
+    def alphabet_size(self) -> int:
+        return len(self.alphabet)
+
+    def validate(self, sequences: Sequence[str] | np.ndarray) -> np.ndarray:
+        values = np.asarray(sequences, dtype=str).reshape(-1)
+        if np.any(np.char.str_len(values) != self.length):
+            raise ValueError(f"all sequences must have length {self.length}")
+        allowed = set(self.alphabet)
+        if any(set(value) - allowed for value in values):
+            raise ValueError(f"sequences must use alphabet {self.alphabet!r}")
+        return values
+
+    def encode(self, sequences: Sequence[str] | np.ndarray) -> np.ndarray:
+        values = self.validate(sequences)
+        lookup = {symbol: index for index, symbol in enumerate(self.alphabet)}
+        return np.asarray([[lookup[symbol] for symbol in value] for value in values], dtype=np.int16)
+
+    def decode(self, encoded: np.ndarray) -> np.ndarray:
+        values = np.asarray(encoded, dtype=np.int64)
+        if values.ndim != 2 or values.shape[1] != self.length or np.any(values < 0) or np.any(values >= self.alphabet_size):
+            raise ValueError("invalid encoded sequence array")
+        symbols = np.asarray(list(self.alphabet))
+        return np.asarray(["".join(symbols[row]) for row in values], dtype=str)
+
+    def random(self, count: int, rng: np.random.Generator) -> np.ndarray:
+        return self.decode(rng.integers(self.alphabet_size, size=(count, self.length)))
+
+    def single_mutants(self, sequences: Sequence[str] | np.ndarray) -> np.ndarray:
+        encoded = self.encode(sequences)
+        blocks = []
+        for sequence in encoded:
+            candidates = []
+            for position in range(self.length):
+                for value in range(self.alphabet_size):
+                    if value != sequence[position]:
+                        candidate = sequence.copy(); candidate[position] = value; candidates.append(candidate)
+            blocks.append(np.asarray(candidates, dtype=np.int16))
+        return self.decode(np.asarray(blocks).reshape(-1, self.length))
+
+    def mutate_one(self, sequences: Sequence[str] | np.ndarray, rng: np.random.Generator) -> np.ndarray:
+        encoded = self.encode(sequences).copy(); rows = np.arange(len(encoded)); positions = rng.integers(self.length, size=len(encoded)); offsets = rng.integers(1, self.alphabet_size, size=len(encoded)); encoded[rows, positions] = (encoded[rows, positions] + offsets) % self.alphabet_size; return self.decode(encoded)
+
+
+@dataclass(frozen=True)
+class OptimizationConfig:
+    budget: int
+    num_candidates: int = 100
+    mutation_rate: float = 0.02
+    elite_fraction: float = 0.2
+    learning_rate: float = 0.1
+
+    def __post_init__(self) -> None:
+        if self.budget < self.num_candidates or self.num_candidates < 1:
+            raise ValueError("budget must be at least num_candidates")
+        if not 0 < self.mutation_rate <= 1 or not 0 < self.elite_fraction <= 1 or self.learning_rate <= 0:
+            raise ValueError("invalid optimizer hyperparameters")
+
+
+@dataclass
+class OptimizationResult:
+    algorithm: str
+    sequences: np.ndarray
+    scores: np.ndarray
+    uncertainties: np.ndarray
+    query_count: int
+    metadata: dict[str, Any] = field(default_factory=dict)
+    trajectory: list[dict[str, float | int]] = field(default_factory=list)
+    activities: np.ndarray | None = None
+    task_names: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        self.sequences = np.asarray(self.sequences, dtype=str).reshape(-1)
+        self.scores = np.asarray(self.scores, dtype=np.float64).reshape(-1)
+        self.uncertainties = np.asarray(self.uncertainties, dtype=np.float64).reshape(-1)
+        if not (len(self.sequences) == len(self.scores) == len(self.uncertainties)):
+            raise ValueError("result arrays must have equal lengths")
+        if len(np.unique(self.sequences)) != len(self.sequences):
+            raise ValueError("result sequences must be unique")
+        self.task_names = _validate_task_names(self.task_names) if self.task_names else ()
+        self._validate_activities()
+
+    def _validate_activities(self) -> None:
+        if self.activities is not None:
+            activities = np.asarray(self.activities, dtype=np.float64)
+            if activities.ndim == 1:
+                activities = activities[:, None]
+            if activities.ndim != 2 or len(activities) != len(self.sequences):
+                raise ValueError("activities must have shape [num_candidates, tasks]")
+            self.activities = activities
+            if self.task_names and len(self.task_names) != activities.shape[1]:
+                raise ValueError("task_names must match the activity columns")
+            if not self.task_names:
+                self.task_names = tuple(f"task_{index}" for index in range(activities.shape[1]))
+
+    def attach_activities(
+        self,
+        activities: np.ndarray,
+        task_names: Sequence[str] | None = None,
+    ) -> "OptimizationResult":
+        """Attach the raw model outputs retained during scalar optimization."""
+        self.activities = activities
+        self.task_names = _validate_task_names(task_names) if task_names else ()
+        self._validate_activities()
+        return self
+
+    def to_frame(self):
+        import pandas as pd
+        frame = pd.DataFrame({"sequence": self.sequences, "score": self.scores, "uncertainty": self.uncertainties})
+        if self.activities is not None:
+            for index, name in enumerate(self.task_names):
+                frame[f"activity_{name}"] = self.activities[:, index]
+        return frame

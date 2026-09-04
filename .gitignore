@@ -1,0 +1,44 @@
+# Python/build/editor artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+build/
+dist/
+*.egg-info/
+.ipynb_checkpoints/
+.DS_Store
+
+# Local scratch files can be many gigabytes.
+tmp/
+
+# Generated BioSeqBench data, training outputs, and reports.
+BioSeqBench/raw_data/**
+BioSeqBench/dataset/**
+BioSeqBench/checkpoints/**
+BioSeqBench/logs/**
+BioSeqBench/results/**
+BioSeqBench/reports/**
+
+# Keep empty directory markers.
+!BioSeqBench/raw_data/.gitkeep
+!BioSeqBench/dataset/.gitkeep
+!BioSeqBench/checkpoints/.gitkeep
+!BioSeqBench/logs/.gitkeep
+!BioSeqBench/results/.gitkeep
+!BioSeqBench/reports/.gitkeep
+
+# Small checkpoints required by the documented Optimus/DeepSTARR smoke test.
+!BioSeqBench/checkpoints/strong_v2_sklearn/
+!BioSeqBench/checkpoints/strong_v2_sklearn/utr5_mpra/
+!BioSeqBench/checkpoints/strong_v2_sklearn/utr5_mpra/optimus5prime/
+!BioSeqBench/checkpoints/strong_v2_sklearn/utr5_mpra/optimus5prime/best.pt
+!BioSeqBench/checkpoints/strong_deepstarr_paper_v1/
+!BioSeqBench/checkpoints/strong_deepstarr_paper_v1/deepstarr/
+!BioSeqBench/checkpoints/strong_deepstarr_paper_v1/deepstarr/deepstarr_paper/
+!BioSeqBench/checkpoints/strong_deepstarr_paper_v1/deepstarr/deepstarr_paper/best.pt

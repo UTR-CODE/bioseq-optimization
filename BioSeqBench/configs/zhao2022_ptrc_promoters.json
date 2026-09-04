@@ -1,0 +1,10 @@
+{
+  "dataset": "zhao2022_ptrc_promoters",
+  "models": ["paper_xgboost", "sequence_cnn"],
+  "max_length": 80,
+  "label_columns": ["label"],
+  "target": "Ptrc-derived promoter fluorescence / OD600",
+  "training_module": "BioSeqBench.training.train_zhao2022_ptrc",
+  "paper_model_target": "log10(fluorescence / OD600)",
+  "protocol": "XGBoost uses positional A/C/G/T one-hot features and validation-selected parameters; CNN is a non-pretrained differentiable comparator."
+}

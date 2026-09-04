@@ -1,0 +1,169 @@
+{
+  "schema_version": 1,
+  "datasets": {
+    "tfbind8": {
+      "paper": "Barrera et al., Science 2016, doi:10.1126/science.aad2257",
+      "original_repository": "UniPROBE accession BAR15A",
+      "notes": "Canonical publication-ready expansion of the BAR15A SIX6_REF_R1 reverse-complement table; exactly 65,536 unique 8-mers.",
+      "files": [{
+        "filename": "six6_ref_r1.parquet",
+        "url": "https://huggingface.co/datasets/sci-modeling-bench/design-bench/resolve/main/data/tfbind8/six6_ref_r1.parquet",
+        "sha256": "c9539b5807b151cd0f248d9090053323376cdd38db5a6a0c29afd200d34b7977"
+      }]
+    },
+    "tfbind10": {
+      "paper": "Le et al., PNAS 2018, doi:10.1073/pnas.1715888115",
+      "original_repository": "Design-Bench TFBind10 Pho4 landscape; corrected exhaustive release in DiBO",
+      "notes": "TFBind10-Exact-v0 is a complete 4^10 (=1,048,576) Pho4 DNA landscape. The released target is negative binding free-energy difference (-ddG), so larger label values mean stronger binding.",
+      "files": [{
+        "filename": "TFBind10-Exact-v0.npz",
+        "url": "https://github.com/zpointS/DiBO/raw/refs/heads/main/data/raw/TFBind10-Exact-v0.npz",
+        "sha256": "b3a66a83645fa9ea8899689b7a28e6028759b201cb7ca828509b7521203c137d"
+      }]
+    },
+    "gb1": {
+      "paper": "Wu et al., eLife 2016, doi:10.7554/eLife.16965",
+      "original_repository": "Associated eLife source data; standardized full landscape distributed by FLIP",
+      "files": [{
+        "filename": "four_mutations_full_data.csv.zip",
+        "url": "https://raw.githubusercontent.com/J-SNACKKB/FLIP/main/splits/gb1/four_mutations_full_data.csv.zip"
+      }]
+    },
+    "gfp": {
+      "paper": "Sarkisyan et al., Nature 2016, doi:10.1038/nature17995",
+      "original_repository": "Nature supplementary data",
+      "notes": "Audited sequence reconstruction from Sarkisyan genotypes.",
+      "files": [{
+        "filename": "protein_genotypes.parquet",
+        "url": "https://huggingface.co/datasets/sci-modeling-bench/design-bench/resolve/main/data/gfp/protein_genotypes.parquet"
+      }]
+    },
+  "utr5_mpra": {
+    "paper": "Sample et al., Nature Biotechnology 2019, doi:10.1038/s41587-019-0164-5",
+    "original_repository": "GEO GSE114002",
+    "notes": "Canonical training data are the original GSM3130435 egfp_unmod_1 table. Sort by total_reads stably, retain 280,000, use ranks 1–20,000 as test and 20,001–280,000 as train, exactly as the authors' training_MRL_CNN.ipynb. The 50-nt canonical sequence excludes the fixed 25-nt reporter prefix.",
+    "files": [
+      {
+        "filename": "GSM3130435_egfp_unmod_1.csv.gz",
+        "url": "https://ftp.ncbi.nlm.nih.gov/geo/samples/GSM3130nnn/GSM3130435/suppl/GSM3130435_egfp_unmod_1.csv.gz"
+      },
+        {
+          "filename": "GSE114002_RAW.tar",
+          "url": "https://ftp.ncbi.nlm.nih.gov/geo/series/GSE114nnn/GSE114002/suppl/GSE114002_RAW.tar",
+          "large": true
+        }
+      ]
+    },
+    "igvf_ccre_mpra": {
+      "paper": "Kircher et al., MPRAsnakeflow, Genome Biology 2025",
+      "original_repository": "https://data.igvf.org",
+      "manual_only": true,
+      "portal_accessions": ["IGVFDS1589ODOW", "IGVFDS1419ZPHD", "IGVFDS5307RCQG", "IGVFDS8114HMGD", "IGVFDS9668QVZD"],
+      "manual_steps": [
+        "Open https://data.igvf.org and search each portal accession listed in sources.json.",
+        "Download the processed element-activity table and the matching oligo design/sequence file (not FASTQ unless reprocessing counts).",
+        "Join on element/oligo identifier and provide columns sequence, cell_type, activity to the IGVF loader.",
+        "Run: python -m BioSeqBench.preprocessing.prepare --dataset igvf_ccre_mpra --raw-path <joined.tsv>"
+      ]
+    },
+    "deepstarr": {
+      "paper": "de Almeida et al., Nature Genetics 2022, doi:10.1038/s41588-022-01048-5",
+      "original_repository": "Zenodo 5502060 and Stark Lab",
+      "notes": "Compressed Parquet mirror of the original Zenodo Train/Val/Test FASTA and activity files; original split is preserved.",
+      "files": [
+        {"filename": "train.parquet", "url": "https://huggingface.co/datasets/GenerTeam/DeepSTARR-enhancer-activity/resolve/main/train.parquet", "sha256": "bd8977f2a4b83b7a656fc5bb389813bb999419a6ebe037fbec80e9f0fb6943a9"},
+        {"filename": "valid.parquet", "url": "https://huggingface.co/datasets/GenerTeam/DeepSTARR-enhancer-activity/resolve/main/valid.parquet", "sha256": "ae1cc8c138b1ee65ee6c1046e986e7530a62b51661b173d5b34dd89351429e4c"},
+        {"filename": "test.parquet", "url": "https://huggingface.co/datasets/GenerTeam/DeepSTARR-enhancer-activity/resolve/main/test.parquet", "sha256": "e1c7d7d8bc2c571e0c35be5b5515a1acbe3f47260066b34322130a8d9a092e65"}
+      ]
+    },
+    "agarwal2025_lentimpra": {
+      "paper": "Agarwal et al., Nature 2025, doi:10.1038/s41586-024-08430-9",
+      "original_repository": "PMC11903340 Supplementary Table package; ENCODE lentiMPRA experiments",
+      "notes": "The PMC supplementary package contains Table S3 (large-library sequence design), Table S4 (large-library activity), Table S10 (joint-library sequence design), and Table S11 (joint-library activity). Activity is log2-normalized RNA/DNA. ENCODE accessions: pilots ENCSR463IRX/ENCSR460LZI; large-scale ENCSR022GQD/ENCSR382BVV/ENCSR244FWB; joint ENCSR405QCT/ENCSR203UFY/ENCSR336MKI.",
+      "files": [
+        {
+          "filename": "PMC11903340_supplementary.zip",
+          "url": "https://www.ebi.ac.uk/europepmc/webservices/rest/PMC11903340/supplementaryFiles",
+          "sha256": "33e5dc28d8be7197359d45cd502480a4cd5b7a7df3797e977763bd9e38a24510"
+        }
+      ]
+    },
+    "cetnar2024_mrna_stability": {
+      "paper": "Cetnar et al., Nature Communications 2024, doi:10.1038/s41467-024-54059-7",
+      "original_repository": "Author-maintained SalisLabCode repository; Supplementary Data 1",
+      "notes": "62,120 barcoded E. coli synthetic 5-prime UTR designs. The standardized release retains the 57,780 rows with a positive fitted kinetic degradation rate (k_fit), and represents the assayed RNA sequence with U rather than the DNA-library T.",
+      "files": [
+        {
+          "filename": "SupplementaryData1.xlsx",
+          "url": "https://raw.githubusercontent.com/hsalis/SalisLabCode/master/mRNA_Stability_Calculator/SupplementaryData1.xlsx",
+          "sha256": "282abc4b226b98a38beac2f1e7c5ca176b1818d92861b4ecc9ccaafddc28d688"
+        }
+      ]
+    },
+    "kosuri2013_composability": {
+      "paper": "Kosuri et al., PNAS 2013, doi:10.1073/pnas.1301301110",
+      "original_repository": "PNAS / PMC supplementary materials for PMC3752251",
+      "notes": "Combinatorial E. coli promoter--RBS library. Dataset S3 contains per-construct DNA, RNA, and protein measurements; S1 and S2 contain the promoter and RBS sequence tables. The local raw-data directory may contain user-supplied copies named sd01.xls, sd02.xls, and sd03.xls.",
+      "files": [
+        {
+          "filename": "1301301110_sd01.xls",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC3752251/",
+          "description": "Dataset S1: promoter identities, sequences, and aggregate measurements"
+        },
+        {
+          "filename": "1301301110_sd02.xls",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC3752251/",
+          "description": "Dataset S2: RBS identities, sequences, and aggregate measurements"
+        },
+        {
+          "filename": "1301301110_sd03.xls",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC3752251/",
+          "description": "Dataset S3: per promoter--RBS construct intermediate and final values"
+        }
+      ],
+      "manual_steps": [
+        "Download the three named XLS files from the Supplementary Materials section of the PMC article in a web browser if they are not already present.",
+        "Put them in BioSeqBench/raw_data/kosuri2013_composability/ as sd01.xls, sd02.xls, and sd03.xls (symlinks are supported).",
+        "The framework will validate the workbook columns before generating paired promoter--RBS RNA and protein targets."
+      ]
+    },
+    "openvaccine": {
+      "paper": "Wayment-Steele et al., Nature Machine Intelligence 2022, doi:10.1038/s42256-022-00571-8",
+      "original_repository": "Stanford OpenVaccine Kaggle challenge; author-maintained GitHub copy",
+      "files": [{
+        "filename": "Kaggle_RYOS_trainset.csv",
+        "url": "https://raw.githubusercontent.com/DasLab/KaggleOpenVaccine/main/data/Kaggle_RYOS_data/Kaggle_RYOS_trainset.csv"
+      }]
+    },
+    "zhao2022_ptrc_promoters": {
+      "paper": "Zhao et al., ACS Synthetic Biology 2022, doi:10.1021/acssynbio.1c00117",
+      "original_repository": "ACS Figshare collection 5758610",
+      "notes": "The empirical benchmark joins 3,665 fluorescence/OD600 measurements (ML<n>) to their 3,665 DNA sequences (PL<n>). The 390,625 combinatorial sequence sheet is deliberately excluded because it has no experimental activity label.",
+      "files": [
+        {"filename": "sb1c00117_si_002.xlsx", "url": "https://acs.figshare.com/collections/5758610"},
+        {"filename": "sb1c00117_si_003.xlsx", "url": "https://acs.figshare.com/collections/5758610"}
+      ]
+    },
+    "zhou2026_l3_promoters": {
+      "paper": "Zhou et al., ACS Synthetic Biology 2026, doi:10.1021/acssynbio.5c00765",
+      "original_repository": "ACS supplementary Table S2",
+      "notes": "L3 processed FACS-seq promoter sequence/strength table (20,799 entries).",
+      "files": [{"filename": "sb5c00765_si_002.xlsx", "url": "https://pubs.acs.org/doi/10.1021/acssynbio.5c00765"}]
+    },
+    "yeast_gpra_vaishnav2022": {
+      "paper": "Vaishnav et al., Nature 2022, doi:10.1038/s41586-022-04506-6",
+      "original_repository": "Zenodo record 4436477",
+      "notes": "Two deposited GPRA training libraries are standardized as separate condition-specific tasks: complex glucose and defined SC-Ura.",
+      "files": [
+        {"filename": "complex_media_training_data_Glu.txt", "url": "https://zenodo.org/records/4436477"},
+        {"filename": "defined_media_training_data_SC_Ura.txt", "url": "https://zenodo.org/records/4436477"}
+      ]
+    },
+    "parm_gse301246": {
+      "paper": "PARM, Nature 2026, doi:10.1038/s41586-025-10093-z",
+      "original_repository": "GEO:GSE301246; vansteensellab/PARM",
+      "notes": "Normalized BED files contain hg19 coordinates and Log2RPM labels. The streaming converter reconstructs the exact strand-aware DNA sequences from hg19 and preserves the published folds.",
+      "files": [{"filename": "GSE301246_PARM_Training_Library_*_normalized_*.bed.gz", "url": "https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE301246"}]
+    }
+  }
+}

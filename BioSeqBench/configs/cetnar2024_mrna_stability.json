@@ -1,0 +1,7 @@
+{
+  "dataset": "cetnar2024_mrna_stability",
+  "model": "cetnar_cnn_bilstm",
+  "max_length": 80,
+  "label_columns": ["label"],
+  "target": "k_fit (mRNA decay rate per minute; lower is more stable)"
+}

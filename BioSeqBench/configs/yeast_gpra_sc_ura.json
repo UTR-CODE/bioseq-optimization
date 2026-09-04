@@ -1,0 +1,1 @@
+{"dataset":"yeast_gpra_sc_ura","model":"yeast_gpra_cnn","max_length":128,"label_columns":["label"],"target":"Yeast GPRA promoter activity in defined SC-Ura medium"}
