@@ -56,14 +56,18 @@ class TargetObjective:
             if task_names is None:
                 raise ValueError("a string target requires task_names on the scorer")
             if self.target not in task_names:
-                raise ValueError(f"unknown target {self.target!r}; choose from {task_names}")
+                raise ValueError(
+                    f"unknown target {self.target!r}; choose from {task_names}"
+                )
             return task_names.index(self.target)
         index = int(self.target)
         if not 0 <= index < n_tasks:
             raise ValueError(f"target index {index} is outside {n_tasks} model outputs")
         return index
 
-    def coefficients(self, n_tasks: int, task_names: tuple[str, ...] | None = None) -> np.ndarray:
+    def coefficients(
+        self, n_tasks: int, task_names: tuple[str, ...] | None = None
+    ) -> np.ndarray:
         if n_tasks < 1:
             raise ValueError("an activity model must have at least one output")
         if task_names is not None and len(task_names) != n_tasks:
@@ -84,12 +88,16 @@ class TargetObjective:
                 else:
                     index = int(key)
                     if not 0 <= index < n_tasks:
-                        raise ValueError(f"task weight index {index} is outside {n_tasks} outputs")
+                        raise ValueError(
+                            f"task weight index {index} is outside {n_tasks} outputs"
+                        )
                 weights[index] = float(value)
         elif self.other_weights is not None:
             weights = np.asarray(self.other_weights, dtype=np.float64)
             if weights.shape != (n_tasks,):
-                raise ValueError("other_weights must contain one value per model output")
+                raise ValueError(
+                    "other_weights must contain one value per model output"
+                )
         if not np.isfinite(weights).all() or np.any(weights < 0):
             raise ValueError("other task weights must be finite and non-negative")
         weights[target] = 0.0
@@ -109,7 +117,9 @@ class TargetObjective:
             raise ValueError("activities must have shape [N] or [N, tasks]")
         return values @ self.coefficients(values.shape[1], task_names)
 
-    def describe(self, n_tasks: int, task_names: tuple[str, ...] | None = None) -> dict[str, object]:
+    def describe(
+        self, n_tasks: int, task_names: tuple[str, ...] | None = None
+    ) -> dict[str, object]:
         target_index = self._target_index(n_tasks, task_names)
         return {
             "mode": self.mode,
@@ -143,12 +153,41 @@ class ObjectiveScorer:
             uncertainty = _activity_matrix(result.uncertainties, len(values))
             if uncertainty.shape != activities.shape:
                 raise ValueError("activity uncertainties must match activity outputs")
-            coefficients = self.objective.coefficients(activities.shape[1], self.task_names)
+            coefficients = self.objective.coefficients(
+                activities.shape[1], self.task_names
+            )
             utility_uncertainties = np.sqrt((uncertainty**2) @ (coefficients**2))
 
         for sequence, activity in zip(values, activities):
             self._activities[str(sequence)] = activity.copy()
         return ScoreBatch(utilities, utility_uncertainties)
+
+    def score_soft(self, probabilities):
+        """Scalarize differentiable raw activities without detaching gradients."""
+        import torch
+
+        score_soft = getattr(self.scorer, "score_soft", None)
+        if score_soft is None:
+            raise TypeError(
+                "this algorithm requires a differentiable scorer with score_soft(probabilities)"
+            )
+        activities, uncertainties = score_soft(probabilities)
+        if activities.ndim == 1:
+            activities = activities[:, None]
+        if self.task_names is not None and len(self.task_names) != activities.shape[1]:
+            raise ValueError("task_names must match the number of model outputs")
+        coefficients = torch.as_tensor(
+            self.objective.coefficients(activities.shape[1], self.task_names),
+            dtype=activities.dtype,
+            device=activities.device,
+        )
+        utilities = activities @ coefficients
+        utility_uncertainties = None
+        if uncertainties is not None:
+            utility_uncertainties = torch.sqrt(
+                (uncertainties.square() * coefficients.square()).sum(dim=1)
+            )
+        return utilities, utility_uncertainties
 
     def activities_for(self, sequences) -> np.ndarray:
         values = np.asarray(sequences, dtype=str).reshape(-1)

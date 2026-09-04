@@ -1,12 +1,10 @@
-name: bioseqbench
+name: bioseq-optimization
 channels:
   - pytorch
-  - nvidia
   - conda-forge
 dependencies:
   - python=3.10
   - pytorch>=2.1
-  - pytorch-cuda=12.1
   - numpy>=1.24
   - pandas>=2.0
   - pyarrow>=14
@@ -14,9 +12,11 @@ dependencies:
   - scikit-learn>=1.3
   - lightgbm>=3.3
   - xgboost>=2.0
-  - tensorly>=0.8
-  - pip:
-      - tensorly-torch>=0.5
+  - einops>=0.7
   - openpyxl>=3.1
   - pytest>=7.4
   - pip
+  - pip:
+      - tensorly>=0.8
+      - tensorly-torch>=0.5
+      - -e .

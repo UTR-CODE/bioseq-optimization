@@ -12,9 +12,13 @@ class TFBind8Example(TorchSequenceScorer):
     """Wrap a TFBind8 CNN; ``length`` must match the checkpoint."""
 
     def __init__(self, model: TFBindCNN | None = None, *, length: int = 8, **kwargs):
-        encoder = lambda values: __import__("torch").from_numpy(
-            __import__("numpy").ascontiguousarray(
-                __import__("numpy").eye(4, dtype="float32")[encode_sequences(values, length)].transpose(0, 2, 1)
+        def encoder(values):
+            return __import__("torch").from_numpy(
+                __import__("numpy").ascontiguousarray(
+                    __import__("numpy")
+                    .eye(4, dtype="float32")[encode_sequences(values, length)]
+                    .transpose(0, 2, 1)
+                )
             )
-        )
+
         super().__init__(model or TFBindCNN(), encoder, **kwargs)

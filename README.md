@@ -1,202 +1,187 @@
-# BioSeqBench Sequence Optimization Toolkit
+# Biosequence Optimization
 
-A model-agnostic toolkit for optimizing fixed-length DNA or RNA sequences
-against a user-provided activity model. The same optimizer API supports
-single-task models and multi-task models such as DeepSTARR.
+This package optimizes fixed-length DNA or RNA sequences using a user-provided
+activity model. A model may have one output or several outputs. The optimizer
+can start from user-provided sequences or generate random starting sequences.
 
-The reusable software lives in [`sequence_optimization/`](sequence_optimization/).
-Historical dataset-specific BioSeqBench training and benchmark code remains in
-[`BioSeqBench/`](BioSeqBench/), but the new optimization core does not depend on
-a particular dataset or training pipeline.
-
-## Current scope
-
-- Input: fixed-length DNA or RNA strings.
-- Model output: one activity per sequence (`[N]` or `[N, 1]`) or multiple
-  activities (`[N, tasks]`).
-- Initialization: user-provided seed sequences or reproducible random seeds.
-- Objectives: maximize one selected output, or maximize it while penalizing
-  all non-target outputs.
-- Algorithms: random search, greedy ISM, simulated annealing, genetic
-  algorithm, and AdaLead.
-- Accounting: repeated-sequence cache and explicit model-query budget.
-- Output: ranked sequences, scalar objective scores, raw per-task activities,
-  uncertainty, metadata, and optimization trajectory.
-
-One model with multiple output heads is supported. Combining multiple separate
-models (for example, one model per cell type) is intentionally out of scope for
-this version.
-
-## Repository layout
-
-```text
-sequence_optimization/
-├── api.py                 # scorers, sequence space, budget, result types
-├── objectives.py          # single- and multi-task scalar objectives
-├── algorithms.py          # optimizer registry and implementations
-├── seeds.py               # seed-file and random-seed helpers
-├── cli.py                 # command-line interface
-└── examples/
-    ├── verify_optimus_deepstarr.py
-    └── models/             # checkpoint-aware model adapters
-
-BioSeqBench/models/         # model architectures used by examples
-BioSeqBench/checkpoints/    # two small checkpoints used by the smoke test
-tests/                      # unit and regression tests
-```
+Internally, all nucleotide sequences use the alphabet `ACGT`. Lowercase input
+is converted to uppercase, and RNA `U` is automatically converted to `T`
+before validation and model prediction.
 
 ## Installation
 
-Python 3.10 or newer is required.
+### Conda
 
-### Option A: pip and a virtual environment
+The repository provides a complete [`environment.yml`](environment.yml):
 
 ```bash
 git clone https://github.com/UTR-CODE/bioseq-optimization.git
 cd bioseq-optimization
-
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -e . pytest
+conda env create -f environment.yml
+conda activate bioseq-optimization
 ```
 
-On Windows PowerShell, activate the environment with:
+### Python and pip
 
-```powershell
-.venv\Scripts\Activate.ps1
-```
-
-### Option B: conda with CUDA support
+The same dependencies are listed in [`requirements.txt`](requirements.txt):
 
 ```bash
-conda env create -f environment.yml
-conda activate bioseqbench
+git clone https://github.com/UTR-CODE/bioseq-optimization.git
+cd bioseq-optimization
+python -m pip install -r requirements.txt
 python -m pip install -e .
 ```
 
-CPU execution is sufficient for all tests and the documented smoke run.
+## Ready-to-use models
 
-## Fast independent verification
-
-First run the tests:
-
-```bash
-python -m pytest -q
-```
-
-The reference checkout currently reports:
-
-```text
-55 passed
-```
-
-Then run both real checkpoint adapters through the optimization interface:
-
-```bash
-python -m sequence_optimization.examples.verify_optimus_deepstarr
-```
-
-With Python 3.10, NumPy 2.1.2, and PyTorch 2.5.1 on CPU, the reference run
-uses 302 Optimus queries and 8 DeepSTARR queries. Typical top values are:
-
-```text
-Optimus MRL:                         7.7108
-DeepSTARR developmental activity:  6.7203
-DeepSTARR housekeeping activity:  -0.1458
-DeepSTARR specificity utility:      6.7932
-```
-
-Small floating-point differences across PyTorch versions and hardware are
-normal. Query counts, shapes, task names, and ranking behavior should agree.
-
-The two checkpoint SHA-256 hashes are:
-
-```text
-7b58549d44e33addcf88876bb7ef35fd1dfa6404083da47619ef258ea513526c  Optimus best.pt
-79c070f319b0654209db3d04d3245d7ada266cd6d1515d52453f5c9a029d3127  DeepSTARR best.pt
-```
-
-## Minimal single-task example
-
-Any callable that receives a NumPy array of strings and returns one value per
-sequence can act as a model:
+Five trained checkpoints are included in the repository and can be loaded by
+name. No dataset download or training step is required.
 
 ```python
-import numpy as np
+from sequence_optimization import load_model
 
+model = load_model("optimus5prime", device="cpu")
+```
+
+| Model name | Input length | Output activity | Gradient optimization |
+|---|---:|---|---|
+| `optimus5prime` | 50 nt | Mean ribosome load | Yes |
+| `deepstarr` | 249 bp | Developmental, housekeeping | Yes |
+| `dream_legnet` | 110 bp | Yeast promoter activity | No |
+| `zhao_ptrc` | 74 bp | log10 fluorescence/OD600 | Yes |
+| `zhou_l3` | 29 bp | Promoter activity | Yes |
+
+Use `available_models()` to list model names and `model_info(name)` to inspect
+the required sequence length and output names. A different checkpoint of the
+same architecture can be supplied with `load_model(name, checkpoint=...)`.
+
+## Available algorithms
+
+All algorithms use the same sequence, objective, initialization, and result
+interfaces.
+
+| Python function | Method | Model requirement |
+|---|---|---|
+| `random_optimize` | Random screening | Black-box activity model |
+| `ISM_optimize` | Greedy in-silico mutagenesis | Black-box activity model |
+| `simulated_annealing_optimize` | Simulated annealing | Black-box activity model |
+| `genetic_algorithm_optimize` | Genetic algorithm | Black-box activity model |
+| `adalead_optimize` | AdaLead | Black-box activity model |
+| `beam_search_optimize` | Beam search over single mutants | Black-box activity model |
+| `cross_entropy_optimize` | Position-wise cross-entropy method | Black-box activity model |
+| `cbas_optimize` | CbAS with an autoregressive GRU generator | Black-box activity model |
+| `vanilla_activation_maximization_optimize` | Soft-PWM activation maximization | Differentiable model |
+| `fast_seqprop_optimize` | Fast SeqProp | Differentiable model |
+| `den_optimize` | Deep Exploration Network | Differentiable model |
+
+CbAS creates and trains its sequence generator internally. DEN also creates an
+internal generator, but it additionally requires gradients through the
+activity model. The included Optimus, DeepSTARR, Zhao Ptrc, and Zhou L3
+adapters support these differentiable algorithms.
+
+## Optimus 5-Prime example
+
+Optimus accepts 50-nt sequences and predicts mean ribosome load (MRL). The
+checkpoint adapter loads the included trained model and restores predictions
+to the original MRL scale.
+
+The five starting sequences below are real sequences from the Optimus MPRA
+test split:
+
+```python
+from sequence_optimization import ISM_optimize, SequenceSpace, load_model
+
+model = load_model("optimus5prime", device="cpu")
+
+initial_sequences = [
+    "CCACTCGATTAACATGTTAACAACATACTCGTCCGGCCGATCAGCGGCTA",
+    "CAAATCATGTGCAGCCCTGGCGACCGTACTGCGGTACAAGAAAGTATAGT",
+    "GTTATACTAGAAGAAACTTGAGATTATGGAGCAGTCCGTCAAGGACGCGA",
+    "CTTAGACAAAAACAACGCGCTTTCCAGTATGCGGAGCCTTGACGGTAAAC",
+    "GTATCAAATCACGGCCAACCCGACGGAGTACCCCGCGTCGATGGTCCGCC",
+]
+
+result = ISM_optimize(
+    model,
+    SequenceSpace(length=50),
+    initial=initial_sequences,
+    num_candidates=5,
+    budget=755,
+    seed=7,
+)
+```
+
+The budget `755` is not an arbitrary formatting choice. It is exactly:
+
+```text
+5 initial predictions + 5 sequences × 50 positions × 3 alternative bases
+```
+
+It therefore performs one complete ISM sweep for every starting sequence.
+
+The returned DataFrame begins as follows:
+
+| sequence | score | uncertainty | activity_mrl |
+|---|---:|---:|---:|
+| `GTTATACTAGAAGAAACTTGAGATTATTGAGCAGTCCGTCAAGGACGCGA` | 8.1850 | 0.0 | 8.1850 |
+| `GTTATACTAGAAGAAACTTGAGATTTTGGAGCAGTCCGTCAAGGACGCGA` | 8.1361 | 0.0 | 8.1361 |
+| `GTTATACTAGAAGAAACTTGAGATTATCGAGCAGTCCGTCAAGGACGCGA` | 8.1199 | 0.0 | 8.1199 |
+| `GTTATACTAGAAGAAACTTGAGATTAAGGAGCAGTCCGTCAAGGACGCGA` | 8.1182 | 0.0 | 8.1182 |
+| `GTTATACTAGAAGAAACTTGAGATTATAGAGCAGTCCGTCAAGGACGCGA` | 8.0844 | 0.0 | 8.0844 |
+
+`score` is the scalar value used by the optimizer. `activity_mrl` is the raw
+Optimus output. They are identical for this single-task model.
+
+To use another fixed-budget method, change the optimizer function and select a
+budget appropriate to that method. If there is no defensible fixed budget, use
+the saturation interface below instead of choosing an arbitrary number.
+
+## DeepSTARR multi-task example
+
+DeepSTARR accepts 249-bp sequences and returns two activities:
+
+1. `developmental`
+2. `housekeeping`
+
+```python
 from sequence_optimization import (
-    CallableScorer,
     SequenceSpace,
+    TargetObjective,
     genetic_algorithm_optimize,
+    load_model,
 )
 
-
-def activity_model(sequences: np.ndarray) -> np.ndarray:
-    return np.asarray([sequence.count("G") for sequence in sequences], dtype=float)
-
-
-scorer = CallableScorer(activity_model, task_names=("activity",))
-result = genetic_algorithm_optimize(
-    scorer,
-    SequenceSpace(length=20, alphabet="ACGT"),
-    budget=10_000,
-    num_candidates=100,
-    seed=7,
-)
-
-print(result.to_frame().head())
-result.to_frame().to_csv("designs.csv", index=False)
-```
-
-When `initial` is omitted, the toolkit constructs unique random seed sequences
-from `seed`. To supply seeds explicitly:
-
-```python
-initial = np.asarray(["A" * 20, "C" * 20, "G" * 20, "T" * 20])
+model = load_model("deepstarr", device="cpu")
 
 result = genetic_algorithm_optimize(
-    scorer,
-    SequenceSpace(20, "ACGT"),
-    budget=1_000,
-    num_candidates=4,
-    initial=initial,
+    model,
+    SequenceSpace(length=249),
+    num_candidates=32,
+    budget=256,
+    objective=TargetObjective(
+        target="developmental",
+        mode="specificity",
+    ),
     seed=7,
 )
 ```
 
-`initial` must contain exactly `num_candidates` unique, valid sequences. A
-one-sequence-per-line file can be loaded with `load_seed_sequences()`.
+Here `256` means 32 initial predictions followed by seven generations of 32
+proposals each. Omit `initial` to obtain reproducible random starting
+sequences.
 
-For RNA, use an RNA alphabet and ensure the model encoder expects `U`:
+For a multi-task model, two objective modes are available.
 
-```python
-rna_space = SequenceSpace(length=40, alphabet="ACGU")
-```
-
-## Multi-task objectives
-
-Give output columns stable names when constructing the scorer:
+Maximize only the selected output and ignore the others:
 
 ```python
-scorer = CallableScorer(
-    multi_task_model,
-    task_names=("developmental", "housekeeping"),
-)
-```
-
-To maximize only one output and ignore all others:
-
-```python
-from sequence_optimization import TargetObjective
-
 objective = TargetObjective(
     target="developmental",
     mode="maximize",
 )
 ```
 
-For CRESted-style target specificity:
+Maximize the selected output while penalizing non-target outputs:
 
 ```python
 objective = TargetObjective(
@@ -206,146 +191,95 @@ objective = TargetObjective(
 )
 ```
 
-The specificity utility is:
+The specificity score is:
 
 ```text
-target - penalty × sum(weight_i × non_target_i) / number_of_tasks
+target activity - penalty × weighted non-target activities / number of tasks
 ```
 
-`other_weights` can assign different penalties to individual outputs. The
-model's raw predictions are never replaced by the scalar objective:
+The result retains both the scalar optimization score and the original
+`developmental` and `housekeeping` predictions.
 
-- `result.scores` contains the scalar utility used for ranking;
-- `result.activities` contains the original `[candidates, tasks]` predictions;
-- `result.to_frame()` creates `activity_<task_name>` columns.
+## Run without choosing a fixed budget
 
-## Optimus example
+An optimization cannot run literally forever, so unlimited mode uses an online
+plateau rule plus a safety ceiling. It monitors the mean score of the best
+`num_candidates` sequences and stops when that value has not improved
+materially for the configured patience period.
 
-The included Optimus adapter loads the 50-nt, single-task checkpoint and
-restores predictions from standardized training units to MRL units:
+After the plateau is established, q80 and q90 are selected retrospectively:
 
-```python
-from sequence_optimization import ISM_optimize, SequenceSpace
-from sequence_optimization.examples.models import Optimus5PrimeExample
-
-scorer = Optimus5PrimeExample.from_checkpoint(device="cpu")
-result = ISM_optimize(
-    scorer,
-    SequenceSpace(50, "ACGT"),
-    budget=302,
-    num_candidates=2,
-    seed=11,
-)
-```
-
-For one ISM sweep, each DNA seed requires `length × 3 = 150` single-mutant
-queries, in addition to its initial score.
-
-## DeepSTARR example
-
-DeepSTARR returns developmental and housekeeping enhancer activities:
+- q80: the earliest candidate set reaching 80% of the observed improvement;
+- q90: the earliest candidate set reaching 90% of the observed improvement;
+- `knee_query_count`: the geometric knee of the normalized improvement curve.
 
 ```python
 from sequence_optimization import (
+    SaturationConfig,
     SequenceSpace,
     TargetObjective,
-    genetic_algorithm_optimize,
+    load_model,
+    optimize_to_saturation,
 )
-from sequence_optimization.examples.models import DeepSTARRExample
 
-scorer = DeepSTARRExample.from_checkpoint(device="cpu")
-result = genetic_algorithm_optimize(
-    scorer,
-    SequenceSpace(249, "ACGT"),
-    budget=256,
+model = load_model("deepstarr", device="cpu")
+
+saturated = optimize_to_saturation(
+    model,
+    SequenceSpace(249),
+    algorithm="genetic_algorithm",
     num_candidates=32,
-    objective=TargetObjective(
-        target="developmental",
-        mode="specificity",  # use "maximize" to ignore housekeeping
-    ),
-    seed=1,
+    objective=TargetObjective("developmental", mode="specificity"),
+    saturation=SaturationConfig(fractions=(0.8, 0.9)),
+    seed=7,
 )
+
+q80_sequences = saturated[0.8].sequences
+q90_sequences = saturated[0.9].sequences
+knee_query_count = saturated.knee_query_count
 ```
 
-## Available optimizer functions
+If query limits are omitted, they are derived from `num_candidates`:
 
-| Function | Registry name | Summary |
-|---|---|---|
-| `random_optimize` | `random` | Uniform random screening |
-| `ISM_optimize` / `ism_optimize` | `ism_greedy` | Exhaustive single-mutant greedy search |
-| `simulated_annealing_optimize` | `simulated_annealing` | Temperature-controlled mutation acceptance |
-| `genetic_algorithm_optimize` | `genetic_algorithm` | Elite selection, crossover, and mutation |
-| `adalead_optimize` | `adalead` | Elite-led local adaptive search |
+- begin plateau testing after `10 × num_candidates` queries;
+- require `20 × num_candidates` queries without material improvement;
+- use `1000 × num_candidates` as the safety ceiling.
 
-All helpers accept the same core arguments: `scorer`, `space`, `budget`,
-`num_candidates`, `initial`, `objective`, and `seed`. Algorithm-specific
-parameters such as `mutation_rate` and `elite_fraction` are also available.
+These defaults can be replaced with `minimum_queries`,
+`plateau_patience_queries`, and `maximum_queries` in `SaturationConfig`.
 
-Use `run()` for a registry name or `run_many()` to compare several algorithms
-with independent caches and budgets.
+## RNA input
 
-## Wrapping a PyTorch model
-
-For a PyTorch model, provide an encoder that converts strings into the model's
-expected tensor shape:
+Use the same `ACGT` sequence space for DNA and RNA models:
 
 ```python
-from sequence_optimization import TorchSequenceScorer
-
-scorer = TorchSequenceScorer(
-    model,
-    encoder,
-    device="cuda",
-    batch_size=1024,
-    task_names=("cell_a", "cell_b"),
-)
+space = SequenceSpace(length=50)
 ```
 
-The optimizer remains a black-box consumer of `score(sequences)`; it does not
-depend on the model architecture or training framework.
+Inputs containing `U` are accepted but normalized before the model sees them:
 
-## Command-line interface
-
-Expose a Python function such as `my_model:predict`, then run:
-
-```bash
-python -m sequence_optimization.cli \
-  --scorer my_model:predict \
-  --algorithm genetic_algorithm \
-  --length 249 \
-  --alphabet ACGT \
-  --budget 10000 \
-  --num-candidates 100 \
-  --task-names developmental,housekeeping \
-  --target developmental \
-  --objective specificity \
-  --seed 7 \
-  --output designs.csv
+```text
+acguuacg  →  ACGTTACG
 ```
 
-Add `--seed-file seeds.txt` to replace random initialization. The CLI writes
-the ranked CSV plus a JSON sidecar containing the objective and run metadata.
+Generated and returned sequences therefore always contain `T`, never `U`.
 
-## Reproducibility and limitations
+## Independent verification
 
-- A query is one newly scored unique sequence by default. Duplicate sequences
-  are cached and do not consume additional budget.
-- Random initialization and optimizer stochasticity are controlled by `seed`.
-- Current algorithms optimize fixed-length discrete sequences.
-- Constraints such as forbidden motifs, fixed positions, GC windows, and
-  distance from training data are not yet part of the public interface.
-- Gradient-based methods such as Fast SeqProp, CbAS, and DEN have not yet been
-  migrated into this standalone API.
-- Historical code under `BioSeqBench/optimization/` is retained for
-  reproducibility; new applications should import from `sequence_optimization`.
-
-## Development checks
+Run the complete test suite:
 
 ```bash
-python -m py_compile sequence_optimization/*.py sequence_optimization/examples/models/*.py
 python -m pytest -q
 ```
 
-Before publishing this repository publicly, select and add an explicit open
-source license. No license is implied merely by making a GitHub repository
-public.
+Then load all bundled checkpoints and run the Optimus/DeepSTARR optimization
+smoke test:
+
+```bash
+python -m sequence_optimization.examples.verify_pretrained_models
+python -m sequence_optimization.examples.verify_optimus_deepstarr
+```
+
+Small floating-point differences between PyTorch versions and CPU/GPU devices
+are expected. Query counts, output shapes, task names, and ranking behavior
+should agree.

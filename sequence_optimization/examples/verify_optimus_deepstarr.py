@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import json
 
-import numpy as np
-
 from sequence_optimization import (
     ISM_optimize,
     SequenceSpace,
@@ -16,23 +14,29 @@ from sequence_optimization.examples.models import DeepSTARRExample, Optimus5Prim
 
 
 def main() -> None:
-    optimus_seeds = np.asarray([("ACGT" * 13)[:50], ("TGCA" * 13)[:50]])
+    optimus_seeds = [
+        "CCACTCGATTAACATGTTAACAACATACTCGTCCGGCCGATCAGCGGCTA",
+        "CAAATCATGTGCAGCCCTGGCGACCGTACTGCGGTACAAGAAAGTATAGT",
+        "GTTATACTAGAAGAAACTTGAGATTATGGAGCAGTCCGTCAAGGACGCGA",
+        "CTTAGACAAAAACAACGCGCTTTCCAGTATGCGGAGCCTTGACGGTAAAC",
+        "GTATCAAATCACGGCCAACCCGACGGAGTACCCCGCGTCGATGGTCCGCC",
+    ]
     optimus = Optimus5PrimeExample.from_checkpoint(device="cpu", batch_size=512)
     optimus_result = ISM_optimize(
         optimus,
         SequenceSpace(50, "ACGT"),
-        budget=302,
-        num_candidates=2,
+        budget=755,
+        num_candidates=5,
         initial=optimus_seeds,
         seed=11,
     )
 
-    deepstarr_seeds = np.asarray([
-        "A" * 249,
-        "C" * 249,
-        "G" * 249,
-        "T" * 249,
-    ])
+    deepstarr_seeds = [
+        "AACATACCCTGCTCTAGCGTATTGCTTTTTAATTGGCAGAAAAATATGTGCTCCGGTCGGTCGGTATTAATATATGTATAAATCCAACCAATATGACACACATTTCATTCAATTTATGACGCACAGCTGACACACTTTTCCCACACTATCTCACCCACATGCATATACACACATACACAGGTTTTTCTGTGCGAAAAATGAATTACGATTCGTCGCGTTTTTTTTTTCTGGTCGCTTGTTTTCGTTTGG",
+        "ATGCCTGTTGGCCTGCGTAAGGAGCTACCATCAACATCAGCATCGCCATCACAATGCCAGGATGATCAGGGCAACAAGAGTTTATAAAATCATGTGACAAATGAGGGTTGCTTAGCTTACTTAGTCGTCCTGTCATCTGTCCTCCTATTTATCTGTCTGGTCCATCTGTCATTTGTCTGCAAACACATGGTCGTTATGACGCATGCCTCACTGTGGCAAATTGCAGTGCCAATTATGTACCATTTTCCA",
+        "TGTCGCTCCCATTTCGTCAAATGTTGCGTGCTAATTCGCTTGCCTTCTGGCGGCTATTTTTGTTTTGATATAATTTATATTTCTCGCTCTTTACTTATCTTTTTTGCTTTTTTTTTGTATTTTGTTTGCCGCTTACACTTCACATTTGCCTTCGGGGGCCGTCGCTTAAAAATAAACGCACACACACACTCGCGGCATTCACATATTTATTTTTGGTTTCTCCAACTTTGTACGCTCTGCGTTTTCTTC",
+        "TTGTTGTTGTTGTTGCTCTTGTTGCTGGTGATTTCCACAGGCTTAGTCGCATTTATTGCACATTTCCTTTCTGCCAGTTCTGAATGTCAGCGTTAATGAGGCGGGCTTATGTGAATGACGACTATTTACGTATATGTGTGTGTGTGTGCACACATCTATCTCAATCTGCGACTATCAACGAGCATGTGTGTGTGTGTGCGACAGCTCGACTTTTACCATTGTGCTCGAACAATGAGAACAATTTCCGAT",
+    ]
     deepstarr = DeepSTARRExample.from_checkpoint(device="cpu", batch_size=32)
     deepstarr_result = genetic_algorithm_optimize(
         deepstarr,
@@ -44,7 +48,7 @@ def main() -> None:
         seed=11,
     )
 
-    if optimus_result.query_count != 302 or optimus_result.task_names != ("mrl",):
+    if optimus_result.query_count != 755 or optimus_result.task_names != ("mrl",):
         raise RuntimeError("Optimus smoke test did not satisfy its result contract")
     if deepstarr_result.query_count != 8 or deepstarr_result.task_names != (
         "developmental",

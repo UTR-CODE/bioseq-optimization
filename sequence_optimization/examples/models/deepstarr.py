@@ -9,7 +9,7 @@ import torch
 
 from BioSeqBench.models.deepstarr import DeepSTARRPaper
 
-from ...api import TorchSequenceScorer
+from ...api import DifferentiableTorchSequenceScorer
 
 
 DEFAULT_DEEPSTARR_CHECKPOINT = (
@@ -29,7 +29,9 @@ def encode_deepstarr_sequences(sequences) -> torch.Tensor:
         raise ValueError(
             f"DeepSTARR requires 249-bp sequences; row {row} has length {lengths[row]}"
         )
-    raw = np.frombuffer("".join(values.tolist()).encode("ascii"), dtype=np.uint8).reshape(-1, 249)
+    raw = np.frombuffer(
+        "".join(values.tolist()).encode("ascii"), dtype=np.uint8
+    ).reshape(-1, 249)
     lookup = np.full(256, -1, dtype=np.int8)
     lookup[np.frombuffer(b"ACGT", dtype=np.uint8)] = np.arange(4, dtype=np.int8)
     encoded = lookup[raw]
@@ -43,7 +45,7 @@ def encode_deepstarr_sequences(sequences) -> torch.Tensor:
     return torch.from_numpy(np.ascontiguousarray(one_hot))
 
 
-class DeepSTARRExample(TorchSequenceScorer):
+class DeepSTARRExample(DifferentiableTorchSequenceScorer):
     """Wrap DeepSTARR's developmental and housekeeping activity heads."""
 
     def __init__(self, model: DeepSTARRPaper | None = None, **kwargs):
@@ -51,6 +53,7 @@ class DeepSTARRExample(TorchSequenceScorer):
         super().__init__(
             model or DeepSTARRPaper(),
             encode_deepstarr_sequences,
+            soft_input_transform=lambda values: values.transpose(1, 2),
             **kwargs,
         )
 

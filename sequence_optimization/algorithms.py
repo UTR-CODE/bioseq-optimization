@@ -8,10 +8,20 @@ from typing import Any
 
 import numpy as np
 
-from .api import CachedScorer, OptimizationConfig, OptimizationResult, ScoreBatch, SequenceScorer, SequenceSpace
+from .api import (
+    CachedScorer,
+    OptimizationConfig,
+    OptimizationResult,
+    ScoreBatch,
+    SequenceScorer,
+    SequenceSpace,
+)
 from .objectives import ObjectiveScorer, TargetObjective
 
-Optimizer = Callable[[np.ndarray, CachedScorer, SequenceSpace, OptimizationConfig, np.random.Generator], OptimizationResult]
+Optimizer = Callable[
+    [np.ndarray, CachedScorer, SequenceSpace, OptimizationConfig, np.random.Generator],
+    OptimizationResult,
+]
 _REGISTRY: dict[str, Optimizer] = {}
 
 
@@ -34,24 +44,43 @@ def available_algorithms() -> tuple[str, ...]:
     return tuple(sorted(_REGISTRY))
 
 
-def _record(archive: dict[str, tuple[float, float]], sequences: np.ndarray, batch: ScoreBatch) -> None:
-    uncertainty = np.zeros(len(batch.scores)) if batch.uncertainties is None else batch.uncertainties
+def _record(
+    archive: dict[str, tuple[float, float]], sequences: np.ndarray, batch: ScoreBatch
+) -> None:
+    uncertainty = (
+        np.zeros(len(batch.scores))
+        if batch.uncertainties is None
+        else batch.uncertainties
+    )
     for sequence, score, std in zip(sequences, batch.scores, uncertainty):
         key = str(sequence)
         if key not in archive or float(score) > archive[key][0]:
             archive[key] = (float(score), float(std))
 
 
-def _score(scorer: CachedScorer, archive: dict[str, tuple[float, float]], sequences: np.ndarray) -> ScoreBatch:
+def _score(
+    scorer: CachedScorer, archive: dict[str, tuple[float, float]], sequences: np.ndarray
+) -> ScoreBatch:
     batch = scorer.score(sequences)
     _record(archive, sequences, batch)
     return batch
 
 
-def _finalize(name: str, archive: dict[str, tuple[float, float]], config: OptimizationConfig, scorer: CachedScorer, metadata: dict[str, Any], trajectory: list[dict[str, float | int]]) -> OptimizationResult:
+def _finalize(
+    name: str,
+    archive: dict[str, tuple[float, float]],
+    config: OptimizationConfig,
+    scorer: CachedScorer,
+    metadata: dict[str, Any],
+    trajectory: list[dict[str, float | int]],
+) -> OptimizationResult:
     if len(archive) < config.num_candidates:
-        raise RuntimeError(f"only {len(archive)} unique sequences were scored; {config.num_candidates} required")
-    ranked = sorted(archive.items(), key=lambda item: (-item[1][0], item[0]))[: config.num_candidates]
+        raise RuntimeError(
+            f"only {len(archive)} unique sequences were scored; {config.num_candidates} required"
+        )
+    ranked = sorted(archive.items(), key=lambda item: (-item[1][0], item[0]))[
+        : config.num_candidates
+    ]
     return OptimizationResult(
         name,
         np.asarray([item[0] for item in ranked], dtype=str),
@@ -63,9 +92,11 @@ def _finalize(name: str, archive: dict[str, tuple[float, float]], config: Optimi
     )
 
 
-def _initial(initial, space: SequenceSpace, config: OptimizationConfig, rng: np.random.Generator) -> np.ndarray:
+def _initial(
+    initial, space: SequenceSpace, config: OptimizationConfig, rng: np.random.Generator
+) -> np.ndarray:
     if initial is None:
-        capacity = space.alphabet_size ** space.length
+        capacity = space.alphabet_size**space.length
         if config.num_candidates > capacity:
             raise ValueError(
                 f"cannot draw {config.num_candidates} unique seeds from a space of size {capacity}"
@@ -81,7 +112,9 @@ def _initial(initial, space: SequenceSpace, config: OptimizationConfig, rng: np.
     else:
         values = space.validate(initial)
     if len(values) != config.num_candidates:
-        raise ValueError(f"initial must contain exactly {config.num_candidates} sequences")
+        raise ValueError(
+            f"initial must contain exactly {config.num_candidates} sequences"
+        )
     if len(np.unique(values)) != len(values):
         raise ValueError("initial sequences must be unique")
     return values.copy()
@@ -97,19 +130,32 @@ def random_search(initial, scorer, space, config, rng):
         _score(scorer, archive, space.random(count, rng))
         if scorer.query_count == before:
             break
-    return _finalize("random", archive, config, scorer, {"strategy": "uniform random screening"}, [])
+    return _finalize(
+        "random", archive, config, scorer, {"strategy": "uniform random screening"}, []
+    )
 
 
 @register_algorithm("ism_greedy")
 def ism_greedy(initial, scorer, space, config, rng):
     archive: dict[str, tuple[float, float]] = {}
-    current = initial.copy(); current_scores = _score(scorer, archive, current).scores
-    trajectory = [{"query_count": scorer.query_count, "best_score": float(current_scores.max()), "mean_score": float(current_scores.mean())}]
+    current = initial.copy()
+    current_scores = _score(scorer, archive, current).scores
+    trajectory = [
+        {
+            "query_count": scorer.query_count,
+            "best_score": float(current_scores.max()),
+            "mean_score": float(current_scores.mean()),
+        }
+    ]
     block = space.length * (space.alphabet_size - 1)
     while scorer.remaining is None or scorer.remaining >= block:
         before = scorer.query_count
         order = rng.permutation(len(current))
-        count = len(order) if scorer.remaining is None else min(len(order), scorer.remaining // block)
+        count = (
+            len(order)
+            if scorer.remaining is None
+            else min(len(order), scorer.remaining // block)
+        )
         chosen = order[:count]
         mutants = space.single_mutants(current[chosen])
         batch = _score(scorer, archive, mutants)
@@ -119,60 +165,133 @@ def ism_greedy(initial, scorer, space, config, rng):
             if values[best] > current_scores[index]:
                 current[index] = mutants[offset * block + best]
                 current_scores[index] = values[best]
-        trajectory.append({"query_count": scorer.query_count, "best_score": float(current_scores.max()), "mean_score": float(current_scores.mean())})
+        trajectory.append(
+            {
+                "query_count": scorer.query_count,
+                "best_score": float(current_scores.max()),
+                "mean_score": float(current_scores.mean()),
+            }
+        )
         if not len(chosen) or scorer.query_count == before:
             break
-    return _finalize("ism_greedy", archive, config, scorer, {"sweeps": len(trajectory) - 1}, trajectory)
+    return _finalize(
+        "ism_greedy",
+        archive,
+        config,
+        scorer,
+        {"sweeps": len(trajectory) - 1},
+        trajectory,
+    )
 
 
 @register_algorithm("simulated_annealing")
 def simulated_annealing(initial, scorer, space, config, rng):
     archive: dict[str, tuple[float, float]] = {}
-    current = initial.copy(); current_scores = _score(scorer, archive, current).scores
+    current = initial.copy()
+    current_scores = _score(scorer, archive, current).scores
     temperature = max(float(np.std(current_scores)), 1e-3)
     trajectory = []
     while scorer.remaining is None or scorer.remaining >= len(current):
         before = scorer.query_count
-        proposals = space.mutate_one(current, rng); values = _score(scorer, archive, proposals).scores
+        proposals = space.mutate_one(current, rng)
+        values = _score(scorer, archive, proposals).scores
         progress = scorer.query_count / max(config.budget, 1)
-        temp = max(temperature * (0.001 ** progress), 1e-6)
-        accept = (values >= current_scores) | (rng.random(len(current)) < np.exp(np.minimum((values - current_scores) / temp, 0)))
-        current[accept] = proposals[accept]; current_scores[accept] = values[accept]
-        trajectory.append({"query_count": scorer.query_count, "best_score": float(current_scores.max()), "mean_score": float(current_scores.mean())})
+        temp = max(temperature * (0.001**progress), 1e-6)
+        accept = (values >= current_scores) | (
+            rng.random(len(current))
+            < np.exp(np.minimum((values - current_scores) / temp, 0))
+        )
+        current[accept] = proposals[accept]
+        current_scores[accept] = values[accept]
+        trajectory.append(
+            {
+                "query_count": scorer.query_count,
+                "best_score": float(current_scores.max()),
+                "mean_score": float(current_scores.mean()),
+            }
+        )
         if scorer.query_count == before:
             break
-    return _finalize("simulated_annealing", archive, config, scorer, {"initial_temperature": temperature}, trajectory)
+    return _finalize(
+        "simulated_annealing",
+        archive,
+        config,
+        scorer,
+        {"initial_temperature": temperature},
+        trajectory,
+    )
 
 
 @register_algorithm("genetic_algorithm")
 def genetic_algorithm(initial, scorer, space, config, rng):
     archive: dict[str, tuple[float, float]] = {}
-    population = initial.copy(); scores = _score(scorer, archive, population).scores
-    elite_count = max(1, int(round(len(population) * config.elite_fraction))); trajectory = []
+    population = initial.copy()
+    scores = _score(scorer, archive, population).scores
+    elite_count = max(1, int(round(len(population) * config.elite_fraction)))
+    trajectory = []
     while scorer.remaining is None or scorer.remaining >= len(population):
         before = scorer.query_count
         elite = population[np.argsort(scores)[-elite_count:]]
-        a = space.encode(elite[rng.integers(len(elite), size=len(population))]); b = space.encode(elite[rng.integers(len(elite), size=len(population))])
-        child = np.where(rng.random(a.shape) < 0.5, a, b); mask = rng.random(child.shape) < config.mutation_rate; child = np.where(mask, rng.integers(space.alphabet_size, size=child.shape), child)
-        children = space.decode(child); child_scores = _score(scorer, archive, children).scores
-        combined = np.concatenate([population, children]); combined_scores = np.concatenate([scores, child_scores]); keep = np.argsort(combined_scores)[-len(population):]; population, scores = combined[keep], combined_scores[keep]
-        trajectory.append({"query_count": scorer.query_count, "best_score": float(scores.max()), "mean_score": float(scores.mean())})
+        a = space.encode(elite[rng.integers(len(elite), size=len(population))])
+        b = space.encode(elite[rng.integers(len(elite), size=len(population))])
+        child = np.where(rng.random(a.shape) < 0.5, a, b)
+        mask = rng.random(child.shape) < config.mutation_rate
+        child = np.where(
+            mask, rng.integers(space.alphabet_size, size=child.shape), child
+        )
+        children = space.decode(child)
+        child_scores = _score(scorer, archive, children).scores
+        combined = np.concatenate([population, children])
+        combined_scores = np.concatenate([scores, child_scores])
+        keep = np.argsort(combined_scores)[-len(population) :]
+        population, scores = combined[keep], combined_scores[keep]
+        trajectory.append(
+            {
+                "query_count": scorer.query_count,
+                "best_score": float(scores.max()),
+                "mean_score": float(scores.mean()),
+            }
+        )
         if scorer.query_count == before:
             break
-    return _finalize("genetic_algorithm", archive, config, scorer, {"generations": len(trajectory), "elite_count": elite_count}, trajectory)
+    return _finalize(
+        "genetic_algorithm",
+        archive,
+        config,
+        scorer,
+        {"generations": len(trajectory), "elite_count": elite_count},
+        trajectory,
+    )
 
 
 @register_algorithm("adalead")
 def adalead(initial, scorer, space, config, rng):
     archive: dict[str, tuple[float, float]] = {}
-    population = initial.copy(); scores = _score(scorer, archive, population).scores; trajectory = []
+    population = initial.copy()
+    scores = _score(scorer, archive, population).scores
+    trajectory = []
     while scorer.remaining is None or scorer.remaining >= len(population):
         before = scorer.query_count
-        elite_count = max(1, int(round(len(population) * config.elite_fraction))); elite = population[np.argsort(scores)[-elite_count:]]; parents = elite[rng.integers(len(elite), size=len(population))]; proposals = space.mutate_one(parents, rng); values = _score(scorer, archive, proposals).scores; improved = values > scores; population[improved] = proposals[improved]; scores[improved] = values[improved]
-        trajectory.append({"query_count": scorer.query_count, "best_score": float(scores.max()), "mean_score": float(scores.mean())})
+        elite_count = max(1, int(round(len(population) * config.elite_fraction)))
+        elite = population[np.argsort(scores)[-elite_count:]]
+        parents = elite[rng.integers(len(elite), size=len(population))]
+        proposals = space.mutate_one(parents, rng)
+        values = _score(scorer, archive, proposals).scores
+        improved = values > scores
+        population[improved] = proposals[improved]
+        scores[improved] = values[improved]
+        trajectory.append(
+            {
+                "query_count": scorer.query_count,
+                "best_score": float(scores.max()),
+                "mean_score": float(scores.mean()),
+            }
+        )
         if scorer.query_count == before:
             break
-    return _finalize("adalead", archive, config, scorer, {"steps": len(trajectory)}, trajectory)
+    return _finalize(
+        "adalead", archive, config, scorer, {"steps": len(trajectory)}, trajectory
+    )
 
 
 def run(
@@ -193,18 +312,33 @@ def run(
     """
     key = str(name).strip().lower()
     if key not in _REGISTRY:
-        raise KeyError(f"unknown algorithm {name!r}; choose from {', '.join(available_algorithms())}")
-    rng = np.random.default_rng(seed); random.seed(seed)
+        raise KeyError(
+            f"unknown algorithm {name!r}; choose from {', '.join(available_algorithms())}"
+        )
+    rng = np.random.default_rng(seed)
+    random.seed(seed)
     prepared = _initial(initial, space, config, rng)
     objective_scorer: ObjectiveScorer | None
     if isinstance(scorer, CachedScorer):
         if objective is not None:
-            raise ValueError("pass an uncached activity scorer when using a multi-task objective")
+            raise ValueError(
+                "pass an uncached activity scorer when using a multi-task objective"
+            )
         budgeted = scorer
         objective_scorer = None
     else:
         objective_scorer = ObjectiveScorer(scorer, objective or TargetObjective())
-        budgeted = CachedScorer(objective_scorer, config.budget, count_repeated=count_repeated)
+        proposal_count_algorithms = {
+            "cbas",
+            "vanilla_activation_maximization",
+            "fast_seqprop",
+            "den",
+        }
+        budgeted = CachedScorer(
+            objective_scorer,
+            config.budget,
+            count_repeated=count_repeated or key in proposal_count_algorithms,
+        )
     if budgeted.budget is None:
         budgeted.budget = config.budget
     result = _REGISTRY[key](prepared, budgeted, space, config, rng)
@@ -258,6 +392,13 @@ def optimize(
     mutation_rate: float = 0.02,
     elite_fraction: float = 0.2,
     learning_rate: float = 0.1,
+    generator_learning_rate: float = 3e-3,
+    generator_pretrain_epochs: int = 20,
+    generator_update_epochs: int = 5,
+    cbas_quantile: float = 0.8,
+    cbas_batch_size: int = 256,
+    den_seed_pretrain_epochs: int = 100,
+    den_diversity_weight: float = 0.1,
     count_repeated: bool = False,
 ) -> OptimizationResult:
     """Convenience interface that constructs :class:`OptimizationConfig`."""
@@ -267,6 +408,13 @@ def optimize(
         mutation_rate=mutation_rate,
         elite_fraction=elite_fraction,
         learning_rate=learning_rate,
+        generator_learning_rate=generator_learning_rate,
+        generator_pretrain_epochs=generator_pretrain_epochs,
+        generator_update_epochs=generator_update_epochs,
+        cbas_quantile=cbas_quantile,
+        cbas_batch_size=cbas_batch_size,
+        den_seed_pretrain_epochs=den_seed_pretrain_epochs,
+        den_diversity_weight=den_diversity_weight,
     )
     return run(
         algorithm,
@@ -280,26 +428,79 @@ def optimize(
     )
 
 
-def random_optimize(scorer: SequenceScorer, space: SequenceSpace, **kwargs) -> OptimizationResult:
+def random_optimize(
+    scorer: SequenceScorer, space: SequenceSpace, **kwargs
+) -> OptimizationResult:
     return optimize(scorer, space, algorithm="random", **kwargs)
 
 
-def ism_optimize(scorer: SequenceScorer, space: SequenceSpace, **kwargs) -> OptimizationResult:
+def ism_optimize(
+    scorer: SequenceScorer, space: SequenceSpace, **kwargs
+) -> OptimizationResult:
     return optimize(scorer, space, algorithm="ism_greedy", **kwargs)
 
 
-def simulated_annealing_optimize(scorer: SequenceScorer, space: SequenceSpace, **kwargs) -> OptimizationResult:
+def simulated_annealing_optimize(
+    scorer: SequenceScorer, space: SequenceSpace, **kwargs
+) -> OptimizationResult:
     return optimize(scorer, space, algorithm="simulated_annealing", **kwargs)
 
 
-def genetic_algorithm_optimize(scorer: SequenceScorer, space: SequenceSpace, **kwargs) -> OptimizationResult:
+def genetic_algorithm_optimize(
+    scorer: SequenceScorer, space: SequenceSpace, **kwargs
+) -> OptimizationResult:
     return optimize(scorer, space, algorithm="genetic_algorithm", **kwargs)
 
 
-def adalead_optimize(scorer: SequenceScorer, space: SequenceSpace, **kwargs) -> OptimizationResult:
+def adalead_optimize(
+    scorer: SequenceScorer, space: SequenceSpace, **kwargs
+) -> OptimizationResult:
     return optimize(scorer, space, algorithm="adalead", **kwargs)
+
+
+def beam_search_optimize(
+    scorer: SequenceScorer, space: SequenceSpace, **kwargs
+) -> OptimizationResult:
+    return optimize(scorer, space, algorithm="beam_search", **kwargs)
+
+
+def cross_entropy_optimize(
+    scorer: SequenceScorer, space: SequenceSpace, **kwargs
+) -> OptimizationResult:
+    return optimize(scorer, space, algorithm="cross_entropy_method", **kwargs)
+
+
+def cbas_optimize(
+    scorer: SequenceScorer, space: SequenceSpace, **kwargs
+) -> OptimizationResult:
+    return optimize(scorer, space, algorithm="cbas", **kwargs)
+
+
+def vanilla_activation_maximization_optimize(
+    scorer: SequenceScorer, space: SequenceSpace, **kwargs
+) -> OptimizationResult:
+    return optimize(
+        scorer, space, algorithm="vanilla_activation_maximization", **kwargs
+    )
+
+
+def fast_seqprop_optimize(
+    scorer: SequenceScorer, space: SequenceSpace, **kwargs
+) -> OptimizationResult:
+    return optimize(scorer, space, algorithm="fast_seqprop", **kwargs)
+
+
+def den_optimize(
+    scorer: SequenceScorer, space: SequenceSpace, **kwargs
+) -> OptimizationResult:
+    return optimize(scorer, space, algorithm="den", **kwargs)
 
 
 # Requested spelling retained as a public alias; lower-case ``ism_optimize`` is
 # preferred in Python code.
 ISM_optimize = ism_optimize
+
+
+# Import optional advanced implementations after the registry and common
+# helpers are defined. Importing this module registers their public names.
+from . import advanced as _advanced  # noqa: E402,F401

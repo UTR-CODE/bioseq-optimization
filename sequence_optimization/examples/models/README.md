@@ -1,24 +1,24 @@
-# Collected model examples
+# Bundled checkpoint models
 
-The optimizer package is dataset-independent. The examples in this directory
-show how models collected in the BioSeqBench project can be wrapped as scorers:
+The public `load_model()` registry provides:
 
-- `WeakSeqCNNExample`: standardized CNN used for 5′UTR and other nucleotide tasks;
-- `Optimus5PrimeExample`: Optimus 5′UTR model;
-- `DeepSTARRExample`: two-task developmental/housekeeping enhancer model;
-- `TFBind8Example`: TFBind8 CNN;
-- `DreamLegNetExample`: DREAM Autosome/LegNet model.
+- `optimus5prime`: single-task 5′UTR MRL prediction;
+- `deepstarr`: two-task developmental/housekeeping enhancer activity;
+- `dream_legnet`: DREAM 2022 yeast promoter activity;
+- `zhao_ptrc`: Ptrc promoter log10 fluorescence/OD600;
+- `zhou_l3`: fixed-length L3 promoter activity.
 
-These wrappers are intentionally optional. The core package (`api.py` and
-`algorithms.py`) never imports datasets, checkpoints, or BioSeqBench model
-implementations. For a new model, implement `score(sequences)` directly or use
-`TorchSequenceScorer(model, encoder)`.
+Each adapter provides `from_checkpoint()` and loads its included checkpoint by
+default. Most users should use the shorter public interface:
 
-`catalog.py` lists the other collected DNA models as lazy import metadata. This
-keeps the implementations in their original model package instead of creating
-two divergent copies. A deployment can replace an entry with a checkpoint-aware
-wrapper without changing any optimizer code.
+```python
+from sequence_optimization import load_model
 
-`Optimus5PrimeExample.from_checkpoint()` and
-`DeepSTARRExample.from_checkpoint()` use the repository's current benchmark
-checkpoints by default. Both also accept an explicit checkpoint path.
+model = load_model("deepstarr", device="cpu")
+```
+
+An explicit checkpoint path can be supplied when using another trained copy.
+
+The optimizer itself is model-independent. A different model can implement
+`score(sequences)` or be wrapped with `TorchSequenceScorer`; differentiable
+models can use `DifferentiableTorchSequenceScorer`.

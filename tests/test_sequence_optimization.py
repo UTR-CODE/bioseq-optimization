@@ -2,10 +2,25 @@ import numpy as np
 import pytest
 
 from sequence_optimization import (
-    BudgetExceeded, CachedScorer, CallableScorer, OptimizationConfig,
-    ISM_optimize, ScoreBatch, SequenceSpace, TargetObjective,
-    available_algorithms, genetic_algorithm_optimize, load_seed_sequences,
-    random_seed_sequences, run,
+    BudgetExceeded,
+    CachedScorer,
+    CallableScorer,
+    DifferentiableTorchSequenceScorer,
+    ISM_optimize,
+    OptimizationConfig,
+    SaturationConfig,
+    ScoreBatch,
+    SequenceSpace,
+    TargetObjective,
+    available_algorithms,
+    available_models,
+    genetic_algorithm_optimize,
+    load_model,
+    load_seed_sequences,
+    model_info,
+    optimize_to_saturation,
+    random_seed_sequences,
+    run,
 )
 
 
@@ -18,8 +33,49 @@ def test_sequence_space_and_seed_sources(tmp_path):
     assert load_seed_sequences(path, space).tolist() == ["ACGT", "TGCA"]
 
 
+def test_pretrained_model_registry_and_aliases():
+    assert available_models() == (
+        "optimus5prime",
+        "deepstarr",
+        "dream_legnet",
+        "zhao_ptrc",
+        "zhou_l3",
+    )
+    assert model_info("optimus").name == "optimus5prime"
+    assert model_info("dream").sequence_length == 110
+    with pytest.raises(KeyError, match="unknown pretrained model"):
+        model_info("missing")
+
+
+@pytest.mark.parametrize(
+    ("name", "sequence", "tasks"),
+    [
+        (
+            "optimus5prime",
+            "CCACTCGATTAACATGTTAACAACATACTCGTCCGGCCGATCAGCGGCTA",
+            1,
+        ),
+        ("deepstarr", "A" * 249, 2),
+        ("dream_legnet", "A" * 110, 1),
+        ("zhao_ptrc", "A" * 74, 1),
+        ("zhou_l3", "A" * 29, 1),
+    ],
+)
+def test_bundled_pretrained_model_predicts(name, sequence, tasks):
+    scorer = load_model(name, device="cpu", batch_size=2)
+    result = scorer.score([sequence])
+    assert result.scores.size == tasks
+    assert np.isfinite(result.scores).all()
+    assert scorer.task_names == model_info(name).task_names
+
+
 def test_cached_scorer_enforces_unique_budget():
-    scorer = CachedScorer(CallableScorer(lambda values: np.asarray([value.count("G") for value in values])), budget=2)
+    scorer = CachedScorer(
+        CallableScorer(
+            lambda values: np.asarray([value.count("G") for value in values])
+        ),
+        budget=2,
+    )
     assert scorer.score(["AAAA", "GGGG"]).scores.tolist() == [0, 4]
     assert scorer.score(["GGGG", "AAAA"]).scores.tolist() == [4, 0]
     assert scorer.query_count == 2
@@ -30,13 +86,37 @@ def test_cached_scorer_enforces_unique_budget():
 def test_builtin_algorithms_share_common_result_contract():
     space = SequenceSpace(6, "ACGT")
     initial = np.asarray(["A" * 6, "C" * 6, "G" * 6, "T" * 6])
-    config = OptimizationConfig(budget=40, num_candidates=4)
-    scorer = CallableScorer(lambda values: np.asarray([value.count("G") for value in values]))
-    for name in available_algorithms():
+    config = OptimizationConfig(
+        budget=40,
+        num_candidates=4,
+        generator_pretrain_epochs=1,
+        generator_update_epochs=1,
+        cbas_batch_size=8,
+    )
+    scorer = CallableScorer(
+        lambda values: np.asarray([value.count("G") for value in values])
+    )
+    black_box = {
+        "random",
+        "ism_greedy",
+        "simulated_annealing",
+        "genetic_algorithm",
+        "adalead",
+        "beam_search",
+        "cross_entropy_method",
+        "cbas",
+    }
+    for name in black_box:
         result = run(name, scorer, space, config, initial=initial, seed=9)
-        assert len(result.sequences) == len(result.scores) == len(result.uncertainties) == 4
+        assert (
+            len(result.sequences)
+            == len(result.scores)
+            == len(result.uncertainties)
+            == 4
+        )
         assert len(set(result.sequences.tolist())) == 4
         assert result.query_count <= config.budget
+    assert black_box <= set(available_algorithms())
 
 
 def test_score_batch_rejects_bad_uncertainty_shape():
@@ -95,7 +175,11 @@ def test_target_only_and_crested_style_specificity_rank_differently():
     assert specificity.task_names == ("target", "other")
     assert specificity.metadata["objective"]["coefficients"] == [1.0, -0.5]
     assert list(specificity.to_frame().columns) == [
-        "sequence", "score", "uncertainty", "activity_target", "activity_other"
+        "sequence",
+        "score",
+        "uncertainty",
+        "activity_target",
+        "activity_other",
     ]
 
 
@@ -109,6 +193,7 @@ def test_named_optimizer_functions_and_rna_space():
     assert ism.algorithm == "ism_greedy"
     assert genetic.algorithm == "genetic_algorithm"
     assert ism.activities.shape == (4, 1)
+    assert all("U" not in sequence for sequence in ism.sequences)
 
 
 def test_named_target_requires_scorer_task_names():
@@ -133,3 +218,77 @@ def test_random_initialization_is_unique_even_in_tiny_space():
         seed=2,
     )
     assert set(result.sequences) == {"A", "C"}
+
+
+def test_sequence_space_normalizes_rna_u_to_dna_t():
+    space = SequenceSpace(4, "ACGU")
+    assert space.alphabet == "ACGT"
+    assert space.validate(["acgu", "UUUU"]).tolist() == ["ACGT", "TTTT"]
+    observed = []
+    scorer = CallableScorer(lambda values: observed.extend(values.tolist()) or [1, 1])
+    scorer.score(["acgu", "UUUU"])
+    assert observed == ["ACGT", "TTTT"]
+
+
+def test_differentiable_algorithms_share_the_result_contract():
+    import torch
+
+    class TwoTaskModel(torch.nn.Module):
+        def forward(self, inputs):
+            return torch.stack(
+                [inputs[:, :, 2].sum(dim=1), inputs[:, :, 1].sum(dim=1)], dim=1
+            )
+
+    def encode(values):
+        lookup = {base: index for index, base in enumerate("ACGT")}
+        encoded = torch.tensor([[lookup[base] for base in value] for value in values])
+        return torch.nn.functional.one_hot(encoded, num_classes=4).float()
+
+    scorer = DifferentiableTorchSequenceScorer(
+        TwoTaskModel(),
+        encode,
+        device="cpu",
+        task_names=("g_activity", "c_activity"),
+    )
+    initial = ["AAAA", "CCCC", "GGGG", "TTTT"]
+    config = OptimizationConfig(
+        budget=12,
+        num_candidates=4,
+        learning_rate=0.2,
+        den_seed_pretrain_epochs=2,
+    )
+    objective = TargetObjective(target="g_activity", mode="specificity")
+    for name in ("vanilla_activation_maximization", "fast_seqprop", "den"):
+        result = run(
+            name,
+            scorer,
+            SequenceSpace(4),
+            config,
+            initial=initial,
+            objective=objective,
+            seed=5,
+        )
+        assert result.query_count == 12
+        assert result.activities.shape == (4, 2)
+        assert result.metadata["objective"]["target_name"] == "g_activity"
+
+
+def test_saturation_returns_requested_q80_and_q90_archives():
+    result = optimize_to_saturation(
+        CallableScorer(lambda values: [value.count("G") for value in values]),
+        SequenceSpace(5),
+        algorithm="genetic_algorithm",
+        num_candidates=4,
+        initial=["AAAAA", "CCCCC", "GGGGG", "TTTTT"],
+        saturation=SaturationConfig(
+            fractions=(0.8, 0.9),
+            minimum_queries=8,
+            plateau_patience_queries=8,
+            maximum_queries=40,
+            material_improvement=1e-6,
+        ),
+        seed=4,
+    )
+    assert set(result.selections) == {0.8, 0.9}
+    assert result[0.8].query_count <= result[0.9].query_count
+    assert result[0.9].metadata["total_convergence_queries"] == result.total_query_count
