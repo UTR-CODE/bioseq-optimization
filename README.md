@@ -15,19 +15,19 @@ loaded there can be passed directly to every compatible optimizer here.
 Install only the optimization package:
 
 ```bash
-python -m pip install git+https://github.com/UTR-CODE/bioseq-optimization.git
+python -m pip install git+ssh://git@github.com/UTR-CODE/bioseq-optimization.git
 ```
 
 To use the ready-to-use models as well:
 
 ```bash
-python -m pip install git+https://github.com/UTR-CODE/bioseq-models.git
+python -m pip install git+ssh://git@github.com/UTR-CODE/bioseq-models.git
 ```
 
 For development:
 
 ```bash
-git clone https://github.com/UTR-CODE/bioseq-optimization.git
+git clone git@github.com:UTR-CODE/bioseq-optimization.git
 cd bioseq-optimization
 python -m pip install -e .
 python -m pytest -q
