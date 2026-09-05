@@ -79,6 +79,55 @@ internal generator, but it additionally requires gradients through the
 activity model. The included Optimus, DeepSTARR, Zhao Ptrc, and Zhou L3
 adapters support these differentiable algorithms.
 
+## Use your own CNN
+
+The optimizer does not train the activity model. First train and save your
+model normally. The smallest included example uses one convolution, global
+average pooling, and one activity output:
+
+```python
+import torch
+
+from sequence_optimization import SequenceSpace, genetic_algorithm_optimize
+from sequence_optimization.examples.custom_cnn import (
+    SimpleActivityCNN,
+    wrap_custom_cnn,
+)
+
+model = SimpleActivityCNN()
+checkpoint = torch.load("my_activity_cnn.pt", map_location="cpu", weights_only=True)
+model.load_state_dict(checkpoint["model_state"])
+
+activity_model = wrap_custom_cnn(model, device="cpu")
+
+result = genetic_algorithm_optimize(
+    activity_model,
+    SequenceSpace(length=50),
+    num_candidates=4,
+    budget=44,
+    mutation_rate=0.1,
+    elite_fraction=0.5,
+    seed=7,
+)
+```
+
+Here `44` caps the run at 44 distinct model queries: four initial sequences and
+up to 40 newly scored proposals. Omitting `initial` creates reproducible random
+starting sequences. To use real seed sequences, pass a Python list through
+`initial=[...]`.
+
+The complete runnable integration is in
+[`sequence_optimization/examples/custom_cnn.py`](sequence_optimization/examples/custom_cnn.py).
+Its `encode_sequences()` function converts strings to `[batch, 4, length]`
+tensors, while `wrap_custom_cnn()` makes the same trained model compatible
+with both black-box and gradient-based optimizers.
+
+Run that example with:
+
+```bash
+python -m sequence_optimization.examples.custom_cnn my_activity_cnn.pt
+```
+
 ## Optimus 5-Prime example
 
 Optimus accepts 50-nt sequences and predicts mean ribosome load (MRL). The

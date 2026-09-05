@@ -22,6 +22,11 @@ model = load_model("optimus5prime", device="cpu")
 `zhao_ptrc`, and `zhou_l3`. See the repository-level README for their sequence
 lengths and outputs.
 
+For a minimal user-defined PyTorch model, see
+[`examples/custom_cnn.py`](examples/custom_cnn.py). It defines a one-layer CNN,
+plain ACGT encoder, checkpoint loader, scorer wrapper, and genetic-algorithm
+call without relying on BioSeqBench model code.
+
 Available registry names:
 
 - `random`
