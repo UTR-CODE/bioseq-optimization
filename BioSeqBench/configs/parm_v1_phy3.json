@@ -1,1 +1,0 @@
-{"dataset":"parm_v1_phy3","model":"parm_cnn","max_length":600,"label_columns":["label_log2rpm_hap1","label_log2rpm_ags"],"target":"PARM v1 pHY3 Log2RPM activity"}

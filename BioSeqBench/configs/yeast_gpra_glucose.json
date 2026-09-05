@@ -1,1 +1,0 @@
-{"dataset":"yeast_gpra_glucose","model":"yeast_gpra_cnn","max_length":128,"label_columns":["label"],"target":"Yeast GPRA promoter activity in complex glucose medium"}

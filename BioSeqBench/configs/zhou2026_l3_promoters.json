@@ -1,8 +1,0 @@
-{
-  "dataset": "zhou2026_l3_promoters",
-  "model": "zhou_l3_conditional_cnn",
-  "max_length": 29,
-  "label_columns": ["label"],
-  "target": "L3 promoter strength",
-  "protocol": "Conditional, position-aware CNN: uses the documented s1--s4 L3 source-sublibrary context and flattens CNN features rather than globally pooling, preserving fixed -35 and -10 box locations."
-}

@@ -1,7 +1,0 @@
-{
-  "dataset": "agarwal2025_lentimpra",
-  "model": "agarwal_mpra_cnn",
-  "max_length": 230,
-  "label_columns": ["label_hepg2", "label_k562", "label_wtc11"],
-  "target": "Joint lentiMPRA log2(RNA/DNA) activity in HepG2, K562, and WTC11"
-}

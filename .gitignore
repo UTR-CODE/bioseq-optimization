@@ -17,43 +17,5 @@ dist/
 # Local scratch files can be many gigabytes.
 tmp/
 
-# Generated BioSeqBench data, training outputs, and reports.
-BioSeqBench/raw_data/**
-BioSeqBench/dataset/**
-BioSeqBench/checkpoints/**
-BioSeqBench/logs/**
-BioSeqBench/results/**
-BioSeqBench/reports/**
-
-# Keep empty directory markers.
-!BioSeqBench/raw_data/.gitkeep
-!BioSeqBench/dataset/.gitkeep
-!BioSeqBench/checkpoints/.gitkeep
-!BioSeqBench/logs/.gitkeep
-!BioSeqBench/results/.gitkeep
-!BioSeqBench/reports/.gitkeep
-
-# Compact checkpoints required by the built-in pretrained model registry.
-!BioSeqBench/checkpoints/strong_v2_sklearn/
-!BioSeqBench/checkpoints/strong_v2_sklearn/utr5_mpra/
-!BioSeqBench/checkpoints/strong_v2_sklearn/utr5_mpra/optimus5prime/
-!BioSeqBench/checkpoints/strong_v2_sklearn/utr5_mpra/optimus5prime/best.pt
-!BioSeqBench/checkpoints/strong_deepstarr_paper_v1/
-!BioSeqBench/checkpoints/strong_deepstarr_paper_v1/deepstarr/
-!BioSeqBench/checkpoints/strong_deepstarr_paper_v1/deepstarr/deepstarr_paper/
-!BioSeqBench/checkpoints/strong_deepstarr_paper_v1/deepstarr/deepstarr_paper/best.pt
-!BioSeqBench/checkpoints/strong_yeast_dream2022_autosome_v3_validation_5k/
-!BioSeqBench/checkpoints/strong_yeast_dream2022_autosome_v3_validation_5k/yeast_gpra_dream2022/
-!BioSeqBench/checkpoints/strong_yeast_dream2022_autosome_v3_validation_5k/yeast_gpra_dream2022/autosome_legnet/
-BioSeqBench/checkpoints/strong_yeast_dream2022_autosome_v3_validation_5k/yeast_gpra_dream2022/autosome_legnet/*
-!BioSeqBench/checkpoints/strong_yeast_dream2022_autosome_v3_validation_5k/yeast_gpra_dream2022/autosome_legnet/best_val.pt
-!BioSeqBench/checkpoints/strong_zhao2022_ptrc_v1/
-!BioSeqBench/checkpoints/strong_zhao2022_ptrc_v1/zhao2022_ptrc_promoters/
-!BioSeqBench/checkpoints/strong_zhao2022_ptrc_v1/zhao2022_ptrc_promoters/sequence_cnn/
-BioSeqBench/checkpoints/strong_zhao2022_ptrc_v1/zhao2022_ptrc_promoters/sequence_cnn/*
-!BioSeqBench/checkpoints/strong_zhao2022_ptrc_v1/zhao2022_ptrc_promoters/sequence_cnn/model.pt
-!BioSeqBench/checkpoints/strong_zhou2026_l3_position_v2/
-!BioSeqBench/checkpoints/strong_zhou2026_l3_position_v2/zhou2026_l3_promoters/
-!BioSeqBench/checkpoints/strong_zhou2026_l3_position_v2/zhou2026_l3_promoters/zhou_l3_cnn/
-BioSeqBench/checkpoints/strong_zhou2026_l3_position_v2/zhou2026_l3_promoters/zhou_l3_cnn/*
-!BioSeqBench/checkpoints/strong_zhou2026_l3_position_v2/zhou2026_l3_promoters/zhou_l3_cnn/best.pt
+# Legacy local benchmark artifacts are not part of this repository.
+BioSeqBench/

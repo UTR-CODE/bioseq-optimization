@@ -13,12 +13,10 @@ from sequence_optimization import (
     SequenceSpace,
     TargetObjective,
     available_algorithms,
-    available_models,
     genetic_algorithm_optimize,
-    load_model,
     load_seed_sequences,
-    model_info,
     optimize_to_saturation,
+    pad_nucleotide_sequences,
     random_seed_sequences,
     run,
 )
@@ -31,42 +29,6 @@ def test_sequence_space_and_seed_sources(tmp_path):
     path = tmp_path / "seeds.txt"
     path.write_text("# comments\nACGT\nTGCA\n")
     assert load_seed_sequences(path, space).tolist() == ["ACGT", "TGCA"]
-
-
-def test_pretrained_model_registry_and_aliases():
-    assert available_models() == (
-        "optimus5prime",
-        "deepstarr",
-        "dream_legnet",
-        "zhao_ptrc",
-        "zhou_l3",
-    )
-    assert model_info("optimus").name == "optimus5prime"
-    assert model_info("dream").sequence_length == 110
-    with pytest.raises(KeyError, match="unknown pretrained model"):
-        model_info("missing")
-
-
-@pytest.mark.parametrize(
-    ("name", "sequence", "tasks"),
-    [
-        (
-            "optimus5prime",
-            "CCACTCGATTAACATGTTAACAACATACTCGTCCGGCCGATCAGCGGCTA",
-            1,
-        ),
-        ("deepstarr", "A" * 249, 2),
-        ("dream_legnet", "A" * 110, 1),
-        ("zhao_ptrc", "A" * 74, 1),
-        ("zhou_l3", "A" * 29, 1),
-    ],
-)
-def test_bundled_pretrained_model_predicts(name, sequence, tasks):
-    scorer = load_model(name, device="cpu", batch_size=2)
-    result = scorer.score([sequence])
-    assert result.scores.size == tasks
-    assert np.isfinite(result.scores).all()
-    assert scorer.task_names == model_info(name).task_names
 
 
 def test_cached_scorer_enforces_unique_budget():
@@ -228,6 +190,47 @@ def test_sequence_space_normalizes_rna_u_to_dna_t():
     scorer = CallableScorer(lambda values: observed.extend(values.tolist()) or [1, 1])
     scorer.score(["acgu", "UUUU"])
     assert observed == ["ACGT", "TTTT"]
+
+
+def test_variable_sequences_can_be_left_or_right_padded_for_a_model():
+    assert pad_nucleotide_sequences(["ACGU", "AC"], 6, side="right").tolist() == [
+        "ACGTNN",
+        "ACNNNN",
+    ]
+    assert pad_nucleotide_sequences(["ACGU", "AC"], 6, side="left").tolist() == [
+        "NNACGT",
+        "NNNNAC",
+    ]
+
+    observed = []
+    scorer = CallableScorer(
+        lambda values: observed.extend(values.tolist()) or [1.0, 2.0],
+        pad_to_length=6,
+        padding_side="left",
+    )
+    scorer.score(["ACGU", "AC"])
+    assert observed == ["NNACGT", "NNNNAC"]
+
+
+def test_soft_sequences_use_zero_vector_n_padding():
+    import torch
+
+    class SumModel(torch.nn.Module):
+        def forward(self, inputs):
+            assert inputs.shape == (1, 6, 4)
+            return inputs.sum(dim=(1, 2))
+
+    scorer = DifferentiableTorchSequenceScorer(
+        SumModel(),
+        lambda values: values,
+        pad_to_length=6,
+        padding_side="left",
+    )
+    probabilities = torch.full((1, 4, 4), 0.25, requires_grad=True)
+    activities, _ = scorer.score_soft(probabilities)
+    activities.sum().backward()
+    assert activities.item() == pytest.approx(4.0)
+    assert probabilities.grad is not None
 
 
 def test_differentiable_algorithms_share_the_result_contract():

@@ -20,6 +20,60 @@ def normalize_nucleotide_sequences(
     )
 
 
+def pad_nucleotide_sequences(
+    sequences: Sequence[str] | np.ndarray,
+    length: int,
+    *,
+    side: str = "right",
+) -> np.ndarray:
+    """Pad variable-length A/C/G/T sequences with N for fixed-input models."""
+    if length < 1:
+        raise ValueError("padding length must be positive")
+    padding_side = str(side).strip().lower()
+    if padding_side not in {"left", "right"}:
+        raise ValueError("padding side must be 'left' or 'right'")
+    values = normalize_nucleotide_sequences(sequences)
+    lengths = np.char.str_len(values)
+    if np.any(lengths > length):
+        row = int(np.flatnonzero(lengths > length)[0])
+        raise ValueError(
+            f"sequence at row {row} has length {int(lengths[row])}, "
+            f"exceeding model input length {length}"
+        )
+    if any(set(sequence) - set("ACGTN") for sequence in values):
+        raise ValueError("sequences must use A/C/G/T/U or padding symbol N")
+    if padding_side == "left":
+        return np.asarray([sequence.rjust(length, "N") for sequence in values])
+    return np.asarray([sequence.ljust(length, "N") for sequence in values])
+
+
+def _prepare_model_sequences(values, length: int | None, side: str) -> np.ndarray:
+    normalized = normalize_nucleotide_sequences(values)
+    if length is None:
+        return normalized
+    return pad_nucleotide_sequences(normalized, length, side=side)
+
+
+def _pad_soft_nucleotide_tensor(probabilities, length: int | None, side: str):
+    if length is None:
+        return probabilities
+    if probabilities.ndim != 3:
+        raise ValueError(
+            "soft nucleotide input must have shape [batch, length, alphabet]"
+        )
+    difference = length - probabilities.shape[1]
+    if difference < 0:
+        raise ValueError(
+            f"sequence length {probabilities.shape[1]} exceeds model input length {length}"
+        )
+    if difference == 0:
+        return probabilities
+    from torch.nn import functional as functional
+
+    padding = (0, 0, difference, 0) if side == "left" else (0, 0, 0, difference)
+    return functional.pad(probabilities, padding)
+
+
 class SequenceScorer(Protocol):
     """A model shell: sequence strings in, one or more activities out."""
 
@@ -67,12 +121,19 @@ class CallableScorer:
         function: Callable[[np.ndarray], Any],
         *,
         task_names: Sequence[str] | None = None,
+        pad_to_length: int | None = None,
+        padding_side: str = "right",
     ) -> None:
         self.function = function
         self.task_names = _validate_task_names(task_names)
+        self.pad_to_length, self.padding_side = _validate_padding(
+            pad_to_length, padding_side
+        )
 
     def score(self, sequences: Sequence[str] | np.ndarray) -> ScoreBatch:
-        values = normalize_nucleotide_sequences(sequences)
+        values = _prepare_model_sequences(
+            sequences, self.pad_to_length, self.padding_side
+        )
         result = self.function(values)
         if isinstance(result, ScoreBatch):
             return result
@@ -92,6 +153,8 @@ class TorchSequenceScorer:
         device: Any = None,
         batch_size: int = 4096,
         task_names: Sequence[str] | None = None,
+        pad_to_length: int | None = None,
+        padding_side: str = "right",
     ) -> None:
         if batch_size < 1:
             raise ValueError("batch_size must be positive")
@@ -102,6 +165,9 @@ class TorchSequenceScorer:
             batch_size,
         )
         self.task_names = _validate_task_names(task_names)
+        self.pad_to_length, self.padding_side = _validate_padding(
+            pad_to_length, padding_side
+        )
         if device is not None and hasattr(model, "to"):
             model.to(device)
         if hasattr(model, "eval"):
@@ -110,7 +176,9 @@ class TorchSequenceScorer:
     def score(self, sequences: Sequence[str] | np.ndarray) -> ScoreBatch:
         import torch
 
-        values = normalize_nucleotide_sequences(sequences)
+        values = _prepare_model_sequences(
+            sequences, self.pad_to_length, self.padding_side
+        )
         scores, uncertainties = [], []
         with torch.no_grad():
             for start in range(0, len(values), self.batch_size):
@@ -179,6 +247,9 @@ class DifferentiableTorchSequenceScorer(TorchSequenceScorer):
 
     def score_soft(self, probabilities: Any) -> tuple[Any, Any | None]:
         """Return differentiable activities and optional uncertainties."""
+        probabilities = _pad_soft_nucleotide_tensor(
+            probabilities, self.pad_to_length, self.padding_side
+        )
         inputs = self.soft_input_transform(probabilities)
         if self.device is not None and hasattr(inputs, "to"):
             inputs = inputs.to(self.device)
@@ -212,6 +283,15 @@ def _validate_task_names(task_names: Sequence[str] | None) -> tuple[str, ...] | 
     ):
         raise ValueError("task_names must contain unique, non-empty names")
     return result
+
+
+def _validate_padding(length: int | None, side: str) -> tuple[int | None, str]:
+    if length is not None and length < 1:
+        raise ValueError("pad_to_length must be positive or None")
+    padding_side = str(side).strip().lower()
+    if padding_side not in {"left", "right"}:
+        raise ValueError("padding_side must be 'left' or 'right'")
+    return length, padding_side
 
 
 class BudgetExceeded(RuntimeError):

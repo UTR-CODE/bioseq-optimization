@@ -1,53 +1,30 @@
-# Sequence Optimization API
+# `sequence_optimization`
 
-See the repository-level [README](../README.md) for installation, Optimus,
-DeepSTARR, fixed-budget, and q80/q90 saturation examples.
+This package contains model-agnostic DNA/RNA optimization algorithms. Models
+are external scorer objects; ready-to-use implementations and checkpoints are
+provided separately by
+[`bioseq-models`](https://github.com/UTR-CODE/bioseq-models).
 
-The package accepts a model through `CallableScorer`, `TorchSequenceScorer`, or
-`DifferentiableTorchSequenceScorer`. A model may return one activity or a
-matrix with one column per task.
-
-All nucleotide sequences are normalized to uppercase `ACGT`; RNA `U` input is
-converted to `T` internally.
-
-Bundled checkpoints are loaded directly by name:
+The main workflow is:
 
 ```python
-from sequence_optimization import load_model
+from bioseq_models import load_model
+from sequence_optimization import SequenceSpace, genetic_algorithm_optimize
 
-model = load_model("optimus5prime", device="cpu")
+model = load_model("optimus5prime")
+result = genetic_algorithm_optimize(
+    model,
+    SequenceSpace(length=50),
+    num_candidates=16,
+    budget=160,
+    seed=7,
+)
 ```
 
-`available_models()` returns `optimus5prime`, `deepstarr`, `dream_legnet`,
-`zhao_ptrc`, and `zhou_l3`. See the repository-level README for their sequence
-lengths and outputs.
+For variable biological lengths, configure the scorer with
+`pad_to_length=<fixed model length>` and `padding_side="left"` or `"right"`.
+Padding uses `N`; differentiable soft inputs use equivalent all-zero vectors.
+The optimized and returned sequence itself remains ACGT.
 
-For a minimal user-defined PyTorch model, see
-[`examples/custom_cnn.py`](examples/custom_cnn.py). It defines a one-layer CNN,
-plain ACGT encoder, checkpoint loader, scorer wrapper, and genetic-algorithm
-call without relying on BioSeqBench model code.
-
-Available registry names:
-
-- `random`
-- `ism_greedy`
-- `simulated_annealing`
-- `genetic_algorithm`
-- `adalead`
-- `beam_search`
-- `cross_entropy_method`
-- `cbas`
-- `vanilla_activation_maximization`
-- `fast_seqprop`
-- `den`
-
-The first eight work with black-box activity scorers. Activation maximization,
-Fast SeqProp, and DEN require a differentiable scorer that accepts soft
-one-hot sequences. CbAS and DEN construct their generators internally.
-
-For multi-task models, `TargetObjective(mode="maximize")` ignores non-target
-outputs, while `TargetObjective(mode="specificity")` rewards the target and
-penalizes other outputs.
-
-Use `optimize_to_saturation(..., saturation=SaturationConfig(fractions=(0.8,
-0.9)))` when a fixed query budget is not known in advance.
+See the [project README](../README.md) for algorithm choices, multi-task
+objectives, saturation stopping, installation, and complete examples.

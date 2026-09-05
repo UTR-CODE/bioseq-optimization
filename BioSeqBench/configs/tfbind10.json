@@ -1,8 +1,0 @@
-{
-  "dataset": "tfbind10",
-  "model": "deepbind",
-  "max_length": 10,
-  "label_columns": ["label"],
-  "optimization_oracle": true,
-  "score_definition": "negative_ddG_binding_affinity"
-}

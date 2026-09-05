@@ -49,6 +49,17 @@ def main() -> None:
     parser.add_argument("--length", type=int, required=True)
     parser.add_argument("--alphabet", default="ACGT")
     parser.add_argument(
+        "--pad-to-length",
+        type=int,
+        help="Optional fixed model input length; shorter sequences are padded with N",
+    )
+    parser.add_argument(
+        "--padding-side",
+        choices=("left", "right"),
+        default="right",
+        help="Side on which N padding is added (default: right)",
+    )
+    parser.add_argument(
         "--budget",
         type=_budget,
         required=True,
@@ -99,7 +110,12 @@ def main() -> None:
     task_names = None
     if args.task_names:
         task_names = tuple(name.strip() for name in args.task_names.split(","))
-    scorer = CallableScorer(_load_callable(args.scorer), task_names=task_names)
+    scorer = CallableScorer(
+        _load_callable(args.scorer),
+        task_names=task_names,
+        pad_to_length=args.pad_to_length,
+        padding_side=args.padding_side,
+    )
     objective = TargetObjective(
         target=_target(args.target),
         mode=args.objective,

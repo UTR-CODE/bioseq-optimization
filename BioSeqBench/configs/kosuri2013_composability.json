@@ -1,9 +1,0 @@
-{
-  "dataset": "kosuri2013_composability",
-  "model": "two_branch_cnn",
-  "max_length": 120,
-  "label_columns": ["label_protein_expression", "label_rna_expression"],
-  "target": "E. coli promoter--RBS protein expression and RNA abundance",
-  "training_module": "BioSeqBench.training.train_kosuri2013_composability",
-  "protocol": "Non-pretrained promoter/RBS two-branch CNN with train-only standardization of log10 labels."
-}
