@@ -13,8 +13,9 @@ def main() -> None:
     result = genetic_algorithm_optimize(
         model,
         SequenceSpace(length=50),
-        budget=100,
+        budget=40,
         num_candidates=4,
+        mutation_rate=0.1,
         initial=[
             "CCACTCGATTAACATGTTAACAACATACTCGTCCGGCCGATCAGCGGCTA",
             "GGTACCTCTAGTTTAATCCCTCCCTTATACGGTGCAACCCGCTCCCCTCA",

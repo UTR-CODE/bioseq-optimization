@@ -21,6 +21,13 @@ result = genetic_algorithm_optimize(
 )
 ```
 
+Two complete runnable examples are included:
+
+- [`examples/custom_cnn.py`](examples/custom_cnn.py) defines and optimizes a
+  minimal one-output CNN.
+- [`examples/external_model.py`](examples/external_model.py) loads Optimus
+  5-Prime from `bioseq-models` and passes it directly to a black-box optimizer.
+
 For variable biological lengths, configure the scorer with
 `pad_to_length=<fixed model length>` and `padding_side="left"` or `"right"`.
 Padding uses `N`; differentiable soft inputs use equivalent all-zero vectors.

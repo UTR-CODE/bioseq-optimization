@@ -10,6 +10,11 @@ are maintained in the separate
 [`bioseq-models`](https://github.com/UTR-CODE/bioseq-models) repository. A model
 loaded there can be passed directly to every compatible optimizer here.
 
+The current workflow optimizes one activity scorer at a time. A single-output
+model is used directly. Separate models for different cell types can each be
+optimized independently, but combining several model objects into one joint
+optimization objective is not currently supported.
+
 ## Installation
 
 Install only the optimization package:
@@ -33,7 +38,66 @@ python -m pip install -e .
 python -m pytest -q
 ```
 
-## Optimus 5-Prime: a minimal optimization
+## Examples
+
+### 1. A minimal custom CNN
+
+This complete example defines a one-output CNN, wraps it as a scorer, and runs
+the genetic algorithm. The fixed weights make the demonstration reproducible;
+in an application, replace them with weights loaded from a trained checkpoint.
+
+```python
+import torch
+from torch import nn
+from torch.nn import functional as F
+
+from sequence_optimization import (
+    SequenceSpace,
+    TorchSequenceScorer,
+    genetic_algorithm_optimize,
+)
+
+space = SequenceSpace(length=20)
+
+
+class MinimalCNN(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.convolution = nn.Conv1d(4, 1, kernel_size=1, bias=False)
+        with torch.no_grad():
+            self.convolution.weight.zero_()
+            self.convolution.weight[0, 2, 0] = 1.0  # reward G
+
+    def forward(self, inputs):
+        return self.convolution(inputs).mean(dim=2)
+
+
+def encode(sequences):
+    encoded = torch.as_tensor(space.encode(sequences), dtype=torch.long)
+    return F.one_hot(encoded, num_classes=4).float().transpose(1, 2)
+
+
+scorer = TorchSequenceScorer(
+    MinimalCNN(),
+    encode,
+    device="cpu",
+    task_names=("activity",),
+)
+result = genetic_algorithm_optimize(
+    scorer,
+    space,
+    num_candidates=4,
+    budget=40,
+    mutation_rate=0.1,
+    seed=7,
+)
+print(result.to_frame())
+```
+
+The runnable version is
+[`sequence_optimization/examples/custom_cnn.py`](sequence_optimization/examples/custom_cnn.py).
+
+### 2. Load Optimus 5-Prime from `bioseq-models`
 
 This example loads Optimus from `bioseq-models`, starts from five 50-nt 5′UTR
 sequences, and returns the five best unique candidates found by the genetic
@@ -68,6 +132,10 @@ print(result.sequences[:5])
 print(result.activities[:5])
 ```
 
+No wrapper is required for Optimus with any of the eight black-box algorithms.
+The runnable version is
+[`sequence_optimization/examples/external_model.py`](sequence_optimization/examples/external_model.py).
+
 `budget=80` means that this run may query the activity model for at most 80
 candidate sequences. It is a model-evaluation budget, not a training epoch or
 sequence count in the final result.
@@ -84,43 +152,6 @@ With the bundled checkpoint, the first five rows are:
 
 The arrays are also available directly as `result.sequences`, `result.scores`,
 `result.uncertainties`, `result.activities`, and `result.task_names`.
-
-## DeepSTARR: choose a multi-task objective
-
-DeepSTARR returns `developmental` and `housekeeping` activities. There are two
-common objectives:
-
-- `mode="maximize"`: maximize the selected output and ignore all others.
-- `mode="specificity"`: maximize the selected output while penalizing the
-  other outputs, following the weighted-difference idea used by CRESted.
-
-```python
-from bioseq_models import load_model
-from sequence_optimization import (
-    SequenceSpace,
-    TargetObjective,
-    genetic_algorithm_optimize,
-)
-
-model = load_model("deepstarr", device="cpu")
-
-result = genetic_algorithm_optimize(
-    model,
-    SequenceSpace(length=249),
-    num_candidates=16,
-    budget=160,
-    objective=TargetObjective(
-        target="developmental",
-        mode="specificity",
-        penalty=1.0,
-    ),
-    seed=7,
-)
-```
-
-Change only `mode="specificity"` to `mode="maximize"` when the housekeeping
-output should not affect optimization. For more than two outputs,
-`other_weights` can assign a different penalty weight to each non-target task.
 
 ## Variable biological length with fixed model input
 
@@ -162,24 +193,47 @@ all returned candidates the alphabet is ACGT, never ACGU.
 All algorithms use the same scorer, sequence space, initialization, objective,
 and result contract.
 
-| Function | Algorithm | Model requirement |
+| Function | Algorithm | Optimus usage |
 |---|---|---|
-| `random_optimize` | Random search | Any scorer |
-| `ism_optimize` / `ISM_optimize` | Greedy in-silico mutagenesis | Any scorer |
-| `simulated_annealing_optimize` | Simulated annealing | Any scorer |
-| `genetic_algorithm_optimize` | Genetic algorithm | Any scorer |
-| `adalead_optimize` | AdaLead-style local search | Any scorer |
-| `beam_search_optimize` | Beam search | Any scorer |
-| `cross_entropy_optimize` | Cross-entropy method | Any scorer |
-| `cbas_optimize` | CbAS with an internal autoregressive generator | Any scorer |
-| `vanilla_activation_maximization_optimize` | Activation maximization | Differentiable scorer |
-| `fast_seqprop_optimize` | Fast SeqProp | Differentiable scorer |
-| `den_optimize` | Deep exploration network | Differentiable scorer |
+| `random_optimize` | Random search | Direct |
+| `ism_optimize` / `ISM_optimize` | Greedy in-silico mutagenesis | Direct |
+| `simulated_annealing_optimize` | Simulated annealing | Direct |
+| `genetic_algorithm_optimize` | Genetic algorithm | Direct |
+| `adalead_optimize` | AdaLead-style local search | Direct |
+| `beam_search_optimize` | Beam search | Direct |
+| `cross_entropy_optimize` | Cross-entropy method | Direct |
+| `cbas_optimize` | CbAS with an internal autoregressive generator | Direct |
+| `vanilla_activation_maximization_optimize` | Activation maximization | Differentiable wrapper |
+| `fast_seqprop_optimize` | Fast SeqProp | Differentiable wrapper |
+| `den_optimize` | Deep exploration network | Differentiable wrapper |
 
 CbAS creates and fits its own proposal generator from the seed sequences and
 queried activities. DEN also creates an internal generator, but it optimizes
 that generator through the activity model, so the supplied scorer must support
 `score_soft`.
+
+All eleven registered algorithms are exercised against the real Optimus
+checkpoint in
+[`tests/test_bioseq_models_integration.py`](tests/test_bioseq_models_integration.py).
+The eight black-box algorithms accept the loaded model directly. For the three
+gradient algorithms, expose the differentiable PyTorch network through the
+existing wrapper:
+
+```python
+from sequence_optimization import DifferentiableTorchSequenceScorer
+
+differentiable_optimus = DifferentiableTorchSequenceScorer(
+    model.model,
+    model.encoder,
+    device=model.device,
+    task_names=model.task_names,
+    soft_input_transform=lambda probabilities: probabilities.transpose(1, 2),
+)
+```
+
+The transpose adapts the optimizer's canonical `[batch, length, A/C/G/T]`
+representation to Optimus's `[batch, A/C/G/T, length]` tensor layout. Pass
+`differentiable_optimus` to any of the three gradient optimizers.
 
 Use `run("algorithm_name", ...)` for the registry-based interface, or
 `run_many(...)` to compare several algorithms with independent query budgets.
@@ -225,9 +279,9 @@ first complete candidate archive to the final observed plateau.
 
 Wrap a callable with `CallableScorer`, a frozen PyTorch model with
 `TorchSequenceScorer`, or a differentiable PyTorch model with
-`DifferentiableTorchSequenceScorer`. The complete minimal CNN and checkpoint
-example lives with model code in
-[`bioseq-models/examples/custom_cnn.py`](https://github.com/UTR-CODE/bioseq-models/blob/main/examples/custom_cnn.py).
+`DifferentiableTorchSequenceScorer`. See the local
+[`custom_cnn.py`](sequence_optimization/examples/custom_cnn.py) example for a
+complete minimal integration.
 
 A scorer must accept a batch of sequence strings and return either `[batch]`
 or `[batch, tasks]` activities. The optimizer never trains the supplied

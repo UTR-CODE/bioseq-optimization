@@ -86,6 +86,52 @@ def test_score_batch_rejects_bad_uncertainty_shape():
         ScoreBatch([1, 2], [0])
 
 
+@pytest.mark.parametrize("column_output", [False, True])
+def test_plain_single_task_model_can_return_numpy_array(column_output):
+    class SingleTaskModel:
+        task_names = ("activity",)
+
+        def score(self, values):
+            activities = np.asarray([value.count("G") for value in values])
+            return activities[:, None] if column_output else activities
+
+    result = genetic_algorithm_optimize(
+        SingleTaskModel(),
+        SequenceSpace(4),
+        budget=4,
+        num_candidates=4,
+        initial=["AAAA", "CCCC", "GGGG", "TTTT"],
+        seed=3,
+    )
+
+    assert result.sequences[0] == "GGGG"
+    assert result.scores[0] == 4
+    assert result.activities.shape == (4, 1)
+    assert result.task_names == ("activity",)
+    assert result.query_count == 4
+
+
+def test_plain_model_score_batch_output_remains_supported():
+    class ScoreBatchModel:
+        task_names = ("activity",)
+
+        def score(self, values):
+            return ScoreBatch([value.count("G") for value in values])
+
+    result = genetic_algorithm_optimize(
+        ScoreBatchModel(),
+        SequenceSpace(4),
+        budget=4,
+        num_candidates=4,
+        initial=["AAAA", "CCCC", "GGGG", "TTTT"],
+        seed=3,
+    )
+
+    assert result.sequences[0] == "GGGG"
+    assert result.scores[0] == 4
+    assert result.activities.shape == (4, 1)
+
+
 def test_cached_scorer_preserves_multitask_outputs():
     scorer = CachedScorer(
         CallableScorer(

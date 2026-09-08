@@ -17,6 +17,7 @@ from .api import (
     SequenceScorer,
     SequenceSpace,
     TorchSequenceScorer,
+    as_score_batch,
     normalize_nucleotide_sequences,
     pad_nucleotide_sequences,
 )
@@ -54,6 +55,7 @@ __all__ = [
     "SequenceSpace",
     "TorchSequenceScorer",
     "DifferentiableTorchSequenceScorer",
+    "as_score_batch",
     "available_algorithms",
     "normalize_nucleotide_sequences",
     "pad_nucleotide_sequences",

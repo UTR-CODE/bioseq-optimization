@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
-from typing import Any, Protocol
+from typing import Any, Protocol, TypeAlias
 
 import numpy as np
+from numpy.typing import ArrayLike
 
 
 def normalize_nucleotide_sequences(
@@ -74,12 +75,6 @@ def _pad_soft_nucleotide_tensor(probabilities, length: int | None, side: str):
     return functional.pad(probabilities, padding)
 
 
-class SequenceScorer(Protocol):
-    """A model shell: sequence strings in, one or more activities out."""
-
-    def score(self, sequences: Sequence[str] | np.ndarray) -> "ScoreBatch": ...
-
-
 @dataclass(frozen=True)
 class ScoreBatch:
     """One activity vector per sequence.
@@ -113,6 +108,45 @@ class ScoreBatch:
         object.__setattr__(self, "uncertainties", uncertainty)
 
 
+ScorerOutput: TypeAlias = (
+    ScoreBatch | ArrayLike | tuple[ArrayLike, ArrayLike | None]
+)
+
+
+def as_score_batch(result: ScorerOutput) -> ScoreBatch:
+    """Normalize a scorer result to the optimizer's internal representation.
+
+    External model packages may return activity arrays directly, while native
+    adapters can return :class:`ScoreBatch`. A two-item tuple is interpreted as
+    ``(activities, uncertainties)``.
+    """
+    if isinstance(result, ScoreBatch):
+        return result
+
+    def to_numpy(value: Any) -> Any:
+        if hasattr(value, "detach"):
+            value = value.detach()
+        if hasattr(value, "cpu"):
+            value = value.cpu()
+        if hasattr(value, "numpy"):
+            value = value.numpy()
+        return value
+
+    if isinstance(result, tuple) and len(result) == 2:
+        scores, uncertainties = result
+        return ScoreBatch(
+            to_numpy(scores),
+            None if uncertainties is None else to_numpy(uncertainties),
+        )
+    return ScoreBatch(to_numpy(result))
+
+
+class SequenceScorer(Protocol):
+    """A model shell: sequence strings in, one or more activities out."""
+
+    def score(self, sequences: Sequence[str] | np.ndarray) -> ScorerOutput: ...
+
+
 class CallableScorer:
     """Adapt a callable returning scores, ``(scores, uncertainty)``, or ScoreBatch."""
 
@@ -134,12 +168,7 @@ class CallableScorer:
         values = _prepare_model_sequences(
             sequences, self.pad_to_length, self.padding_side
         )
-        result = self.function(values)
-        if isinstance(result, ScoreBatch):
-            return result
-        if isinstance(result, tuple) and len(result) == 2:
-            return ScoreBatch(result[0], result[1])
-        return ScoreBatch(result)
+        return as_score_batch(self.function(values))
 
 
 class TorchSequenceScorer:
@@ -187,22 +216,7 @@ class TorchSequenceScorer:
                 if self.device is not None and hasattr(inputs, "to"):
                     inputs = inputs.to(self.device)
                 output = self.model(inputs)
-                if isinstance(output, ScoreBatch):
-                    current = output
-                elif isinstance(output, tuple) and len(output) == 2:
-
-                    def to_numpy(item):
-                        if hasattr(item, "detach"):
-                            return item.detach().cpu().numpy()
-                        return item
-
-                    current = ScoreBatch(to_numpy(output[0]), to_numpy(output[1]))
-                else:
-                    current = ScoreBatch(
-                        output.detach().cpu().numpy()
-                        if hasattr(output, "detach")
-                        else output
-                    )
+                current = as_score_batch(output)
                 if len(current.scores) != len(batch):
                     raise ValueError(
                         f"model returned {len(current.scores)} rows for a batch of {len(batch)} sequences"
@@ -333,7 +347,9 @@ class CachedScorer:
                 f"query budget exceeded: requested {cost}, remaining {self.remaining}"
             )
         if missing:
-            current = self.scorer.score(np.asarray(missing, dtype=str))
+            current = as_score_batch(
+                self.scorer.score(np.asarray(missing, dtype=str))
+            )
             if len(current.scores) != len(missing):
                 raise ValueError(
                     f"scorer returned {len(current.scores)} rows for {len(missing)} sequences"

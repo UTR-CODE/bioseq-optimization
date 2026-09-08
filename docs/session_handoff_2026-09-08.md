@@ -1,5 +1,8 @@
 # Biosequence Optimization 交接文档（2026-09-08）
 
+> 后续更新：本文第 6 节记录的 NumPy/`ScoreBatch` 接口问题已经解决。
+> 最新验证与当前范围见第 9 节。
+
 ## 1. 当前状态
 
 - 本地仓库：`/mnt/data/home/hexin/MPRA_benchmark`
@@ -245,3 +248,17 @@ result = genetic_algorithm_optimize(
 这段代码无需额外包装即可运行，返回4条唯一ACGT序列，并正确记录
 `activities`、`scores`、`task_names` 和 `query_count`。
 
+## 9. 后续完成情况
+
+- 优化仓库已增加统一 scorer 输出转换，接受 NumPy `[N]`、`[N, 1]`、
+  `(scores, uncertainties)` 和原有 `ScoreBatch`；
+- `bioseq-models` 的单输出模型现在可以直接传给全部八种黑盒算法；
+- Optimus 已对全部 11 种注册算法完成真实 checkpoint 测试；其中三种梯度算法
+  需要用 `DifferentiableTorchSequenceScorer` 暴露 soft one-hot 输入；
+- 当前产品范围是每次优化一个 activity scorer。不同细胞类型的单输出模型可以
+  分别优化，但不组合多个模型对象进行联合优化；
+- `tests/test_bioseq_models_integration.py` 会检查算法注册表中的每一种算法，避免
+  新增算法后遗漏真实 Optimus 验证；
+- 文档提供两个可运行示例：
+  `sequence_optimization/examples/custom_cnn.py` 和
+  `sequence_optimization/examples/external_model.py`。

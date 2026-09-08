@@ -7,7 +7,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from .api import ScoreBatch, SequenceScorer
+from .api import ScoreBatch, SequenceScorer, as_score_batch
 
 
 def _activity_matrix(values: np.ndarray, expected_rows: int) -> np.ndarray:
@@ -142,7 +142,7 @@ class ObjectiveScorer:
 
     def score(self, sequences) -> ScoreBatch:
         values = np.asarray(sequences, dtype=str).reshape(-1)
-        result = self.scorer.score(values)
+        result = as_score_batch(self.scorer.score(values))
         activities = _activity_matrix(result.scores, len(values))
         if self.task_names is not None and len(self.task_names) != activities.shape[1]:
             raise ValueError("task_names must match the number of model outputs")
