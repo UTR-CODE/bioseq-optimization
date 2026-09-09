@@ -24,14 +24,11 @@ def deepstarr():
 @pytest.mark.parametrize("algorithm", available_algorithms())
 @pytest.mark.parametrize("direction", ["both", "developmental", "housekeeping"])
 def test_deepstarr_multitask_all_algorithms(deepstarr, algorithm, direction):
-    objective = (
-        MultiTaskObjective(high="all")
-        if direction == "both"
-        else MultiTaskObjective(
-            high=[direction],
-            low=[name for name in deepstarr.task_names if name != direction],
-        )
-    )
+    objective = {
+        "both": ["maximize", "maximize"],
+        "developmental": ["maximize", "minimize"],
+        "housekeeping": ["minimize", "maximize"],
+    }[direction]
     scorer = deepstarr
     if algorithm in DIFFERENTIABLE_ALGORITHMS:
         scorer = DifferentiableTorchSequenceScorer(
@@ -60,7 +57,10 @@ def test_deepstarr_multitask_all_algorithms(deepstarr, algorithm, direction):
         result.activities, deepstarr.score(result.sequences), rtol=1e-4, atol=1e-4
     )
     np.testing.assert_allclose(
-        result.scores, objective.scalarize(result.activities, result.task_names)
+        result.scores,
+        MultiTaskObjective(directions=objective).scalarize(
+            result.activities, result.task_names
+        ),
     )
 
 

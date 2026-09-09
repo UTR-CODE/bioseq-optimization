@@ -202,7 +202,11 @@ def optimize_to_saturation(
     algorithm: str,
     num_candidates: int = 100,
     initial=None,
-    objective: TargetObjective | MultiTaskObjective | None = None,
+    objective: TargetObjective
+    | MultiTaskObjective
+    | list[str]
+    | tuple[str, ...]
+    | None = None,
     saturation: SaturationConfig | None = None,
     seed: int = 0,
     count_repeated: bool = False,
@@ -228,7 +232,9 @@ def optimize_to_saturation(
     rng = np.random.default_rng(seed)
     random.seed(seed)
     prepared = _initial(initial, space, config, rng)
-    objective_scorer = ObjectiveScorer(scorer, objective or TargetObjective())
+    objective_scorer = ObjectiveScorer(
+        scorer, TargetObjective() if objective is None else objective
+    )
     monitor = _SaturationMonitor(
         num_candidates,
         minimum,

@@ -301,7 +301,11 @@ def run(
     config: OptimizationConfig,
     *,
     initial: Sequence[str] | np.ndarray | None = None,
-    objective: TargetObjective | MultiTaskObjective | None = None,
+    objective: TargetObjective
+    | MultiTaskObjective
+    | list[str]
+    | tuple[str, ...]
+    | None = None,
     seed: int = 0,
     count_repeated: bool = False,
 ) -> OptimizationResult:
@@ -327,7 +331,9 @@ def run(
         budgeted = scorer
         objective_scorer = None
     else:
-        objective_scorer = ObjectiveScorer(scorer, objective or TargetObjective())
+        objective_scorer = ObjectiveScorer(
+            scorer, TargetObjective() if objective is None else objective
+        )
         proposal_count_algorithms = {
             "ledidi",
             "cbas",
@@ -353,8 +359,10 @@ def run(
             activities.shape[1], objective_scorer.task_names
         )
         if isinstance(objective_scorer.objective, MultiTaskObjective):
-            result.metadata["objective_evaluation"] = objective_scorer.objective.evaluate(
-                activities, objective_scorer.task_names
+            result.metadata["objective_evaluation"] = (
+                objective_scorer.objective.evaluate(
+                    activities, objective_scorer.task_names
+                )
             )
     return result
 
@@ -366,7 +374,11 @@ def run_many(
     config: OptimizationConfig,
     *,
     initial: Sequence[str] | np.ndarray | None = None,
-    objective: TargetObjective | MultiTaskObjective | None = None,
+    objective: TargetObjective
+    | MultiTaskObjective
+    | list[str]
+    | tuple[str, ...]
+    | None = None,
     seed: int = 0,
 ) -> dict[str, OptimizationResult]:
     """Run algorithms independently; each receives a fresh budget/cache."""
@@ -392,7 +404,11 @@ def optimize(
     budget: int,
     num_candidates: int = 100,
     initial: Sequence[str] | np.ndarray | None = None,
-    objective: TargetObjective | MultiTaskObjective | None = None,
+    objective: TargetObjective
+    | MultiTaskObjective
+    | list[str]
+    | tuple[str, ...]
+    | None = None,
     seed: int = 0,
     mutation_rate: float = 0.02,
     elite_fraction: float = 0.2,

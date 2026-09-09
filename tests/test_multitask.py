@@ -11,6 +11,54 @@ from sequence_optimization import (
 from sequence_optimization.objectives import ObjectiveScorer
 
 
+def test_direction_list_is_model_independent_and_ignores_third_output():
+    class Scorer:
+        def score(self, sequences):
+            return np.array(
+                [[s.count("G"), s.count("C"), len(s) * 1000] for s in sequences]
+            )
+
+        def score_soft(self, probabilities):
+            return probabilities.sum(dim=1)[:, :3], None
+
+    directions = ["maximize", "minimize", "ignore"]
+    result = basesearch_optimize(
+        Scorer(), SequenceSpace(8), objective=directions, budget=24, num_candidates=4
+    )
+    np.testing.assert_allclose(
+        result.scores, np.minimum(result.activities[:, 0], -result.activities[:, 1])
+    )
+    assert result.activities.shape == (4, 3)
+    objective = MultiTaskObjective(directions=directions)
+    values = torch.tensor([[1.0, -2.0, 1e6], [3.0, -1.0, -1e6]], requires_grad=True)
+    objective.scalarize_soft(values).sum().backward()
+    np.testing.assert_array_equal(values.grad[:, 2], [0, 0])
+    changed = values.detach().numpy().copy()
+    changed[:, 2] *= -100
+    np.testing.assert_array_equal(
+        objective.scalarize(changed), objective.scalarize(values.detach().numpy())
+    )
+
+
+@pytest.mark.parametrize(
+    "directions", [[], ["ignore", "ignore"], ["up", "down"], ["maximize"]]
+)
+def test_invalid_direction_lists(directions):
+    scorer = CallableScorer(lambda values: np.zeros((len(values), 2)))
+    with pytest.raises(ValueError):
+        basesearch_optimize(
+            scorer, SequenceSpace(8), objective=directions, budget=4, num_candidates=4
+        )
+
+
+def test_single_output_list():
+    scorer = CallableScorer(lambda values: np.array([s.count("G") for s in values]))
+    result = basesearch_optimize(
+        scorer, SequenceSpace(8), objective=["maximize"], budget=12, num_candidates=4
+    )
+    np.testing.assert_array_equal(result.scores, result.activities[:, 0])
+
+
 @pytest.mark.parametrize("aggregation", ["worst", "mean", "smoothmin"])
 def test_numpy_torch_values_and_gradients(aggregation):
     objective = MultiTaskObjective(

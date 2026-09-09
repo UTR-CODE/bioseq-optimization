@@ -147,14 +147,36 @@ class MultiTaskObjective:
     centers: Sequence[float] | None = None
     scales: Sequence[float] | None = None
     temperature: float = 0.1
+    directions: Sequence[str] | None = None
 
     def __post_init__(self):
+        if self.directions is not None:
+            if isinstance(self.directions, str) or not self.directions:
+                raise ValueError(
+                    "directions must be a nonempty list of maximize, minimize, ignore"
+                )
+            directions = tuple(self.directions)
+            if any(
+                value not in {"maximize", "minimize", "ignore"} for value in directions
+            ):
+                raise ValueError(
+                    "directions entries must be maximize, minimize, or ignore"
+                )
+            if all(value == "ignore" for value in directions):
+                raise ValueError("at least one output must be optimized")
+            if len(self.high) or len(self.low):
+                raise ValueError("use directions or high/low, not both")
+            object.__setattr__(self, "directions", directions)
         if self.aggregation not in {"worst", "mean", "smoothmin"}:
             raise ValueError("aggregation must be worst, mean, or smoothmin")
         if not np.isfinite(self.temperature) or self.temperature <= 0:
             raise ValueError("temperature must be finite and positive")
 
     def _resolve(self, n_tasks, task_names):
+        if self.directions is not None and len(self.directions) != n_tasks:
+            raise ValueError(
+                "directions must contain exactly one entry per model output"
+            )
         if n_tasks < 1 or (task_names is not None and len(task_names) != n_tasks):
             raise ValueError("task_names must match nonempty model outputs")
 
@@ -184,6 +206,9 @@ class MultiTaskObjective:
         low = [
             index(k) for k in ([self.low] if isinstance(self.low, str) else self.low)
         ]
+        if self.directions is not None:
+            high = [i for i, value in enumerate(self.directions) if value == "maximize"]
+            low = [i for i, value in enumerate(self.directions) if value == "minimize"]
         selected = high + low
         if not selected or len(set(selected)) != len(selected):
             raise ValueError("select nonempty, distinct, disjoint high and low tasks")
@@ -316,10 +341,16 @@ class ObjectiveScorer:
     """Turn raw model activities into scalar utilities and retain activities."""
 
     def __init__(
-        self, scorer: SequenceScorer, objective: TargetObjective | MultiTaskObjective
+        self,
+        scorer: SequenceScorer,
+        objective: TargetObjective | MultiTaskObjective | list[str] | tuple[str, ...],
     ) -> None:
         self.scorer = scorer
-        self.objective = objective
+        self.objective = (
+            MultiTaskObjective(directions=objective)
+            if isinstance(objective, (list, tuple))
+            else objective
+        )
         names = getattr(scorer, "task_names", None)
         self.task_names = None if names is None else tuple(names)
         self._activities: dict[str, np.ndarray] = {}

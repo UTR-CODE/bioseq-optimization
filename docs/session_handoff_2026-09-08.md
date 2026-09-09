@@ -294,3 +294,13 @@ developmental/housekeeping 两个 enhancer reporter 输出，涵盖双高和两�
 Optimus 检查。低预算测试验证接口、查询预算和原始预测复算，不代表设计效果 benchmark。
 本次完整测试结果为 114 passed（一个已有 PyTorch same-padding warning）；
 Optimus 和 DeepSTARR 可运行示例均已执行成功。
+
+### 简化后的公开用法
+
+直接传入 `objective=["maximize", "minimize", "ignore"]`，按模型输出列顺序
+表示更高、更低、不参与。列表长度必须匹配输出数，至少一个任务参与优化。
+同一接口适用于单输出（`["maximize"]`）、多输出、黑盒和梯度算法及 saturation。
+忽略列仍保留原始预测，但不影响目标和梯度。不依赖模型名称或任务名称；
+bioseq-models 仅在示例和集成测试中加载，优化核心没有模型专用分支。
+保留 MultiTaskObjective 高级用法；README 以简短 Python 列表示例为主，不提供 CLI。
+列表接口完成全部 13 算法的 DeepSTARR 验证，完整测试 120 passed。

@@ -1,22 +1,15 @@
-"""Run three objectives through the real two-output DeepSTARR model.
-
-Run: python -m sequence_optimization.examples.deepstarr_multitask
-"""
+"""Python example: three direction lists for a two-output scorer."""
 
 from bioseq_models import load_model
-from sequence_optimization import MultiTaskObjective, SequenceSpace, basesearch_optimize
+from sequence_optimization import SequenceSpace, basesearch_optimize
 
 
 def main():
     model = load_model("deepstarr", device="cpu")
     objectives = {
-        "both_high": MultiTaskObjective(high="all"),
-        "developmental_high_housekeeping_low": MultiTaskObjective(
-            high=["developmental"], low=["housekeeping"]
-        ),
-        "housekeeping_high_developmental_low": MultiTaskObjective(
-            high=["housekeeping"], low=["developmental"]
-        ),
+        "both_high": ["maximize", "maximize"],
+        "developmental_high_housekeeping_low": ["maximize", "minimize"],
+        "housekeeping_high_developmental_low": ["minimize", "maximize"],
     }
     for name, objective in objectives.items():
         result = basesearch_optimize(
