@@ -42,7 +42,7 @@ from .algorithms import (
     simulated_annealing_optimize,
     vanilla_activation_maximization_optimize,
 )
-from .objectives import TargetObjective
+from .objectives import MultiTaskObjective, TargetObjective
 from .saturation import SaturationConfig, SaturationResult, optimize_to_saturation
 from .seeds import load_seed_sequences, random_seed_sequences
 
@@ -66,6 +66,7 @@ __all__ = [
     "run",
     "run_many",
     "TargetObjective",
+    "MultiTaskObjective",
     "optimize",
     "random_optimize",
     "ism_optimize",

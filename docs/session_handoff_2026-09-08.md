@@ -276,3 +276,21 @@ DREAM、PARM、UTR-CODE、CDS Stability 尚需专门的可微输入适配。
 - 文档提供两个可运行示例：
   `sequence_optimization/examples/custom_cnn.py` 和
   `sequence_optimization/examples/external_model.py`。
+
+## 10. 2026-09-09 multi-task 目标
+
+新增 `MultiTaskObjective`，在同一个模型内选择 high/low 输出，支持 worst、mean、
+smoothmin 聚合、固定 centers/scales，以及完整的 lower_bounds/upper_bounds。
+NumPy 和 PyTorch 使用一致的目标定义；Ledidi 已解除单输出限制。
+结果保留原始 activities，并通过 metadata 和 to_frame 展示 margins；有阈值时
+还展示每个任务和全部任务是否达标。未设阈值时不声称达到绝对高低标准。
+
+README 单任务示例为 Optimus；multi-task 示例为 DeepSTARR 249 nt 的
+developmental/housekeeping 两个 enhancer reporter 输出，涵盖双高和两个方向的
+一高一低。可运行文件：`sequence_optimization/examples/deepstarr_multitask.py`。
+这两个输出不是两个细胞系；不组合多个独立模型。
+
+真实 checkpoint 集成测试覆盖 13 种算法 × 三种 DeepSTARR 目标，并保留全部
+Optimus 检查。低预算测试验证接口、查询预算和原始预测复算，不代表设计效果 benchmark。
+本次完整测试结果为 114 passed（一个已有 PyTorch same-padding warning）；
+Optimus 和 DeepSTARR 可运行示例均已执行成功。

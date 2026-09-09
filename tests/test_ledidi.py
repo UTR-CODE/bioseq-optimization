@@ -78,13 +78,22 @@ def test_ledidi_requires_gradients():
         )
 
 
-def test_ledidi_rejects_multitask():
+def test_ledidi_accepts_multitask_objective():
+    from sequence_optimization import MultiTaskObjective
+
     class MultiTask:
         def score(self, values):
             return np.ones((len(values), 2))
 
         def score_soft(self, values):
-            raise AssertionError("must reject before gradient evaluation")
+            return values[:, :, :2].mean(dim=1), None
 
-    with pytest.raises(ValueError, match="single-output"):
-        ledidi_optimize(MultiTask(), SequenceSpace(8), budget=8, num_candidates=4)
+    result = ledidi_optimize(
+        MultiTask(),
+        SequenceSpace(8),
+        budget=8,
+        num_candidates=4,
+        objective=MultiTaskObjective(high="all"),
+    )
+    assert result.activities.shape == (4, 2)
+    assert result.metadata["soft_query_count"] == 4

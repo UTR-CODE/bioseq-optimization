@@ -567,4 +567,13 @@ class OptimizationResult:
         if self.activities is not None:
             for index, name in enumerate(self.task_names):
                 frame[f"activity_{name}"] = self.activities[:, index]
+        evaluation = self.metadata.get("objective_evaluation")
+        if evaluation is not None:
+            frame["worst_margin"] = evaluation["worst_margin"]
+            for index, name in enumerate(evaluation["task_names"]):
+                frame[f"margin_{name}"] = np.asarray(evaluation["margins"])[:, index]
+                if evaluation["satisfied"] is not None:
+                    frame[f"satisfied_{name}"] = np.asarray(evaluation["satisfied"])[:, index]
+            if evaluation["all_satisfied"] is not None:
+                frame["all_satisfied"] = evaluation["all_satisfied"]
         return frame

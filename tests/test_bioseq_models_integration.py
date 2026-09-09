@@ -5,6 +5,7 @@ import pytest
 
 from sequence_optimization import (
     DifferentiableTorchSequenceScorer,
+    MultiTaskObjective,
     OptimizationConfig,
     SequenceSpace,
     available_algorithms,
@@ -13,6 +14,55 @@ from sequence_optimization import (
 
 
 bioseq_models = pytest.importorskip("bioseq_models")
+
+
+@pytest.fixture(scope="module")
+def deepstarr():
+    return bioseq_models.load_model("deepstarr", device="cpu")
+
+
+@pytest.mark.parametrize("algorithm", available_algorithms())
+@pytest.mark.parametrize("direction", ["both", "developmental", "housekeeping"])
+def test_deepstarr_multitask_all_algorithms(deepstarr, algorithm, direction):
+    objective = (
+        MultiTaskObjective(high="all")
+        if direction == "both"
+        else MultiTaskObjective(
+            high=[direction],
+            low=[name for name in deepstarr.task_names if name != direction],
+        )
+    )
+    scorer = deepstarr
+    if algorithm in DIFFERENTIABLE_ALGORITHMS:
+        scorer = DifferentiableTorchSequenceScorer(
+            deepstarr.model,
+            deepstarr.encoder,
+            device=deepstarr.device,
+            task_names=deepstarr.task_names,
+            soft_input_transform=lambda values: values.transpose(1, 2),
+        )
+    config = OptimizationConfig(
+        budget=751 if algorithm == "ism_greedy" else 12,
+        num_candidates=4,
+        generator_pretrain_epochs=1,
+        generator_update_epochs=1,
+        cbas_batch_size=4,
+        den_seed_pretrain_epochs=1,
+    )
+    result = run(
+        algorithm, scorer, SequenceSpace(249), config, objective=objective, seed=7
+    )
+    assert result.activities.shape == (4, 2)
+    assert result.task_names == ("developmental", "housekeeping")
+    assert len(set(result.sequences)) == 4
+    assert 4 < result.query_count <= config.budget
+    np.testing.assert_allclose(
+        result.activities, deepstarr.score(result.sequences), rtol=1e-4, atol=1e-4
+    )
+    np.testing.assert_allclose(
+        result.scores, objective.scalarize(result.activities, result.task_names)
+    )
+
 
 INITIAL_SEQUENCES = (
     "CCACTCGATTAACATGTTAACAACATACTCGTCCGGCCGATCAGCGGCTA",

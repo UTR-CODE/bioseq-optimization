@@ -10,8 +10,9 @@ are maintained in the separate
 [`bioseq-models`](https://github.com/UTR-CODE/bioseq-models) repository. A model
 loaded there can be passed directly to every compatible optimizer here.
 
-The current workflow optimizes one activity scorer at a time. A single-output
-model is used directly. Separate models for different cell types can each be
+The current workflow optimizes one activity scorer at a time. Single-output
+models (Optimus) and multi-output models (DeepSTARR) are supported. A
+`MultiTaskObjective` combines selected outputs of one model. Separate models for different cell types can each be
 optimized independently, but combining several model objects into one joint
 optimization objective is not currently supported.
 
@@ -40,7 +41,7 @@ python -m pytest -q
 
 ## Examples
 
-### 1. A minimal custom CNN
+### Optional: a minimal custom CNN
 
 This complete example defines a one-output CNN, wraps it as a scorer, and runs
 the genetic algorithm. The fixed weights make the demonstration reproducible;
@@ -97,7 +98,7 @@ print(result.to_frame())
 The runnable version is
 [`sequence_optimization/examples/custom_cnn.py`](sequence_optimization/examples/custom_cnn.py).
 
-### 2. Load Optimus 5-Prime from `bioseq-models`
+### Single task: Optimus 5-Prime from `bioseq-models`
 
 This example loads Optimus from `bioseq-models`, starts from five 50-nt 5′UTR
 sequences, and returns the five best unique candidates found by the genetic
@@ -152,6 +153,108 @@ With the bundled checkpoint, the first five rows are:
 
 The arrays are also available directly as `result.sequences`, `result.scores`,
 `result.uncertainties`, `result.activities`, and `result.task_names`.
+
+### Multi-task: DeepSTARR developmental and housekeeping activity
+
+DeepSTARR uses 249-nt sequences and returns two outputs in the order
+`("developmental", "housekeeping")`. These are two enhancer reporter tasks,
+not two different cell lines. Use task names to avoid relying on column order.
+
+```python
+from bioseq_models import load_model
+from sequence_optimization import MultiTaskObjective, SequenceSpace, basesearch_optimize
+
+model = load_model("deepstarr", device="cpu")
+
+objectives = {
+    # Raise the weaker of the two predicted activities.
+    "both_high": MultiTaskObjective(high="all"),
+    # Raise developmental and lower housekeeping activity.
+    "developmental_specific": MultiTaskObjective(
+        high=["developmental"], low=["housekeeping"],
+    ),
+    # Raise housekeeping and lower developmental activity.
+    "housekeeping_specific": MultiTaskObjective(
+        high=["housekeeping"], low=["developmental"],
+    ),
+}
+
+for label, objective in objectives.items():
+    result = basesearch_optimize(
+        model, SequenceSpace(249), objective=objective,
+        num_candidates=4, budget=100, mutation_rate=0.1, seed=7,
+    )
+    print(label)
+    print(result.to_frame())
+```
+
+Runnable example: [`deepstarr_multitask.py`](sequence_optimization/examples/deepstarr_multitask.py).
+With the bundled checkpoint, CPU, seed 7 and a 100-query budget, the best
+candidates from that script had these raw predictions (rounded):
+
+| Objective | Developmental | Housekeeping |
+|---|---:|---:|
+| Both high | 2.5212 | 1.6924 |
+| Developmental high, housekeeping low | 0.6990 | -0.6973 |
+| Housekeeping high, developmental low | -0.5200 | 0.5738 |
+
+The same objectives work with `run("algorithm_name", ..., objective=objective)`.
+All 13 algorithms are covered by real-checkpoint DeepSTARR tests for these
+three objectives. The four gradient algorithms require a differentiable scorer:
+
+```python
+from sequence_optimization import DifferentiableTorchSequenceScorer, ledidi_optimize
+
+scorer = DifferentiableTorchSequenceScorer(
+    model.model, model.encoder, device=model.device, task_names=model.task_names,
+    soft_input_transform=lambda values: values.transpose(1, 2),
+)
+result = ledidi_optimize(
+    scorer, SequenceSpace(249), objective=objectives["both_high"],
+    num_candidates=4, budget=100, seed=7,
+)
+```
+
+The default `aggregation="worst"` maximizes the minimum signed activity:
+`min(developmental, housekeeping)` for both-high, or
+`min(developmental, -housekeeping)` for developmental-specific. Unselected
+tasks are ignored. `aggregation="mean"` allows improvements in one task to
+compensate for another. `aggregation="smoothmin"` with `temperature=0.1`
+offers a smooth alternative; NumPy and PyTorch use exactly the same function,
+`-temperature * log(mean(exp(-margins / temperature)))`, evaluated stably.
+Exact `worst` also supports gradients (ties share the gradient).
+
+These objectives express search directions, not a guarantee of biological
+activity or attainment of an absolute threshold. To specify concrete criteria:
+
+```python
+# Illustrative values in raw model-output units, not validated biological cutoffs.
+objective = MultiTaskObjective(
+    high=["developmental"], low=["housekeeping"],
+    lower_bounds={"developmental": 2.0},
+    upper_bounds={"housekeeping": 0.5},
+)
+```
+
+When any bounds are supplied, they must cover exactly all selected tasks.
+High-task margins are `(prediction - lower_bound) / scale`; low-task margins
+are `(upper_bound - prediction) / scale`. `worst_margin >= 0` means all bounds
+are met, regardless of aggregation. Smooth or mean scores alone do not certify
+this. `to_frame()` retains all raw `activity_*` outputs and adds `margin_*`,
+`worst_margin`, and, for thresholded objectives, `satisfied_*` and
+`all_satisfied`. The same details are in `metadata["objective_evaluation"]`.
+
+If outputs have different scales, pass fixed `centers` and positive `scales`
+in model task order, estimated from a reference dataset before optimization.
+Without bounds, margins are signed `(prediction - center) / scale`; bounds
+replace centers when supplied. Defaults are zero centers and unit scales,
+so these examples optimize raw predictions. Do not recompute normalization
+from each candidate batch. For models reporting uncertainties, multi-task
+utility uncertainty uses an independent-output, first-order approximation;
+it is not a joint confidence bound.
+
+Tests verify execution, budgets, gradients, and output consistency using small
+search budgets. They do not establish optimizer efficacy or experimental success.
 
 ## Variable biological length with fixed model input
 
@@ -213,7 +316,7 @@ and result contract.
 | `vanilla_activation_maximization_optimize` | Activation maximization | Differentiable wrapper |
 | `fast_seqprop_optimize` | Fast SeqProp | Differentiable wrapper |
 | `den_optimize` | Deep exploration network | Differentiable wrapper |
-| `ledidi_optimize` | Ledidi-style single-output maximization | Differentiable wrapper |
+| `ledidi_optimize` | Ledidi-style objective maximization | Differentiable wrapper |
 
 CbAS creates and fits its own proposal generator from the seed sequences and
 queried activities. DEN also creates an internal generator, but it optimizes
@@ -323,12 +426,13 @@ temperature and the seed prior. Small epsilon strongly favors seed bases, so a
 very short run may return unchanged seeds. Each seed has independent weights
 and one sample per iteration. The result archive ranks candidates by activity;
 the edit penalty guides search but is not a hard edit limit or a final ranking
-criterion. `scores` remain activity values and `activities` retain the raw output.
+criterion. `scores` contain the selected objective and `activities` retain all raw outputs.
 
 Budget accounting follows the other gradient algorithms: repeated discrete
 proposals count. Additional differentiable evaluations are reported separately
 as `metadata['soft_query_count']`; `budget` is not the total number of network
-forward/backward operations. Ledidi currently rejects multi-output scorers.
+forward/backward operations. Ledidi supports multi-output scorers through the
+same objective interface as the other algorithms.
 
 [Real-checkpoint smoke results](docs/ledidi_smoke_2026-09-09.json) cover Optimus
 and DeepSTARR-Mouse heart activity. The earlier 32-model matrix does not yet

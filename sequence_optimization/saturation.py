@@ -17,7 +17,7 @@ from .api import (
     SequenceScorer,
     SequenceSpace,
 )
-from .objectives import ObjectiveScorer, TargetObjective
+from .objectives import MultiTaskObjective, ObjectiveScorer, TargetObjective
 
 
 class _SaturationReached(RuntimeError):
@@ -188,6 +188,10 @@ def _selection_result(
     result.metadata["objective"] = objective_scorer.objective.describe(
         activities.shape[1], objective_scorer.task_names
     )
+    if isinstance(objective_scorer.objective, MultiTaskObjective):
+        result.metadata["objective_evaluation"] = objective_scorer.objective.evaluate(
+            activities, objective_scorer.task_names
+        )
     return result
 
 
@@ -198,7 +202,7 @@ def optimize_to_saturation(
     algorithm: str,
     num_candidates: int = 100,
     initial=None,
-    objective: TargetObjective | None = None,
+    objective: TargetObjective | MultiTaskObjective | None = None,
     saturation: SaturationConfig | None = None,
     seed: int = 0,
     count_repeated: bool = False,

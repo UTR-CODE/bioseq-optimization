@@ -16,7 +16,7 @@ from .api import (
     SequenceScorer,
     SequenceSpace,
 )
-from .objectives import ObjectiveScorer, TargetObjective
+from .objectives import MultiTaskObjective, ObjectiveScorer, TargetObjective
 
 Optimizer = Callable[
     [np.ndarray, CachedScorer, SequenceSpace, OptimizationConfig, np.random.Generator],
@@ -301,7 +301,7 @@ def run(
     config: OptimizationConfig,
     *,
     initial: Sequence[str] | np.ndarray | None = None,
-    objective: TargetObjective | None = None,
+    objective: TargetObjective | MultiTaskObjective | None = None,
     seed: int = 0,
     count_repeated: bool = False,
 ) -> OptimizationResult:
@@ -352,6 +352,10 @@ def run(
         result.metadata["objective"] = objective_scorer.objective.describe(
             activities.shape[1], objective_scorer.task_names
         )
+        if isinstance(objective_scorer.objective, MultiTaskObjective):
+            result.metadata["objective_evaluation"] = objective_scorer.objective.evaluate(
+                activities, objective_scorer.task_names
+            )
     return result
 
 
@@ -362,7 +366,7 @@ def run_many(
     config: OptimizationConfig,
     *,
     initial: Sequence[str] | np.ndarray | None = None,
-    objective: TargetObjective | None = None,
+    objective: TargetObjective | MultiTaskObjective | None = None,
     seed: int = 0,
 ) -> dict[str, OptimizationResult]:
     """Run algorithms independently; each receives a fresh budget/cache."""
@@ -388,7 +392,7 @@ def optimize(
     budget: int,
     num_candidates: int = 100,
     initial: Sequence[str] | np.ndarray | None = None,
-    objective: TargetObjective | None = None,
+    objective: TargetObjective | MultiTaskObjective | None = None,
     seed: int = 0,
     mutation_rate: float = 0.02,
     elite_fraction: float = 0.2,

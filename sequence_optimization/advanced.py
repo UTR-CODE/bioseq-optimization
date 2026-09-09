@@ -531,8 +531,6 @@ def ledidi(initial, scorer, space, config, rng):
     objective = _differentiable_objective(scorer)
     archive: dict[str, tuple[float, float]] = {}
     _score(scorer, archive, initial)
-    if objective.activities_for(initial).shape[1] != 1:
-        raise ValueError("ledidi currently requires a single-output scorer")
     device = _torch_device(scorer)
     template = _one_hot(initial, space, device)
     prior = torch.log(template + config.ledidi_epsilon)
