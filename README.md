@@ -10,11 +10,9 @@ are maintained in the separate
 [`bioseq-models`](https://github.com/UTR-CODE/bioseq-models) repository. A model
 loaded there can be passed directly to every compatible optimizer here.
 
-The current workflow optimizes one activity scorer at a time. Single-output
-models (Optimus) and multi-output models (DeepSTARR) are supported. A
-A direction list selects which outputs to raise, lower, or ignore. Separate models for different cell types can each be
-optimized independently, but combining several model objects into one joint
-optimization objective is not currently supported.
+The workflow accepts single-output models (Optimus), multi-output models
+(DeepSTARR), or independent models combined with `CombinedScorer`.
+A direction list selects which outputs to raise, lower, or ignore.
 
 ## Installation
 
@@ -224,6 +222,69 @@ For different output scales or explicit thresholds, the optional
 [Python example](sequence_optimization/examples/deepstarr_multitask.py).
 All 13 algorithms are tested with the real DeepSTARR model in both-high and
 both selective directions; small-budget tests check compatibility, not efficacy.
+
+### Multiple models: lentiMPRA
+
+Combine single-output scorers in output order. Raise K562 while lowering HepG2
+and WTC11:
+
+```python
+from bioseq_models import load_model
+from sequence_optimization import CombinedScorer, SequenceSpace, basesearch_optimize
+
+scorer = CombinedScorer(
+    [load_model(name, device="cpu") for name in
+     ["agarwal_k562", "agarwal_hepg2", "agarwal_wtc11"]],
+    names=["K562", "HepG2", "WTC11"],
+)
+result = basesearch_optimize(
+    scorer, SequenceSpace(230),
+    objective=["maximize", "minimize", "minimize"],
+    num_candidates=4, budget=100, seed=7,
+)
+print(result.to_frame())
+```
+
+### Multiple models: DeepSTARR Mouse
+
+Use the same optimizer to raise heart activity and lower limb and midbrain
+activity. These are tissue models:
+
+```python
+scorer = CombinedScorer(
+    [load_model(name, device="cpu") for name in
+     ["deepstarr_mouse_heart_activity", "deepstarr_mouse_limb_activity",
+      "deepstarr_mouse_midbrain_activity"]],
+    names=["heart", "limb", "midbrain"],
+)
+result = basesearch_optimize(
+    scorer, SequenceSpace(1001),
+    objective=["maximize", "minimize", "minimize"],
+    num_candidates=4, budget=100, seed=7,
+)
+print(result.to_frame())
+```
+
+[Python example functions](sequence_optimization/examples/multiple_models.py).
+[Example sequences and predictions](docs/multiple_model_examples_2026-09-09.json)
+were generated with a 100-query budget. The lentiMPRA best candidate predicts
+K562/HepG2/WTC11 = 0.603/-0.585/-0.936. The Mouse short run predicts
+heart/limb/midbrain = 0.022/0.041/0.032 and does not establish heart specificity.
+The combined scorer is independent of model names. Each child must accept the
+same designed sequence and handle its own encoding, padding or fixed context.
+Gradient algorithms require every child to expose a differentiable `score_soft`;
+wrap models individually before combining them. All 13 algorithms are tested
+with both three-model groups.
+
+`budget=100` counts combined candidate evaluations: each of three models gets
+up to 100 sequence evaluations (300 total, excluding additional gradient
+evaluations and internal ensemble members). Cumulative counts are available as
+`scorer.model_query_counts` and `scorer.model_soft_query_counts`.
+Cache hits can consume proposal budget without another model forward pass.
+All raw outputs remain in the result. To adjust different output scales, use
+fixed reference scales with `MultiTaskObjective(directions=[...], scales=[...])`.
+These examples optimize raw predictions; search directions do not guarantee
+absolute activity levels.
 
 ## Variable biological length
 
@@ -458,25 +519,6 @@ complete minimal integration.
 A scorer must accept a batch of sequence strings and return either `[batch]`
 or `[batch, tasks]` activities. The optimizer never trains the supplied
 activity model.
-
-## Command line
-
-The CLI accepts a Python callable in `package.module:function` form:
-
-```bash
-python -m sequence_optimization.cli \
-  --scorer my_package.my_module:predict_activity \
-  --algorithm genetic_algorithm \
-  --length 40 \
-  --pad-to-length 50 \
-  --padding-side left \
-  --budget 160 \
-  --num-candidates 16 \
-  --output candidates.csv
-```
-
-Use `--budget unlimited` to enable plateau stopping and
-`--saturation-fractions 0.8,0.9` to retain q80/q90 selections.
 
 ## License and model provenance
 

@@ -304,3 +304,21 @@ Optimus 和 DeepSTARR 可运行示例均已执行成功。
 bioseq-models 仅在示例和集成测试中加载，优化核心没有模型专用分支。
 保留 MultiTaskObjective 高级用法；README 以简短 Python 列表示例为主，不提供 CLI。
 列表接口完成全部 13 算法的 DeepSTARR 验证，完整测试 120 passed。
+
+## 11. 多模型组合
+
+新增 `CombinedScorer(models=[...], names=[...])`：每个子 scorer 单输出，
+同一批序列依次交给各 scorer，按列表顺序拼接输出。模型编码、padding 和上下文
+由子 scorer 负责；优化核心不导入 bioseq-models，不含模型名称分支。
+复用 `objective=["maximize", "minimize", "minimize"]` 和现有 13 种算法。
+梯度模式要求每个子 scorer 提供 score_soft，保留跨设备转换的梯度链。
+
+示例 `sequence_optimization/examples/multiple_models.py` 提供 lentiMPRA
+K562/HepG2/WTC11（230 nt）和 DeepSTARR Mouse heart/limb/midbrain activity
+（1001 nt）。设计序列和预测保存在 `docs/multiple_model_examples_2026-09-09.json`。
+100-query Mouse 示例没有证明 heart 特异性；文档明确区分执行兼容与设计效果。
+模型调用计数为累计实际序列评估数；重复候选缓存命中时可能只增加优化预算计数。
+README 只展示 Python 接口，已移除旧 CLI 用法章节。
+验证：原有 120 项测试通过；新增 30 项组合测试通过，包括两组真实模型各 13 种
+算法的预测复算、预算及梯度检查。最初四项预算断言混淆缓存命中与模型实际调用，
+修正后完整重跑新增测试为 30 passed。

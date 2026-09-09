@@ -42,6 +42,7 @@ from .algorithms import (
     simulated_annealing_optimize,
     vanilla_activation_maximization_optimize,
 )
+from .combined import CombinedScorer
 from .objectives import MultiTaskObjective, TargetObjective
 from .saturation import SaturationConfig, SaturationResult, optimize_to_saturation
 from .seeds import load_seed_sequences, random_seed_sequences
@@ -49,6 +50,7 @@ from .seeds import load_seed_sequences, random_seed_sequences
 __all__ = [
     "BudgetExceeded",
     "CallableScorer",
+    "CombinedScorer",
     "CachedScorer",
     "OptimizationConfig",
     "OptimizationResult",
