@@ -467,8 +467,17 @@ class OptimizationConfig:
     ledidi_edit_penalty: float = 0.1
     ledidi_temperature: float = 1.0
     ledidi_epsilon: float = 1e-4
+    basesearch_decay: float = 0.995
+    basesearch_queue_size: int = 1024
+    basesearch_max_stalled: int = 1024
 
     def __post_init__(self) -> None:
+        if not 0 < self.basesearch_decay < 1:
+            raise ValueError("basesearch_decay must be between zero and one")
+        for name in ("basesearch_queue_size", "basesearch_max_stalled"):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, (int, np.integer)) or value < 1:
+                raise ValueError(f"{name} must be a positive integer")
         if not np.isfinite(self.ledidi_edit_penalty) or self.ledidi_edit_penalty < 0:
             raise ValueError("ledidi_edit_penalty must be finite and non-negative")
         for name in ("ledidi_temperature", "ledidi_epsilon"):

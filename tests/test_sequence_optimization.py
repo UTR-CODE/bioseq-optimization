@@ -59,6 +59,7 @@ def test_builtin_algorithms_share_common_result_contract():
         lambda values: np.asarray([value.count("G") for value in values])
     )
     black_box = {
+        "basesearch",
         "random",
         "ism_greedy",
         "simulated_annealing",

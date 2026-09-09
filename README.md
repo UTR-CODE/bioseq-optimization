@@ -132,7 +132,7 @@ print(result.sequences[:5])
 print(result.activities[:5])
 ```
 
-No wrapper is required for Optimus with any of the eight black-box algorithms.
+No wrapper is required for Optimus with any of the nine black-box algorithms.
 The runnable version is
 [`sequence_optimization/examples/external_model.py`](sequence_optimization/examples/external_model.py).
 
@@ -193,7 +193,7 @@ all returned candidates the alphabet is ACGT, never ACGU.
 The [32-model single-output compatibility report](docs/single_task_model_compatibility_2026-09-09.md)
 records real-checkpoint runs: all 32 models pass the eight black-box algorithms;
 28 also pass the three gradient algorithms with wrappers (Cetnar on CPU).
-That report predates Ledidi. The remaining four need model-specific
+That report predates Ledidi and BaseSearch. The remaining four need model-specific
 differentiable adapters.
 
 All algorithms use the same scorer, sequence space, initialization, objective,
@@ -202,6 +202,7 @@ and result contract.
 | Function | Algorithm | Optimus usage |
 |---|---|---|
 | `random_optimize` | Random search | Direct |
+| `basesearch_optimize` | BaseSearch priority-decayed mutation search | Direct |
 | `ism_optimize` / `ISM_optimize` | Greedy in-silico mutagenesis | Direct |
 | `simulated_annealing_optimize` | Simulated annealing | Direct |
 | `genetic_algorithm_optimize` | Genetic algorithm | Direct |
@@ -219,10 +220,10 @@ queried activities. DEN also creates an internal generator, but it optimizes
 that generator through the activity model, so the supplied scorer must support
 `score_soft`.
 
-All twelve registered algorithms are exercised against the real Optimus
+All thirteen registered algorithms are exercised against the real Optimus
 checkpoint in
 [`tests/test_bioseq_models_integration.py`](tests/test_bioseq_models_integration.py).
-The eight black-box algorithms accept the loaded model directly. For the four
+The nine black-box algorithms accept the loaded model directly. For the four
 gradient algorithms, expose the differentiable PyTorch network through the
 existing wrapper:
 
@@ -241,6 +242,47 @@ differentiable_optimus = DifferentiableTorchSequenceScorer(
 The transpose adapts the optimizer's canonical `[batch, length, A/C/G/T]`
 representation to Optimus's `[batch, A/C/G/T, length]` tensor layout. Pass
 `differentiable_optimus` to any of the four gradient optimizers.
+
+### BaseSearch
+
+BaseSearch maintains a priority queue of parents, discounts a parent's priority
+after selection, alternates broad and single-base mutations, and evaluates only
+previously unseen sequences. It needs only discrete `score()` predictions.
+This is a local implementation based on sections 4.15–4.18 of
+[Yao et al., Advanced Science (2026)](https://doi.org/10.1002/advs.202516600),
+not an execution of author-provided code.
+
+```python
+from bioseq_models import load_model
+from sequence_optimization import SequenceSpace, basesearch_optimize
+
+model = load_model("optimus5prime", device="cpu")
+result = basesearch_optimize(
+    model, SequenceSpace(50), num_candidates=4, budget=100,
+    basesearch_decay=0.995, mutation_rate=0.1, seed=7,
+)
+print(result.to_frame())
+```
+
+Implementation choices where the article does not specify exact rules:
+
+- Start with the shared `initial` seeds or random initialization; maintain one
+  queue entry per unique evaluated sequence.
+- Alternate broad and local proposals, beginning with broad. Broad mutations
+  choose `max(2, Binomial(length, mutation_rate))` distinct positions and replace
+  every selected base. Length-one sequences always use a single substitution.
+- Positive priorities decay by multiplication. For zero/negative activity,
+  use `p - (1-decay) * max(abs(p), 1e-12)` to ensure selection lowers priority.
+- With `basesearch_queue_size=1024`, prune to that size when the queue exceeds
+  twice that size. Keep all scored sequences in the result archive and duplicate
+  memory, even when removed from the parent queue.
+- Stop on budget exhaustion, complete search-space coverage, or
+  `basesearch_max_stalled=1024` consecutive duplicate proposals. The latter may
+  stop before exhausting the budget; metadata records the reason.
+
+Results rank by original activity, not decayed queue priority. The mutation
+schedule and negative-score extension are explicit adaptations; this is not a
+claim of reproducing the paper's reported optimization performance.
 
 ### Ledidi for a single output
 

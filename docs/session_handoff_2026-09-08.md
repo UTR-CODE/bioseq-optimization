@@ -250,6 +250,10 @@ result = genetic_algorithm_optimize(
 
 ## 9. 后续完成情况
 
+2026-09-09 后续：新增 `basesearch` / `basesearch_optimize()`，算法总数为 13
+（九种黑盒、四种梯度）。实现基于 BaseSearch 论文方法描述，使用优先级衰减、
+单点/多点突变、全局去重与队列裁剪；具体本地参数选择见 README。
+
 2026-09-09 后续：新增注册算法 `ledidi` 和 `ledidi_optimize()`，算法总数为 12。
 实现为 Ledidi 参数化与 hard Gumbel-softmax 的单输出最大化适配，要求可微 scorer；
 默认编辑惩罚 0.1，结果仍按 activity 排序。真实 Optimus 与 Mouse Heart 模型

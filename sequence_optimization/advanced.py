@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import heapq
 import math
 
 import numpy as np
@@ -10,6 +11,88 @@ import numpy as np
 from .algorithms import _finalize, _score, register_algorithm
 from .api import CachedScorer, SequenceSpace
 from .objectives import ObjectiveScorer
+
+
+def _decay_base_priority(priority, decay):
+    # Multiplication alone would promote a negative score toward zero.
+    return priority - (1 - decay) * max(abs(priority), 1e-12)
+
+
+@register_algorithm("basesearch")
+def basesearch(initial, scorer, space, config, rng):
+    """Local implementation of BaseSearch, Yao et al. (2026), sections 4.15–4.18.
+
+    Queue priorities control exploration; original activities control the result
+    archive. See README for choices unspecified in the published description.
+    """
+    archive: dict[str, tuple[float, float]] = {}
+    batch = _score(scorer, archive, initial)
+    queue = [
+        (-float(value), str(sequence)) for sequence, value in zip(initial, batch.scores)
+    ]
+    queue = heapq.nsmallest(config.basesearch_queue_size, queue)
+    heapq.heapify(queue)
+    trajectory = []
+    attempts = stalled = duplicates = pruned = 0
+    best_score = float(batch.scores.max())
+    capacity = space.alphabet_size**space.length
+    stop_reason = "budget"
+    while scorer.remaining is None or scorer.remaining > 0:
+        if len(archive) == capacity:
+            stop_reason = "space_exhausted"
+            break
+        if stalled >= config.basesearch_max_stalled:
+            stop_reason = "duplicate_stall"
+            break
+        negative_priority, parent = heapq.heappop(queue)
+        priority = _decay_base_priority(-negative_priority, config.basesearch_decay)
+        heapq.heappush(queue, (-priority, parent))
+        encoded = space.encode([parent])
+        if attempts % 2 == 0 and space.length > 1:
+            count = max(2, int(rng.binomial(space.length, config.mutation_rate)))
+            positions = rng.choice(space.length, size=count, replace=False)
+        else:
+            positions = np.asarray([rng.integers(space.length)])
+        offsets = rng.integers(1, space.alphabet_size, size=len(positions))
+        encoded[0, positions] = (encoded[0, positions] + offsets) % space.alphabet_size
+        candidate = space.decode(encoded)
+        attempts += 1
+        if str(candidate[0]) in archive:
+            duplicates += 1
+            stalled += 1
+            continue
+        current = _score(scorer, archive, candidate)
+        best_score = max(best_score, float(current.scores[0]))
+        stalled = 0
+        heapq.heappush(queue, (-float(current.scores[0]), str(candidate[0])))
+        if len(queue) > 2 * config.basesearch_queue_size:
+            pruned += len(queue) - config.basesearch_queue_size
+            queue = heapq.nsmallest(config.basesearch_queue_size, queue)
+            heapq.heapify(queue)
+        trajectory.append(
+            {
+                "query_count": scorer.query_count,
+                "best_score": best_score,
+                "candidate_score": float(current.scores[0]),
+                "queue_size": len(queue),
+            }
+        )
+    return _finalize(
+        "basesearch",
+        archive,
+        config,
+        scorer,
+        {
+            "priority_decay": config.basesearch_decay,
+            "queue_size": len(queue),
+            "pruned": pruned,
+            "proposal_attempts": attempts,
+            "duplicate_proposals": duplicates,
+            "stop_reason": stop_reason,
+            "implementation": "paper_description_adaptation",
+        },
+        trajectory,
+    )
 
 
 def _top_archive(

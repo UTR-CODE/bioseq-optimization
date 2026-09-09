@@ -73,7 +73,8 @@ def main():
         space = SequenceSpace(length)
         initial = space.random(4, np.random.default_rng(7))
         soft_error = "requires a model-specific differentiable adapter"
-        if model is not None and name not in {
+        needs_gradients = bool(set(args.algorithms or available_algorithms()) & GRADIENT)
+        if needs_gradients and model is not None and name not in {
             "utr_code",
             "cds_stability",
             "dream_legnet",
@@ -181,7 +182,10 @@ def main():
                         result.activities,
                         model.score(result.sequences),
                         rtol=1e-4,
-                        atol=1e-5,
+                        # Some GPU checkpoints (notably Agarwal K562) have
+                        # small batch/order-dependent float32 drift on a
+                        # second forward pass.
+                        atol=1e-4,
                     )
                     row.update(
                         status="passed",

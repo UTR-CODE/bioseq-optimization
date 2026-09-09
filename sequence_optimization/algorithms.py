@@ -403,6 +403,9 @@ def optimize(
     ledidi_edit_penalty: float = 0.1,
     ledidi_temperature: float = 1.0,
     ledidi_epsilon: float = 1e-4,
+    basesearch_decay: float = 0.995,
+    basesearch_queue_size: int = 1024,
+    basesearch_max_stalled: int = 1024,
     count_repeated: bool = False,
 ) -> OptimizationResult:
     """Convenience interface that constructs :class:`OptimizationConfig`."""
@@ -422,6 +425,9 @@ def optimize(
         ledidi_edit_penalty=ledidi_edit_penalty,
         ledidi_temperature=ledidi_temperature,
         ledidi_epsilon=ledidi_epsilon,
+        basesearch_decay=basesearch_decay,
+        basesearch_queue_size=basesearch_queue_size,
+        basesearch_max_stalled=basesearch_max_stalled,
     )
     return run(
         algorithm,
@@ -433,6 +439,13 @@ def optimize(
         seed=seed,
         count_repeated=count_repeated,
     )
+
+
+def basesearch_optimize(
+    scorer: SequenceScorer, space: SequenceSpace, **kwargs
+) -> OptimizationResult:
+    """Priority-decayed black-box search with unique mutation proposals."""
+    return optimize(scorer, space, algorithm="basesearch", **kwargs)
 
 
 def random_optimize(

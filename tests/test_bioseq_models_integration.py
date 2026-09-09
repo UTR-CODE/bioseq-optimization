@@ -21,6 +21,7 @@ INITIAL_SEQUENCES = (
     "CTCATTTTTCACCTCCCTTTTATCTCTCTGCTTACGTTTCGATCCCATCA",
 )
 BLACK_BOX_ALGORITHMS = (
+    "basesearch",
     "random",
     "ism_greedy",
     "simulated_annealing",
