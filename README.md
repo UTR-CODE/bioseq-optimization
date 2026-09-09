@@ -39,6 +39,30 @@ python -m pytest -q
 
 ## Examples
 
+All optimizer functions accept `length=...` directly; no sequence-space object
+is needed. The default search alphabet is `ACGT`; optionally pass `alphabet`.
+The length is the designed sequence length, before model-specific padding.
+
+### Built-in onehot
+
+```python
+from sequence_optimization import onehot
+
+values = onehot(["ACGT", "acgu"])  # NumPy float32, shape [2, 4, 4]: [N, L, channels]
+values = onehot(["ACGT"], channels_first=True)  # [N, 4, L], for CNNs
+```
+
+Channel order defaults to A/C/G/T (`alphabet="AGCT"` changes the order).
+`N` becomes all zeros, lowercase is accepted, and `U` maps to `T`.
+Sequences must have equal lengths; other symbols are rejected.
+Use `dtype="uint8"` for compact storage. `TorchSequenceScorer(model)` defaults
+to float32 onehot in `[N, 4, L]` format, so no custom encoding function is needed.
+Loaded bioseq-models models already provide their own input conversion.
+
+The implementation uses NumPy byte lookup tables, referencing
+[SeqPro's byte-based conversion](https://github.com/ML4GLand/SeqPro/blob/main/python/seqpro/_encoders.py).
+It is implemented locally without requiring SeqPro or JIT compilation.
+
 ### Optional: a minimal custom CNN
 
 This complete example defines a one-output CNN, wraps it as a scorer, and runs
@@ -48,15 +72,12 @@ in an application, replace them with weights loaded from a trained checkpoint.
 ```python
 import torch
 from torch import nn
-from torch.nn import functional as F
 
 from sequence_optimization import (
-    SequenceSpace,
     TorchSequenceScorer,
     genetic_algorithm_optimize,
 )
 
-space = SequenceSpace(length=20)
 
 
 class MinimalCNN(nn.Module):
@@ -71,20 +92,14 @@ class MinimalCNN(nn.Module):
         return self.convolution(inputs).mean(dim=2)
 
 
-def encode(sequences):
-    encoded = torch.as_tensor(space.encode(sequences), dtype=torch.long)
-    return F.one_hot(encoded, num_classes=4).float().transpose(1, 2)
-
-
 scorer = TorchSequenceScorer(
     MinimalCNN(),
-    encode,
     device="cpu",
     task_names=("activity",),
 )
 result = genetic_algorithm_optimize(
     scorer,
-    space,
+    length=20,
     num_candidates=4,
     budget=40,
     mutation_rate=0.1,
@@ -104,7 +119,7 @@ algorithm.
 
 ```python
 from bioseq_models import load_model
-from sequence_optimization import SequenceSpace, genetic_algorithm_optimize
+from sequence_optimization import genetic_algorithm_optimize
 
 model = load_model("optimus5prime", device="cpu")
 
@@ -118,7 +133,7 @@ initial = [
 
 result = genetic_algorithm_optimize(
     model,
-    SequenceSpace(length=50),
+    length=50,
     initial=initial,
     objective=["maximize"],
     num_candidates=5,
@@ -164,11 +179,11 @@ Pass `objective` as a list in the same order as the model's output columns:
 For any three-output scorer:
 
 ```python
-from sequence_optimization import SequenceSpace, basesearch_optimize
+from sequence_optimization import basesearch_optimize
 
 result = basesearch_optimize(
     scorer,                          # scorer.score(sequences) returns [N, 3]
-    SequenceSpace(length=249),       # choose the length accepted by your scorer
+    length=249,       # choose the length accepted by your scorer
     objective=["maximize", "minimize", "ignore"],
     num_candidates=4,
     budget=100,
@@ -188,13 +203,13 @@ DeepSTARR predicts `[developmental, housekeeping]` for 249-nt sequences.
 
 ```python
 from bioseq_models import load_model
-from sequence_optimization import SequenceSpace, basesearch_optimize
+from sequence_optimization import basesearch_optimize
 
 model = load_model("deepstarr", device="cpu")
 
 result = basesearch_optimize(
     model,
-    SequenceSpace(249),
+    length=249,
     objective=["maximize", "maximize"],  # both high
     num_candidates=4,
     budget=100,
@@ -230,7 +245,7 @@ and WTC11:
 
 ```python
 from bioseq_models import load_model
-from sequence_optimization import CombinedScorer, SequenceSpace, basesearch_optimize
+from sequence_optimization import CombinedScorer, basesearch_optimize
 
 scorer = CombinedScorer(
     [load_model(name, device="cpu") for name in
@@ -238,7 +253,7 @@ scorer = CombinedScorer(
     names=["K562", "HepG2", "WTC11"],
 )
 result = basesearch_optimize(
-    scorer, SequenceSpace(230),
+    scorer, length=230,
     objective=["maximize", "minimize", "minimize"],
     num_candidates=4, budget=100, seed=7,
 )
@@ -258,7 +273,7 @@ scorer = CombinedScorer(
     names=["heart", "limb", "midbrain"],
 )
 result = basesearch_optimize(
-    scorer, SequenceSpace(1001),
+    scorer, length=1001,
     objective=["maximize", "minimize", "minimize"],
     num_candidates=4, budget=100, seed=7,
 )
@@ -295,7 +310,7 @@ before model encoding.
 
 ```python
 from bioseq_models import load_model
-from sequence_optimization import SequenceSpace, genetic_algorithm_optimize
+from sequence_optimization import genetic_algorithm_optimize
 
 model = load_model(
     "optimus5prime",
@@ -305,7 +320,7 @@ model = load_model(
 
 result = genetic_algorithm_optimize(
     model,
-    SequenceSpace(length=40),  # optimize the real 40-nt sequence
+    length=40,  # optimize the real 40-nt sequence
     num_candidates=16,
     budget=160,
     seed=7,
@@ -387,11 +402,11 @@ not an execution of author-provided code.
 
 ```python
 from bioseq_models import load_model
-from sequence_optimization import SequenceSpace, basesearch_optimize
+from sequence_optimization import basesearch_optimize
 
 model = load_model("optimus5prime", device="cpu")
 result = basesearch_optimize(
-    model, SequenceSpace(50), num_candidates=4, budget=100,
+    model, length=50, num_candidates=4, budget=100,
     basesearch_decay=0.995, mutation_rate=0.1, seed=7,
 )
 print(result.to_frame())
@@ -434,7 +449,7 @@ It requires no additional package.
 ```python
 from bioseq_models import load_model
 from sequence_optimization import (
-    DifferentiableTorchSequenceScorer, SequenceSpace, ledidi_optimize,
+    DifferentiableTorchSequenceScorer, ledidi_optimize,
 )
 
 model = load_model("optimus5prime", device="cpu")
@@ -443,7 +458,7 @@ scorer = DifferentiableTorchSequenceScorer(
     soft_input_transform=lambda x: x.transpose(1, 2),
 )
 result = ledidi_optimize(
-    scorer, SequenceSpace(50), num_candidates=4, budget=200,
+    scorer, length=50, num_candidates=4, budget=200,
     learning_rate=1.0, ledidi_edit_penalty=0.0, seed=7,
 )
 print(result.to_frame())
@@ -474,8 +489,8 @@ Use `run("algorithm_name", ...)` for the registry-based interface, or
 ## Seed sequences or random initialization
 
 Pass `initial=[...]` to any optimizer to use known sequences. If `initial` is
-omitted, candidates are sampled uniformly from `SequenceSpace`. The helper
-`load_seed_sequences(path, space)` reads one sequence per line; blank lines and
+omitted, candidates are sampled uniformly at the requested length. The helper
+`load_seed_sequences(path, length=50)` reads one sequence per line; blank lines and
 lines starting with `#` are ignored.
 
 ## Stop at a plateau instead of choosing a fixed budget
@@ -489,7 +504,7 @@ from sequence_optimization import SaturationConfig, optimize_to_saturation
 
 saturated = optimize_to_saturation(
     model,
-    SequenceSpace(length=50),
+    length=50,
     algorithm="genetic_algorithm",
     num_candidates=16,
     initial=initial,

@@ -108,9 +108,7 @@ class ScoreBatch:
         object.__setattr__(self, "uncertainties", uncertainty)
 
 
-ScorerOutput: TypeAlias = (
-    ScoreBatch | ArrayLike | tuple[ArrayLike, ArrayLike | None]
-)
+ScorerOutput: TypeAlias = ScoreBatch | ArrayLike | tuple[ArrayLike, ArrayLike | None]
 
 
 def as_score_batch(result: ScorerOutput) -> ScoreBatch:
@@ -172,12 +170,15 @@ class CallableScorer:
 
 
 class TorchSequenceScorer:
-    """Wrap any frozen PyTorch model with a user-supplied string encoder."""
+    """Wrap a PyTorch model; default inputs are float32 onehot [N, 4, L].
+
+    Supply an optional custom input converter for other model conventions.
+    """
 
     def __init__(
         self,
         model: Any,
-        encoder: Callable[[np.ndarray], Any],
+        encoder: Callable[[np.ndarray], Any] | None = None,
         *,
         device: Any = None,
         batch_size: int = 4096,
@@ -187,6 +188,13 @@ class TorchSequenceScorer:
     ) -> None:
         if batch_size < 1:
             raise ValueError("batch_size must be positive")
+        if encoder is None:
+            from .onehot import onehot
+            import torch
+
+            def encoder(values):
+                return torch.from_numpy(onehot(values, channels_first=True))
+
         self.model, self.encoder, self.device, self.batch_size = (
             model,
             encoder,
@@ -248,13 +256,18 @@ class DifferentiableTorchSequenceScorer(TorchSequenceScorer):
     def __init__(
         self,
         model: Any,
-        encoder: Callable[[np.ndarray], Any],
+        encoder: Callable[[np.ndarray], Any] | None = None,
         *,
         soft_input_transform: Callable[[Any], Any] | None = None,
         **kwargs: Any,
     ) -> None:
+        default_onehot = encoder is None
         super().__init__(model, encoder, **kwargs)
-        self.soft_input_transform = soft_input_transform or (lambda values: values)
+        self.soft_input_transform = soft_input_transform or (
+            (lambda values: values.transpose(1, 2))
+            if default_onehot
+            else (lambda values: values)
+        )
         if hasattr(model, "parameters"):
             for parameter in model.parameters():
                 parameter.requires_grad_(False)
@@ -347,9 +360,7 @@ class CachedScorer:
                 f"query budget exceeded: requested {cost}, remaining {self.remaining}"
             )
         if missing:
-            current = as_score_batch(
-                self.scorer.score(np.asarray(missing, dtype=str))
-            )
+            current = as_score_batch(self.scorer.score(np.asarray(missing, dtype=str)))
             if len(current.scores) != len(missing):
                 raise ValueError(
                     f"scorer returned {len(current.scores)} rows for {len(missing)} sequences"
@@ -383,6 +394,10 @@ class SequenceSpace:
     def __post_init__(self) -> None:
         alphabet = str(self.alphabet).upper().replace("U", "T")
         object.__setattr__(self, "alphabet", alphabet)
+        if isinstance(self.length, bool) or not isinstance(
+            self.length, (int, np.integer)
+        ):
+            raise ValueError("length must be a positive integer")
         if self.length < 1 or len(alphabet) < 2 or len(set(alphabet)) != len(alphabet):
             raise ValueError(
                 "length must be positive and alphabet must contain unique symbols"
@@ -450,6 +465,15 @@ class SequenceSpace:
         return self.decode(encoded)
 
 
+def _sequence_space(length, alphabet="ACGT") -> SequenceSpace:
+    """Construct internal sequence operations; retain positional legacy objects."""
+    if isinstance(length, SequenceSpace):
+        if alphabet != "ACGT" and alphabet != length.alphabet:
+            raise ValueError("alphabet conflicts with the supplied sequence space")
+        return length
+    return SequenceSpace(length, alphabet)
+
+
 @dataclass(frozen=True)
 class OptimizationConfig:
     budget: int
@@ -476,7 +500,11 @@ class OptimizationConfig:
             raise ValueError("basesearch_decay must be between zero and one")
         for name in ("basesearch_queue_size", "basesearch_max_stalled"):
             value = getattr(self, name)
-            if isinstance(value, bool) or not isinstance(value, (int, np.integer)) or value < 1:
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, (int, np.integer))
+                or value < 1
+            ):
                 raise ValueError(f"{name} must be a positive integer")
         if not np.isfinite(self.ledidi_edit_penalty) or self.ledidi_edit_penalty < 0:
             raise ValueError("ledidi_edit_penalty must be finite and non-negative")
@@ -573,7 +601,9 @@ class OptimizationResult:
             for index, name in enumerate(evaluation["task_names"]):
                 frame[f"margin_{name}"] = np.asarray(evaluation["margins"])[:, index]
                 if evaluation["satisfied"] is not None:
-                    frame[f"satisfied_{name}"] = np.asarray(evaluation["satisfied"])[:, index]
+                    frame[f"satisfied_{name}"] = np.asarray(evaluation["satisfied"])[
+                        :, index
+                    ]
             if evaluation["all_satisfied"] is not None:
                 frame["all_satisfied"] = evaluation["all_satisfied"]
         return frame

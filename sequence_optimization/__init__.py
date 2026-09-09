@@ -1,6 +1,6 @@
 """Standalone, model-agnostic sequence optimization toolkit.
 
-Wrap a model in a scorer, describe its sequence space, choose seed sequences
+Wrap a model in a scorer, supply the sequence length, choose seed sequences
 (or let the toolkit sample them), and run one or more registered algorithms.
 Model architectures and weights live in the separate ``bioseq-models``
 package.
@@ -43,6 +43,7 @@ from .algorithms import (
     vanilla_activation_maximization_optimize,
 )
 from .combined import CombinedScorer
+from .onehot import onehot
 from .objectives import MultiTaskObjective, TargetObjective
 from .saturation import SaturationConfig, SaturationResult, optimize_to_saturation
 from .seeds import load_seed_sequences, random_seed_sequences
@@ -51,6 +52,7 @@ __all__ = [
     "BudgetExceeded",
     "CallableScorer",
     "CombinedScorer",
+    "onehot",
     "CachedScorer",
     "OptimizationConfig",
     "OptimizationResult",

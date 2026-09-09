@@ -1,7 +1,7 @@
 """Python example: three direction lists for a two-output scorer."""
 
 from bioseq_models import load_model
-from sequence_optimization import SequenceSpace, basesearch_optimize
+from sequence_optimization import basesearch_optimize
 
 
 def main():
@@ -14,7 +14,7 @@ def main():
     for name, objective in objectives.items():
         result = basesearch_optimize(
             model,
-            SequenceSpace(249),
+            length=249,
             objective=objective,
             num_candidates=4,
             budget=100,

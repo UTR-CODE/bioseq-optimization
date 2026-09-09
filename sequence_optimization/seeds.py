@@ -6,13 +6,14 @@ from pathlib import Path
 
 import numpy as np
 
-from .api import SequenceSpace
+from .api import _sequence_space
 
 
 def load_seed_sequences(
-    path: str | Path, space: SequenceSpace, *, count: int | None = None
+    path: str | Path, length: int, *, count: int | None = None, alphabet: str = "ACGT"
 ) -> np.ndarray:
     """Load one sequence per non-empty, non-comment line from a text file."""
+    space = _sequence_space(length, alphabet)
     values = [
         line.strip().upper()
         for line in Path(path).read_text().splitlines()
@@ -29,9 +30,10 @@ def load_seed_sequences(
 
 
 def random_seed_sequences(
-    space: SequenceSpace, count: int, *, seed: int = 0
+    length: int, count: int, *, seed: int = 0, alphabet: str = "ACGT"
 ) -> np.ndarray:
     """Create exactly ``count`` unique random seed sequences where feasible."""
+    space = _sequence_space(length, alphabet)
     if count < 1:
         raise ValueError("count must be positive")
     capacity = space.alphabet_size**space.length

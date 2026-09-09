@@ -7,7 +7,6 @@ from sequence_optimization import (
     DifferentiableTorchSequenceScorer,
     MultiTaskObjective,
     OptimizationConfig,
-    SequenceSpace,
     available_algorithms,
     run,
 )
@@ -46,9 +45,7 @@ def test_deepstarr_multitask_all_algorithms(deepstarr, algorithm, direction):
         cbas_batch_size=4,
         den_seed_pretrain_epochs=1,
     )
-    result = run(
-        algorithm, scorer, SequenceSpace(249), config, objective=objective, seed=7
-    )
+    result = run(algorithm, scorer, 249, config, objective=objective, seed=7)
     assert result.activities.shape == (4, 2)
     assert result.task_names == ("developmental", "housekeeping")
     assert len(set(result.sequences)) == 4
@@ -139,7 +136,7 @@ def test_optimus_runs_black_box_algorithm_directly(optimus, algorithm):
     result = run(
         algorithm,
         optimus,
-        SequenceSpace(50),
+        50,
         config,
         initial=INITIAL_SEQUENCES,
         seed=7,
@@ -163,7 +160,7 @@ def test_optimus_runs_differentiable_algorithm(differentiable_optimus, algorithm
     result = run(
         algorithm,
         differentiable_optimus,
-        SequenceSpace(50),
+        50,
         config,
         initial=INITIAL_SEQUENCES,
         seed=7,

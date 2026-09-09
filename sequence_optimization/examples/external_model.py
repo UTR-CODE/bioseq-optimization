@@ -3,7 +3,6 @@
 from bioseq_models import load_model
 
 from sequence_optimization import (
-    SequenceSpace,
     genetic_algorithm_optimize,
 )
 
@@ -12,7 +11,7 @@ def main() -> None:
     model = load_model("optimus5prime", device="cpu")
     result = genetic_algorithm_optimize(
         model,
-        SequenceSpace(length=50),
+        length=50,
         budget=40,
         num_candidates=4,
         mutation_rate=0.1,

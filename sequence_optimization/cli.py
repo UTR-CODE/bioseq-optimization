@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 
 from .algorithms import available_algorithms, run
-from .api import CallableScorer, OptimizationConfig, SequenceSpace
+from .api import CallableScorer, OptimizationConfig
 from .objectives import TargetObjective
 from .saturation import SaturationConfig, optimize_to_saturation
 from .seeds import load_seed_sequences, random_seed_sequences
@@ -100,12 +100,18 @@ def main() -> None:
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
 
-    space = SequenceSpace(args.length, args.alphabet)
     if args.seed_file:
-        initial = load_seed_sequences(args.seed_file, space, count=args.num_candidates)
+        initial = load_seed_sequences(
+            args.seed_file,
+            args.length,
+            alphabet=args.alphabet,
+            count=args.num_candidates,
+        )
         initialization = "user_seed_file"
     else:
-        initial = random_seed_sequences(space, args.num_candidates, seed=args.seed)
+        initial = random_seed_sequences(
+            args.length, args.num_candidates, seed=args.seed, alphabet=args.alphabet
+        )
         initialization = "random"
     task_names = None
     if args.task_names:
@@ -131,9 +137,10 @@ def main() -> None:
         )
         saturated = optimize_to_saturation(
             scorer,
-            space,
+            args.length,
             algorithm=args.algorithm,
             num_candidates=args.num_candidates,
+            alphabet=args.alphabet,
             initial=initial,
             objective=objective,
             saturation=SaturationConfig(
@@ -166,8 +173,9 @@ def main() -> None:
         result = run(
             args.algorithm,
             scorer,
-            space,
+            args.length,
             OptimizationConfig(args.budget, num_candidates=args.num_candidates),
+            alphabet=args.alphabet,
             initial=initial,
             objective=objective,
             seed=args.seed,

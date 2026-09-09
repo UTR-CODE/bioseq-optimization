@@ -7,7 +7,6 @@ from sequence_optimization import (
     CombinedScorer,
     DifferentiableTorchSequenceScorer,
     OptimizationConfig,
-    SequenceSpace,
     available_algorithms,
     run,
 )
@@ -67,7 +66,7 @@ def test_all_algorithms_with_three_models(family, algorithm):
     result = run(
         algorithm,
         scorer,
-        SequenceSpace(length),
+        length,
         config,
         objective=["maximize", "minimize", "minimize"],
         seed=7,

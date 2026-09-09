@@ -10,12 +10,12 @@ import numpy as np
 
 from .algorithms import _REGISTRY, _initial, available_algorithms
 from .api import (
+    _sequence_space,
     CachedScorer,
     OptimizationConfig,
     OptimizationResult,
     ScoreBatch,
     SequenceScorer,
-    SequenceSpace,
 )
 from .objectives import MultiTaskObjective, ObjectiveScorer, TargetObjective
 
@@ -197,9 +197,10 @@ def _selection_result(
 
 def optimize_to_saturation(
     scorer: SequenceScorer,
-    space: SequenceSpace,
+    length: int,
     *,
     algorithm: str,
+    alphabet: str = "ACGT",
     num_candidates: int = 100,
     initial=None,
     objective: TargetObjective
@@ -217,6 +218,7 @@ def optimize_to_saturation(
     A q80 result is the earliest archive whose top-candidate mean reaches 80%
     of the gain between the first valid archive and the final observed plateau.
     """
+    space = _sequence_space(length, alphabet)
     key = str(algorithm).strip().lower()
     if key not in _REGISTRY:
         raise KeyError(

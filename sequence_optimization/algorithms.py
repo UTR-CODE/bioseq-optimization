@@ -9,6 +9,7 @@ from typing import Any
 import numpy as np
 
 from .api import (
+    _sequence_space,
     CachedScorer,
     OptimizationConfig,
     OptimizationResult,
@@ -297,9 +298,10 @@ def adalead(initial, scorer, space, config, rng):
 def run(
     name: str,
     scorer: SequenceScorer,
-    space: SequenceSpace,
+    length: int,
     config: OptimizationConfig,
     *,
+    alphabet: str = "ACGT",
     initial: Sequence[str] | np.ndarray | None = None,
     objective: TargetObjective
     | MultiTaskObjective
@@ -314,6 +316,7 @@ def run(
     The model output is scalarized by ``objective``. If omitted, output zero is
     maximized, which is the natural default for a single-task model.
     """
+    space = _sequence_space(length, alphabet)
     key = str(name).strip().lower()
     if key not in _REGISTRY:
         raise KeyError(
@@ -370,9 +373,10 @@ def run(
 def run_many(
     names: Iterable[str],
     scorer: SequenceScorer,
-    space: SequenceSpace,
+    length: int,
     config: OptimizationConfig,
     *,
+    alphabet: str = "ACGT",
     initial: Sequence[str] | np.ndarray | None = None,
     objective: TargetObjective
     | MultiTaskObjective
@@ -386,8 +390,9 @@ def run_many(
         str(name): run(
             name,
             scorer,
-            space,
+            length,
             config,
+            alphabet=alphabet,
             initial=initial,
             objective=objective,
             seed=seed + offset,
@@ -398,11 +403,12 @@ def run_many(
 
 def optimize(
     scorer: SequenceScorer,
-    space: SequenceSpace,
+    length: int,
     *,
     algorithm: str,
     budget: int,
     num_candidates: int = 100,
+    alphabet: str = "ACGT",
     initial: Sequence[str] | np.ndarray | None = None,
     objective: TargetObjective
     | MultiTaskObjective
@@ -452,8 +458,9 @@ def optimize(
     return run(
         algorithm,
         scorer,
-        space,
+        length,
         config,
+        alphabet=alphabet,
         initial=initial,
         objective=objective,
         seed=seed,
@@ -462,85 +469,79 @@ def optimize(
 
 
 def basesearch_optimize(
-    scorer: SequenceScorer, space: SequenceSpace, **kwargs
+    scorer: SequenceScorer, length: int, **kwargs
 ) -> OptimizationResult:
     """Priority-decayed black-box search with unique mutation proposals."""
-    return optimize(scorer, space, algorithm="basesearch", **kwargs)
+    return optimize(scorer, length, algorithm="basesearch", **kwargs)
 
 
 def random_optimize(
-    scorer: SequenceScorer, space: SequenceSpace, **kwargs
+    scorer: SequenceScorer, length: int, **kwargs
 ) -> OptimizationResult:
-    return optimize(scorer, space, algorithm="random", **kwargs)
+    return optimize(scorer, length, algorithm="random", **kwargs)
 
 
-def ism_optimize(
-    scorer: SequenceScorer, space: SequenceSpace, **kwargs
-) -> OptimizationResult:
-    return optimize(scorer, space, algorithm="ism_greedy", **kwargs)
+def ism_optimize(scorer: SequenceScorer, length: int, **kwargs) -> OptimizationResult:
+    return optimize(scorer, length, algorithm="ism_greedy", **kwargs)
 
 
 def simulated_annealing_optimize(
-    scorer: SequenceScorer, space: SequenceSpace, **kwargs
+    scorer: SequenceScorer, length: int, **kwargs
 ) -> OptimizationResult:
-    return optimize(scorer, space, algorithm="simulated_annealing", **kwargs)
+    return optimize(scorer, length, algorithm="simulated_annealing", **kwargs)
 
 
 def genetic_algorithm_optimize(
-    scorer: SequenceScorer, space: SequenceSpace, **kwargs
+    scorer: SequenceScorer, length: int, **kwargs
 ) -> OptimizationResult:
-    return optimize(scorer, space, algorithm="genetic_algorithm", **kwargs)
+    return optimize(scorer, length, algorithm="genetic_algorithm", **kwargs)
 
 
 def adalead_optimize(
-    scorer: SequenceScorer, space: SequenceSpace, **kwargs
+    scorer: SequenceScorer, length: int, **kwargs
 ) -> OptimizationResult:
-    return optimize(scorer, space, algorithm="adalead", **kwargs)
+    return optimize(scorer, length, algorithm="adalead", **kwargs)
 
 
 def beam_search_optimize(
-    scorer: SequenceScorer, space: SequenceSpace, **kwargs
+    scorer: SequenceScorer, length: int, **kwargs
 ) -> OptimizationResult:
-    return optimize(scorer, space, algorithm="beam_search", **kwargs)
+    return optimize(scorer, length, algorithm="beam_search", **kwargs)
 
 
 def cross_entropy_optimize(
-    scorer: SequenceScorer, space: SequenceSpace, **kwargs
+    scorer: SequenceScorer, length: int, **kwargs
 ) -> OptimizationResult:
-    return optimize(scorer, space, algorithm="cross_entropy_method", **kwargs)
+    return optimize(scorer, length, algorithm="cross_entropy_method", **kwargs)
 
 
-def cbas_optimize(
-    scorer: SequenceScorer, space: SequenceSpace, **kwargs
-) -> OptimizationResult:
-    return optimize(scorer, space, algorithm="cbas", **kwargs)
+def cbas_optimize(scorer: SequenceScorer, length: int, **kwargs) -> OptimizationResult:
+    return optimize(scorer, length, algorithm="cbas", **kwargs)
 
 
 def vanilla_activation_maximization_optimize(
-    scorer: SequenceScorer, space: SequenceSpace, **kwargs
+    scorer: SequenceScorer, length: int, **kwargs
 ) -> OptimizationResult:
     return optimize(
-        scorer, space, algorithm="vanilla_activation_maximization", **kwargs
+        scorer, length, algorithm="vanilla_activation_maximization", **kwargs
     )
 
 
 def fast_seqprop_optimize(
-    scorer: SequenceScorer, space: SequenceSpace, **kwargs
+    scorer: SequenceScorer, length: int, **kwargs
 ) -> OptimizationResult:
-    return optimize(scorer, space, algorithm="fast_seqprop", **kwargs)
+    return optimize(scorer, length, algorithm="fast_seqprop", **kwargs)
 
 
 def ledidi_optimize(
-    scorer: SequenceScorer, space: SequenceSpace, **kwargs
+    scorer: SequenceScorer, length: int, **kwargs
 ) -> OptimizationResult:
     """Ledidi-style single-output maximization with an edit penalty."""
-    return optimize(scorer, space, algorithm="ledidi", **kwargs)
+    return optimize(scorer, length, algorithm="ledidi", **kwargs)
 
 
-def den_optimize(
-    scorer: SequenceScorer, space: SequenceSpace, **kwargs
-) -> OptimizationResult:
-    return optimize(scorer, space, algorithm="den", **kwargs)
+def den_optimize(scorer: SequenceScorer, length: int, **kwargs) -> OptimizationResult:
+    return optimize(scorer, length, algorithm="den", **kwargs)
 
 
 # Requested spelling retained as a public alias; lower-case ``ism_optimize`` is

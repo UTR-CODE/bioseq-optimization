@@ -1,7 +1,7 @@
 """Python examples: one model high and two models low."""
 
 from bioseq_models import load_model
-from sequence_optimization import CombinedScorer, SequenceSpace, basesearch_optimize
+from sequence_optimization import CombinedScorer, basesearch_optimize
 
 
 def lentimpra_example():
@@ -14,7 +14,7 @@ def lentimpra_example():
     )
     return basesearch_optimize(
         scorer,
-        SequenceSpace(230),
+        length=230,
         objective=["maximize", "minimize", "minimize"],
         num_candidates=4,
         budget=100,
@@ -36,7 +36,7 @@ def mouse_example():
     )
     return basesearch_optimize(
         scorer,
-        SequenceSpace(1001),
+        length=1001,
         objective=["maximize", "minimize", "minimize"],
         num_candidates=4,
         budget=100,
