@@ -250,6 +250,11 @@ result = genetic_algorithm_optimize(
 
 ## 9. 后续完成情况
 
+2026-09-09 后续：新增注册算法 `ledidi` 和 `ledidi_optimize()`，算法总数为 12。
+实现为 Ledidi 参数化与 hard Gumbel-softmax 的单输出最大化适配，要求可微 scorer；
+默认编辑惩罚 0.1，结果仍按 activity 排序。真实 Optimus 与 Mouse Heart 模型
+已验证，详见 README 的 Ledidi 示例。此前 32 模型矩阵不包含 Ledidi。
+
 2026-09-09：已完成全部 32 个单输出模型的算法兼容性测试，详见
 [测试报告](single_task_model_compatibility_2026-09-09.md)。全部模型通过八种黑盒
 算法；28 个模型通过可微 wrapper 支持三种梯度算法（Cetnar 使用 CPU）。

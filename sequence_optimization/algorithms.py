@@ -329,6 +329,7 @@ def run(
     else:
         objective_scorer = ObjectiveScorer(scorer, objective or TargetObjective())
         proposal_count_algorithms = {
+            "ledidi",
             "cbas",
             "vanilla_activation_maximization",
             "fast_seqprop",
@@ -399,6 +400,9 @@ def optimize(
     cbas_batch_size: int = 256,
     den_seed_pretrain_epochs: int = 100,
     den_diversity_weight: float = 0.1,
+    ledidi_edit_penalty: float = 0.1,
+    ledidi_temperature: float = 1.0,
+    ledidi_epsilon: float = 1e-4,
     count_repeated: bool = False,
 ) -> OptimizationResult:
     """Convenience interface that constructs :class:`OptimizationConfig`."""
@@ -415,6 +419,9 @@ def optimize(
         cbas_batch_size=cbas_batch_size,
         den_seed_pretrain_epochs=den_seed_pretrain_epochs,
         den_diversity_weight=den_diversity_weight,
+        ledidi_edit_penalty=ledidi_edit_penalty,
+        ledidi_temperature=ledidi_temperature,
+        ledidi_epsilon=ledidi_epsilon,
     )
     return run(
         algorithm,
@@ -488,6 +495,13 @@ def fast_seqprop_optimize(
     scorer: SequenceScorer, space: SequenceSpace, **kwargs
 ) -> OptimizationResult:
     return optimize(scorer, space, algorithm="fast_seqprop", **kwargs)
+
+
+def ledidi_optimize(
+    scorer: SequenceScorer, space: SequenceSpace, **kwargs
+) -> OptimizationResult:
+    """Ledidi-style single-output maximization with an edit penalty."""
+    return optimize(scorer, space, algorithm="ledidi", **kwargs)
 
 
 def den_optimize(

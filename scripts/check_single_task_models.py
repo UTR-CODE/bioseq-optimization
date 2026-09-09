@@ -23,7 +23,7 @@ from sequence_optimization import (
     run,
 )
 
-GRADIENT = {"vanilla_activation_maximization", "fast_seqprop", "den"}
+GRADIENT = {"vanilla_activation_maximization", "fast_seqprop", "den", "ledidi"}
 
 
 def main():
@@ -33,6 +33,7 @@ def main():
     parser.add_argument(
         "--models", nargs="+", help="Optional subset for targeted reruns"
     )
+    parser.add_argument("--algorithms", nargs="+", choices=available_algorithms())
     args = parser.parse_args()
     torch.set_num_threads(2)
     report = {
@@ -121,7 +122,7 @@ def main():
             except Exception as exc:
                 soft = None
                 soft_error = f"{type(exc).__name__}: {exc}"
-        for algorithm in available_algorithms():
+        for algorithm in args.algorithms or available_algorithms():
             start = time.monotonic()
             row = {"model": name, "algorithm": algorithm, "length": length}
             budget = 4 + length * 3 if algorithm == "ism_greedy" else 12

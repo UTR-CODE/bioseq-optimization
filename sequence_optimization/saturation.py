@@ -232,6 +232,7 @@ def optimize_to_saturation(
         options.material_improvement,
     )
     proposal_count_algorithms = {
+        "ledidi",
         "cbas",
         "vanilla_activation_maximization",
         "fast_seqprop",

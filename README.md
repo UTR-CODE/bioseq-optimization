@@ -193,7 +193,8 @@ all returned candidates the alphabet is ACGT, never ACGU.
 The [32-model single-output compatibility report](docs/single_task_model_compatibility_2026-09-09.md)
 records real-checkpoint runs: all 32 models pass the eight black-box algorithms;
 28 also pass the three gradient algorithms with wrappers (Cetnar on CPU).
-The remaining four need model-specific differentiable adapters.
+That report predates Ledidi. The remaining four need model-specific
+differentiable adapters.
 
 All algorithms use the same scorer, sequence space, initialization, objective,
 and result contract.
@@ -211,16 +212,17 @@ and result contract.
 | `vanilla_activation_maximization_optimize` | Activation maximization | Differentiable wrapper |
 | `fast_seqprop_optimize` | Fast SeqProp | Differentiable wrapper |
 | `den_optimize` | Deep exploration network | Differentiable wrapper |
+| `ledidi_optimize` | Ledidi-style single-output maximization | Differentiable wrapper |
 
 CbAS creates and fits its own proposal generator from the seed sequences and
 queried activities. DEN also creates an internal generator, but it optimizes
 that generator through the activity model, so the supplied scorer must support
 `score_soft`.
 
-All eleven registered algorithms are exercised against the real Optimus
+All twelve registered algorithms are exercised against the real Optimus
 checkpoint in
 [`tests/test_bioseq_models_integration.py`](tests/test_bioseq_models_integration.py).
-The eight black-box algorithms accept the loaded model directly. For the three
+The eight black-box algorithms accept the loaded model directly. For the four
 gradient algorithms, expose the differentiable PyTorch network through the
 existing wrapper:
 
@@ -238,7 +240,57 @@ differentiable_optimus = DifferentiableTorchSequenceScorer(
 
 The transpose adapts the optimizer's canonical `[batch, length, A/C/G/T]`
 representation to Optimus's `[batch, A/C/G/T, length]` tensor layout. Pass
-`differentiable_optimus` to any of the three gradient optimizers.
+`differentiable_optimus` to any of the four gradient optimizers.
+
+### Ledidi for a single output
+
+[Ledidi](https://github.com/jmschrei/ledidi) supports a single differentiable
+output. The [mouse enhancer study](https://www.nature.com/articles/s41588-026-02729-1)
+uses it with joint accessibility/activity models; that joint objective is not
+required for single-model optimization.
+
+Our local `ledidi` implementation uses Ledidi's `log(seed_one_hot + epsilon) + W`
+parameterization and hard Gumbel-softmax samples. It minimizes
+`-mean(activity) + ledidi_edit_penalty * mean(number_of_substitutions)`.
+This is a maximization adaptation, not the official package's default MSE
+target-matching objective or a reproduction of the paper's joint-model design.
+It requires no additional package.
+
+```python
+from bioseq_models import load_model
+from sequence_optimization import (
+    DifferentiableTorchSequenceScorer, SequenceSpace, ledidi_optimize,
+)
+
+model = load_model("optimus5prime", device="cpu")
+scorer = DifferentiableTorchSequenceScorer(
+    model.model, model.encoder, device=model.device, task_names=model.task_names,
+    soft_input_transform=lambda x: x.transpose(1, 2),
+)
+result = ledidi_optimize(
+    scorer, SequenceSpace(50), num_candidates=4, budget=200,
+    learning_rate=1.0, ledidi_edit_penalty=0.0, seed=7,
+)
+print(result.to_frame())
+```
+
+Supply `initial=[...]` to edit known sequences; otherwise random seeds are used.
+`ledidi_edit_penalty` defaults to 0.1 per substitution; zero removes the explicit
+edit penalty. `ledidi_temperature=1.0` and `ledidi_epsilon=1e-4` control sampling
+temperature and the seed prior. Small epsilon strongly favors seed bases, so a
+very short run may return unchanged seeds. Each seed has independent weights
+and one sample per iteration. The result archive ranks candidates by activity;
+the edit penalty guides search but is not a hard edit limit or a final ranking
+criterion. `scores` remain activity values and `activities` retain the raw output.
+
+Budget accounting follows the other gradient algorithms: repeated discrete
+proposals count. Additional differentiable evaluations are reported separately
+as `metadata['soft_query_count']`; `budget` is not the total number of network
+forward/backward operations. Ledidi currently rejects multi-output scorers.
+
+[Real-checkpoint smoke results](docs/ledidi_smoke_2026-09-09.json) cover Optimus
+and DeepSTARR-Mouse heart activity. The earlier 32-model matrix does not yet
+constitute Ledidi validation for every model.
 
 Use `run("algorithm_name", ...)` for the registry-based interface, or
 `run_many(...)` to compare several algorithms with independent query budgets.

@@ -434,6 +434,80 @@ def fast_seqprop(initial, scorer, space, config, rng):
     )
 
 
+@register_algorithm("ledidi")
+def ledidi(initial, scorer, space, config, rng):
+    """Ledidi's edit parameterization with a negative-activity output loss.
+
+    See https://github.com/jmschrei/ledidi. This local implementation uses
+    independent seed templates, the shared query budget and top-activity
+    archive; it does not reproduce the paper's joint-model objective.
+    """
+    import torch
+    from torch.nn import functional as functional
+
+    objective = _differentiable_objective(scorer)
+    archive: dict[str, tuple[float, float]] = {}
+    _score(scorer, archive, initial)
+    if objective.activities_for(initial).shape[1] != 1:
+        raise ValueError("ledidi currently requires a single-output scorer")
+    device = _torch_device(scorer)
+    template = _one_hot(initial, space, device)
+    prior = torch.log(template + config.ledidi_epsilon)
+    weights = torch.nn.Parameter(torch.zeros_like(template))
+    optimizer = torch.optim.Adam([weights], lr=config.learning_rate)
+    generator = torch.Generator(device=device)
+    generator.manual_seed(int(rng.integers(0, 2**31 - 1)))
+    trajectory = []
+    soft_queries = 0
+    while scorer.remaining is None or scorer.remaining >= len(initial):
+        noise = -torch.empty_like(weights).exponential_(generator=generator).log()
+        probabilities = torch.softmax(
+            (prior + weights + noise) / config.ledidi_temperature, dim=-1
+        )
+        sampled = probabilities.argmax(dim=-1)
+        hard = functional.one_hot(sampled, num_classes=space.alphabet_size).to(
+            probabilities.dtype
+        )
+        straight_through = hard - probabilities.detach() + probabilities
+        utilities, _ = objective.score_soft(straight_through)
+        soft_queries += len(initial)
+        # Half the one-hot L1 distance is the number of substituted bases.
+        edit_loss = (straight_through - template).abs().sum() / (2 * len(initial))
+        loss = -utilities.mean() + config.ledidi_edit_penalty * edit_loss
+        if not torch.isfinite(loss):
+            raise ValueError("ledidi received a non-finite differentiable loss")
+        optimizer.zero_grad(set_to_none=True)
+        # Differentiate only the design weights, leaving scorer parameter grads alone.
+        (weights.grad,) = torch.autograd.grad(loss, weights)
+        optimizer.step()
+        sequences = space.decode(sampled.detach().cpu().numpy())
+        batch = _score(scorer, archive, sequences)
+        trajectory.append(
+            {
+                "query_count": scorer.query_count,
+                "best_score": float(batch.scores.max()),
+                "mean_score": float(batch.scores.mean()),
+                "mean_edits": float(edit_loss.detach().cpu()),
+                "loss": float(loss.detach().cpu()),
+            }
+        )
+    return _gradient_result(
+        "ledidi",
+        archive,
+        config,
+        scorer,
+        trajectory,
+        {
+            "variant": "single_output_maximization",
+            "edit_penalty": config.ledidi_edit_penalty,
+            "temperature": config.ledidi_temperature,
+            "epsilon": config.ledidi_epsilon,
+            "soft_query_count": soft_queries,
+            "ranking": "activity",
+        },
+    )
+
+
 @register_algorithm("den")
 def den(initial, scorer, space, config, rng):
     """Train a noise-to-sequence generator through a differentiable model."""

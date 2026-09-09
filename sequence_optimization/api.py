@@ -464,8 +464,16 @@ class OptimizationConfig:
     cbas_batch_size: int = 256
     den_seed_pretrain_epochs: int = 100
     den_diversity_weight: float = 0.1
+    ledidi_edit_penalty: float = 0.1
+    ledidi_temperature: float = 1.0
+    ledidi_epsilon: float = 1e-4
 
     def __post_init__(self) -> None:
+        if not np.isfinite(self.ledidi_edit_penalty) or self.ledidi_edit_penalty < 0:
+            raise ValueError("ledidi_edit_penalty must be finite and non-negative")
+        for name in ("ledidi_temperature", "ledidi_epsilon"):
+            if not np.isfinite(getattr(self, name)) or getattr(self, name) <= 0:
+                raise ValueError(f"{name} must be finite and positive")
         if self.budget < self.num_candidates or self.num_candidates < 1:
             raise ValueError("budget must be at least num_candidates")
         if (

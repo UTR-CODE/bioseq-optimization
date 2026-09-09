@@ -31,6 +31,7 @@ BLACK_BOX_ALGORITHMS = (
     "cbas",
 )
 DIFFERENTIABLE_ALGORITHMS = (
+    "ledidi",
     "vanilla_activation_maximization",
     "fast_seqprop",
     "den",
@@ -55,7 +56,7 @@ def differentiable_optimus(optimus):
 
 def optimization_config(algorithm):
     # One greedy ISM sweep needs 3 * 50 mutants in addition to four seeds.
-    budget = 154 if algorithm == "ism_greedy" else 12
+    budget = 154 if algorithm == "ism_greedy" else (84 if algorithm == "ledidi" else 12)
     return OptimizationConfig(
         budget=budget,
         num_candidates=4,
