@@ -250,6 +250,11 @@ result = genetic_algorithm_optimize(
 
 ## 9. 后续完成情况
 
+2026-09-09：已完成全部 32 个单输出模型的算法兼容性测试，详见
+[测试报告](single_task_model_compatibility_2026-09-09.md)。全部模型通过八种黑盒
+算法；28 个模型通过可微 wrapper 支持三种梯度算法（Cetnar 使用 CPU）。
+DREAM、PARM、UTR-CODE、CDS Stability 尚需专门的可微输入适配。
+
 - 优化仓库已增加统一 scorer 输出转换，接受 NumPy `[N]`、`[N, 1]`、
   `(scores, uncertainties)` 和原有 `ScoreBatch`；
 - `bioseq-models` 的单输出模型现在可以直接传给全部八种黑盒算法；

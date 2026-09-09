@@ -190,6 +190,11 @@ all returned candidates the alphabet is ACGT, never ACGU.
 
 ## Algorithms
 
+The [32-model single-output compatibility report](docs/single_task_model_compatibility_2026-09-09.md)
+records real-checkpoint runs: all 32 models pass the eight black-box algorithms;
+28 also pass the three gradient algorithms with wrappers (Cetnar on CPU).
+The remaining four need model-specific differentiable adapters.
+
 All algorithms use the same scorer, sequence space, initialization, objective,
 and result contract.
 

@@ -1,0 +1,130 @@
+{
+  "device": "cpu",
+  "created_at": "2026-09-09T02:38:42.590808+00:00",
+  "torch_version": "2.5.1",
+  "seed": 7,
+  "num_candidates": 4,
+  "results": [
+    {
+      "model": "cetnar_stability",
+      "algorithm": "adalead",
+      "length": 80,
+      "budget": 12,
+      "status": "passed",
+      "queries": 12,
+      "best_score": 0.8669431209564209,
+      "interface": "direct",
+      "seconds": 0.01
+    },
+    {
+      "model": "cetnar_stability",
+      "algorithm": "beam_search",
+      "length": 80,
+      "budget": 12,
+      "status": "passed",
+      "queries": 12,
+      "best_score": 0.8742673993110657,
+      "interface": "direct",
+      "seconds": 0.012
+    },
+    {
+      "model": "cetnar_stability",
+      "algorithm": "cbas",
+      "length": 80,
+      "budget": 12,
+      "status": "passed",
+      "queries": 12,
+      "best_score": 0.8498494029045105,
+      "interface": "direct",
+      "seconds": 0.05
+    },
+    {
+      "model": "cetnar_stability",
+      "algorithm": "cross_entropy_method",
+      "length": 80,
+      "budget": 12,
+      "status": "passed",
+      "queries": 12,
+      "best_score": 0.8498494029045105,
+      "interface": "direct",
+      "seconds": 0.01
+    },
+    {
+      "model": "cetnar_stability",
+      "algorithm": "den",
+      "length": 80,
+      "budget": 12,
+      "status": "passed",
+      "queries": 12,
+      "best_score": 0.8498494029045105,
+      "interface": "wrapper",
+      "seconds": 0.021
+    },
+    {
+      "model": "cetnar_stability",
+      "algorithm": "fast_seqprop",
+      "length": 80,
+      "budget": 12,
+      "status": "passed",
+      "queries": 12,
+      "best_score": 0.9487924575805664,
+      "interface": "wrapper",
+      "seconds": 0.019
+    },
+    {
+      "model": "cetnar_stability",
+      "algorithm": "genetic_algorithm",
+      "length": 80,
+      "budget": 12,
+      "status": "passed",
+      "queries": 12,
+      "best_score": 0.8709146976470947,
+      "interface": "direct",
+      "seconds": 0.009
+    },
+    {
+      "model": "cetnar_stability",
+      "algorithm": "ism_greedy",
+      "length": 80,
+      "budget": 244,
+      "status": "passed",
+      "queries": 244,
+      "best_score": 0.8898149728775024,
+      "interface": "direct",
+      "seconds": 0.082
+    },
+    {
+      "model": "cetnar_stability",
+      "algorithm": "random",
+      "length": 80,
+      "budget": 12,
+      "status": "passed",
+      "queries": 12,
+      "best_score": 0.8498494029045105,
+      "interface": "direct",
+      "seconds": 0.009
+    },
+    {
+      "model": "cetnar_stability",
+      "algorithm": "simulated_annealing",
+      "length": 80,
+      "budget": 12,
+      "status": "passed",
+      "queries": 12,
+      "best_score": 0.8569923639297485,
+      "interface": "direct",
+      "seconds": 0.009
+    },
+    {
+      "model": "cetnar_stability",
+      "algorithm": "vanilla_activation_maximization",
+      "length": 80,
+      "budget": 12,
+      "status": "passed",
+      "queries": 12,
+      "best_score": 0.8498494029045105,
+      "interface": "wrapper",
+      "seconds": 0.014
+    }
+  ]
+}
