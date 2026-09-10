@@ -39,9 +39,6 @@ python -m pytest -q
 
 ## Examples
 
-`length` specifies the designed sequence length, before model-specific padding.
-The default `alphabet` is `"ACGT"`.
-
 ### Optional: a minimal custom CNN
 
 This complete example defines a one-output CNN, wraps it as a scorer, and runs
