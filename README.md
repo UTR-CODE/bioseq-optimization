@@ -7,8 +7,7 @@ architectures, training code, datasets, or checkpoints.
 
 Ready-to-use Optimus 5-Prime, DeepSTARR, and other reproduced activity models
 are maintained in the separate
-[`bioseq-models`](https://github.com/UTR-CODE/bioseq-models) repository. A model
-loaded there can be passed directly to every compatible optimizer here.
+[`bioseq-models`](https://github.com/UTR-CODE/bioseq-models) repository.
 
 The workflow accepts single-output models (Optimus), multi-output models
 (DeepSTARR), or independent models combined with `CombinedScorer`.
@@ -78,10 +77,6 @@ print(result.sequences[:5])
 print(result.activities[:5])
 ```
 
-No wrapper is required for Optimus with any of the nine black-box algorithms.
-The runnable version is
-[`sequence_optimization/examples/external_model.py`](sequence_optimization/examples/external_model.py).
-
 `budget=80` means that this run may query the activity model for at most 80
 candidate sequences. It is a model-evaluation budget, not a training epoch or
 sequence count in the final result.
@@ -96,7 +91,7 @@ With the bundled checkpoint, the first five rows are:
 | GAGAGAACTAGATTAATTTGTCCCTGTTTACCTCTAATCGACTTTCTAAA | 8.715504 | 0.000000 | 8.715504 |
 | GAGAGGACTATATTAATTTGTCGCTTTTTAACTCTAACCGACTTTCTAGA | 8.691080 | 0.000000 | 8.691080 |
 
-The arrays are also available directly as `result.sequences`, `result.scores`,
+The arrays are available as `result.sequences`, `result.scores`,
 `result.uncertainties`, `result.activities`, and `result.task_names`.
 
 ### Multi-task: one direction per output
