@@ -39,9 +39,8 @@ python -m pytest -q
 
 ## Examples
 
-All optimizer functions accept `length=...` directly; no sequence-space object
-is needed. The default search alphabet is `ACGT`; optionally pass `alphabet`.
-The length is the designed sequence length, before model-specific padding.
+`length` specifies the designed sequence length, before model-specific padding.
+The default `alphabet` is `"ACGT"`.
 
 ### Optional: a minimal custom CNN
 
@@ -57,7 +56,6 @@ from sequence_optimization import (
     TorchSequenceScorer,
     genetic_algorithm_optimize,
 )
-
 
 
 class MinimalCNN(nn.Module):
@@ -172,9 +170,8 @@ result = basesearch_optimize(
 print(result.activities)             # retains all three model outputs
 ```
 
-The optimizer does not depend on model names or task names. Replacing the model
-requires a scorer returning `[N, outputs]`, the appropriate sequence length,
-and a matching direction list. Gradient algorithms additionally require
+The scorer returns `[N, outputs]`, with one direction per output.
+Gradient algorithms additionally require
 `score_soft(probabilities)` with gradients preserved.
 
 ### DeepSTARR example
@@ -215,8 +212,6 @@ For different output scales or explicit thresholds, the optional
 `MultiTaskObjective(directions=[...], scales=[...], ...)` interface is available.
 
 [Python example](sequence_optimization/examples/deepstarr_multitask.py).
-All 13 algorithms are tested with the real DeepSTARR model in both-high and
-both selective directions; small-budget tests check compatibility, not efficacy.
 
 ### Multiple models: lentiMPRA
 
@@ -265,11 +260,10 @@ print(result.to_frame())
 were generated with a 100-query budget. The lentiMPRA best candidate predicts
 K562/HepG2/WTC11 = 0.603/-0.585/-0.936. The Mouse short run predicts
 heart/limb/midbrain = 0.022/0.041/0.032 and does not establish heart specificity.
-The combined scorer is independent of model names. Each child must accept the
+Each child scorer must accept the
 same designed sequence and handle its own encoding, padding or fixed context.
 Gradient algorithms require every child to expose a differentiable `score_soft`;
-wrap models individually before combining them. All 13 algorithms are tested
-with both three-model groups.
+wrap models individually before combining them.
 
 `budget=100` counts combined candidate evaluations: each of three models gets
 up to 100 sequence evaluations (300 total, excluding additional gradient
@@ -318,14 +312,9 @@ all returned candidates the alphabet is ACGT, never ACGU.
 
 ## Algorithms
 
-The [32-model single-output compatibility report](docs/single_task_model_compatibility_2026-09-09.md)
-records real-checkpoint runs: all 32 models pass the eight black-box algorithms;
-28 also pass the three gradient algorithms with wrappers (Cetnar on CPU).
-That report predates Ledidi and BaseSearch. The remaining four need model-specific
-differentiable adapters.
-
-All algorithms use the same scorer, sequence space, initialization, objective,
-and result contract.
+Choose an algorithm using its function below. See
+[model input requirements](docs/model_input_requirements.md)
+for model-specific gradient adapters.
 
 | Function | Algorithm | Optimus usage |
 |---|---|---|
@@ -348,12 +337,7 @@ queried activities. DEN also creates an internal generator, but it optimizes
 that generator through the activity model, so the supplied scorer must support
 `score_soft`.
 
-All thirteen registered algorithms are exercised against the real Optimus
-checkpoint in
-[`tests/test_bioseq_models_integration.py`](tests/test_bioseq_models_integration.py).
-The nine black-box algorithms accept the loaded model directly. For the four
-gradient algorithms, expose the differentiable PyTorch network through the
-existing wrapper:
+For gradient algorithms, wrap the model to expose differentiable inputs:
 
 ```python
 from sequence_optimization import DifferentiableTorchSequenceScorer
@@ -376,9 +360,8 @@ representation to Optimus's `[batch, A/C/G/T, length]` tensor layout. Pass
 BaseSearch maintains a priority queue of parents, discounts a parent's priority
 after selection, alternates broad and single-base mutations, and evaluates only
 previously unseen sequences. It needs only discrete `score()` predictions.
-This is a local implementation based on sections 4.15–4.18 of
-[Yao et al., Advanced Science (2026)](https://doi.org/10.1002/advs.202516600),
-not an execution of author-provided code.
+The algorithm is based on
+[Yao et al., Advanced Science (2026)](https://doi.org/10.1002/advs.202516600).
 
 ```python
 from bioseq_models import load_model
@@ -392,7 +375,7 @@ result = basesearch_optimize(
 print(result.to_frame())
 ```
 
-Implementation choices where the article does not specify exact rules:
+Search behavior and parameters:
 
 - Start with the shared `initial` seeds or random initialization; maintain one
   queue entry per unique evaluated sequence.
@@ -408,23 +391,14 @@ Implementation choices where the article does not specify exact rules:
   `basesearch_max_stalled=1024` consecutive duplicate proposals. The latter may
   stop before exhausting the budget; metadata records the reason.
 
-Results rank by original activity, not decayed queue priority. The mutation
-schedule and negative-score extension are explicit adaptations; this is not a
-claim of reproducing the paper's reported optimization performance.
+Results rank by objective score. Queue priorities only control parent selection.
 
-### Ledidi for a single output
+### Ledidi
 
-[Ledidi](https://github.com/jmschrei/ledidi) supports a single differentiable
-output. The [mouse enhancer study](https://www.nature.com/articles/s41588-026-02729-1)
-uses it with joint accessibility/activity models; that joint objective is not
-required for single-model optimization.
-
-Our local `ledidi` implementation uses Ledidi's `log(seed_one_hot + epsilon) + W`
-parameterization and hard Gumbel-softmax samples. It minimizes
-`-mean(activity) + ledidi_edit_penalty * mean(number_of_substitutions)`.
-This is a maximization adaptation, not the official package's default MSE
-target-matching objective or a reproduction of the paper's joint-model design.
-It requires no additional package.
+The [Ledidi](https://github.com/jmschrei/ledidi)-style optimizer maximizes the
+selected objective with an edit penalty:
+`-mean(objective_score) + ledidi_edit_penalty * mean(number_of_substitutions)`.
+It uses hard Gumbel-softmax samples and requires a differentiable scorer.
 
 ```python
 from bioseq_models import load_model
@@ -458,10 +432,6 @@ proposals count. Additional differentiable evaluations are reported separately
 as `metadata['soft_query_count']`; `budget` is not the total number of network
 forward/backward operations. Ledidi supports multi-output scorers through the
 same objective interface as the other algorithms.
-
-[Real-checkpoint smoke results](docs/ledidi_smoke_2026-09-09.json) cover Optimus
-and DeepSTARR-Mouse heart activity. The earlier 32-model matrix does not yet
-constitute Ledidi validation for every model.
 
 Use `run("algorithm_name", ...)` for the registry-based interface, or
 `run_many(...)` to compare several algorithms with independent query budgets.
