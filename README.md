@@ -43,26 +43,6 @@ All optimizer functions accept `length=...` directly; no sequence-space object
 is needed. The default search alphabet is `ACGT`; optionally pass `alphabet`.
 The length is the designed sequence length, before model-specific padding.
 
-### Built-in onehot
-
-```python
-from sequence_optimization import onehot
-
-values = onehot(["ACGT", "acgu"])  # NumPy float32, shape [2, 4, 4]: [N, L, channels]
-values = onehot(["ACGT"], channels_first=True)  # [N, 4, L], for CNNs
-```
-
-Channel order defaults to A/C/G/T (`alphabet="AGCT"` changes the order).
-`N` becomes all zeros, lowercase is accepted, and `U` maps to `T`.
-Sequences must have equal lengths; other symbols are rejected.
-Use `dtype="uint8"` for compact storage. `TorchSequenceScorer(model)` defaults
-to float32 onehot in `[N, 4, L]` format, so no custom encoding function is needed.
-Loaded bioseq-models models already provide their own input conversion.
-
-The implementation uses NumPy byte lookup tables, referencing
-[SeqPro's byte-based conversion](https://github.com/ML4GLand/SeqPro/blob/main/python/seqpro/_encoders.py).
-It is implemented locally without requiring SeqPro or JIT compilation.
-
 ### Optional: a minimal custom CNN
 
 This complete example defines a one-output CNN, wraps it as a scorer, and runs

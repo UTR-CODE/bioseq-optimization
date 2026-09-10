@@ -323,20 +323,13 @@ README 只展示 Python 接口，已移除旧 CLI 用法章节。
 算法的预测复算、预算及梯度检查。最初四项预算断言混淆缓存命中与模型实际调用，
 修正后完整重跑新增测试为 30 passed。
 
-## 12. 简化 length 与内置 onehot
+## 12. 简化公开接口
 
 所有公开优化函数、run/run_many、saturation 和 seed helpers 改为接收 `length`，
 可选 `alphabet="ACGT"`，不要求调用者构造 SequenceSpace。内部继续使用该数据类型
 完成变异与合法性检查，旧的 positional SequenceSpace 调用保留兼容。
 README 和所有 Python 示例均使用 length；真实模型集成测试也使用整数长度。
 
-新增公开 `onehot(sequences, channels_first=False, dtype=np.float32, alphabet="ACGT")`。
-使用独立 NumPy 字节查表实现，参考 SeqPro 的字节表示与 one-hot 路径，无额外依赖。
-默认 [N,L,4]，可选 [N,4,L]，支持大小写、U->T、N 全零，拒绝不等长或非法字符。
-TorchSequenceScorer / DifferentiableTorchSequenceScorer 未传入自定义 converter 时，
-默认调用内置 onehot，模型收到 float32 [N,4,L]。示例不再自行定义 encode 函数。
-
-本机性能对照：10,000 条 230 nt，float32，3次重复每次3轮取最快均值，
-onehot 25.64 ms，Python 逐碱基索引加 np.eye 112.81 ms，约 4.4 倍；
-输出逐元素一致。这不是与 SeqPro 的速度对比，其他硬件/批量不保证相同比例。
+输入转换函数命名为 `onehot`，CNN wrapper 默认处理输入转换。
+文档保持简短，不单独介绍转换函数、实现来源或性能对照。
 完整测试 175 passed；简化后的 custom CNN 示例运行成功。
