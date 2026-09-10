@@ -1,7 +1,7 @@
 """Python examples: one model high and two models low."""
 
 from bioseq_models import load_model
-from sequence_optimization import CombinedScorer, basesearch_optimize
+from sequence_optimization import CombinedScorer, genetic_algorithm_optimize
 
 
 def lentimpra_example():
@@ -12,7 +12,7 @@ def lentimpra_example():
         ],
         names=["K562", "HepG2", "WTC11"],
     )
-    return basesearch_optimize(
+    return genetic_algorithm_optimize(
         scorer,
         length=230,
         objective=["maximize", "minimize", "minimize"],
@@ -34,7 +34,7 @@ def mouse_example():
         ],
         names=["heart", "limb", "midbrain"],
     )
-    return basesearch_optimize(
+    return genetic_algorithm_optimize(
         scorer,
         length=1001,
         objective=["maximize", "minimize", "minimize"],

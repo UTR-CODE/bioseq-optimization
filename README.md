@@ -36,6 +36,26 @@ python -m pip install -e .
 python -m pytest -q
 ```
 
+## Algorithms
+
+| Function | Algorithm | Scorer requirement |
+|---|---|---|
+| `random_optimize` | Random search | `score` |
+| `basesearch_optimize` | BaseSearch priority-decayed mutation search | `score` |
+| `ism_optimize` / `ISM_optimize` | Greedy in-silico mutagenesis | `score` |
+| `simulated_annealing_optimize` | Simulated annealing | `score` |
+| `genetic_algorithm_optimize` | Genetic algorithm | `score` |
+| `adalead_optimize` | AdaLead-style local search | `score` |
+| `beam_search_optimize` | Beam search | `score` |
+| `cross_entropy_optimize` | Cross-entropy method | `score` |
+| `cbas_optimize` | CbAS with an internal autoregressive generator | `score` |
+| `vanilla_activation_maximization_optimize` | Activation maximization | `score_soft` |
+| `fast_seqprop_optimize` | Fast SeqProp | `score_soft` |
+| `den_optimize` | Deep exploration network | `score_soft` |
+| `ledidi_optimize` | Ledidi-style objective maximization | `score_soft` |
+
+[Algorithm parameters](docs/algorithms.md) · [Model input requirements](docs/model_input_requirements.md)
+
 ## Examples
 
 ### Single task: Optimus 5-Prime from `bioseq-models`
@@ -81,85 +101,62 @@ print(result.activities[:5])
 candidate sequences. It is a model-evaluation budget, not a training epoch or
 sequence count in the final result.
 
-With the bundled checkpoint, the first five rows are:
-
-| sequence | score | uncertainty | activity_mrl |
-|---|---:|---:|---:|
-| GTGAGATCAAGATAAATTTGTCCCTGTTTATCTCTAATCCACTGTCTAAA | 8.871757 | 0.000000 | 8.871757 |
-| GAGAGAACTAGCTTAATTTGTCCCTGTTTACCTCTAATCTACTTTCTGAA | 8.739843 | 0.000000 | 8.739843 |
-| GTGAGATCTAGATAAATTTGTCCCTGTTTACCTCTAATCCACTTCCTAAA | 8.737933 | 0.000000 | 8.737933 |
-| GAGAGAACTAGATTAATTTGTCCCTGTTTACCTCTAATCGACTTTCTAAA | 8.715504 | 0.000000 | 8.715504 |
-| GAGAGGACTATATTAATTTGTCGCTTTTTAACTCTAACCGACTTTCTAGA | 8.691080 | 0.000000 | 8.691080 |
-
 The arrays are available as `result.sequences`, `result.scores`,
 `result.uncertainties`, `result.activities`, and `result.task_names`.
 
-### Multi-task: one direction per output
+### Multi-task: three-output CNN
 
-Pass `objective` as a list in the same order as the model's output columns:
-
-- `"maximize"`: make this output higher.
-- `"minimize"`: make this output lower.
-- `"ignore"`: exclude this output from optimization.
-
-For any three-output scorer:
+The CNN below predicts three values per sequence. Its demonstration weights
+measure G, C and T fractions centered at 0.25; use trained weights for a real task.
 
 ```python
-from sequence_optimization import basesearch_optimize
+import torch
+from torch import nn
+from sequence_optimization import SequencePredictor, genetic_algorithm_optimize
 
-result = basesearch_optimize(
-    scorer,                          # scorer.score(sequences) returns [N, 3]
-    length=249,       # choose the length accepted by your scorer
+
+class ThreeOutputCNN(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.conv = nn.Conv1d(4, 3, kernel_size=1)
+        with torch.no_grad():
+            self.conv.weight.zero_()
+            self.conv.weight[0, 2, 0] = 1
+            self.conv.weight[1, 1, 0] = 1
+            self.conv.weight[2, 3, 0] = 1
+            self.conv.bias.fill_(-0.25)
+
+    def forward(self, values):
+        return self.conv(values).mean(dim=2)
+
+
+predictor = SequencePredictor(
+    ThreeOutputCNN(),
+    task_names=["output_1", "output_2", "output_3"],
+    device="cpu",
+)
+result = genetic_algorithm_optimize(
+    predictor,
+    length=20,
     objective=["maximize", "minimize", "ignore"],
     num_candidates=4,
-    budget=100,
-    seed=7,
-)
-print(result.activities)             # retains all three model outputs
-```
-
-The scorer returns `[N, outputs]`, with one direction per output.
-Gradient algorithms additionally require
-`score_soft(probabilities)` with gradients preserved.
-
-### DeepSTARR example
-
-DeepSTARR predicts `[developmental, housekeeping]` for 249-nt sequences.
-
-```python
-from bioseq_models import load_model
-from sequence_optimization import basesearch_optimize
-
-model = load_model("deepstarr", device="cpu")
-
-result = basesearch_optimize(
-    model,
-    length=249,
-    objective=["maximize", "maximize"],  # both high
-    num_candidates=4,
-    budget=100,
+    budget=80,
+    mutation_rate=0.1,
     seed=7,
 )
 print(result.to_frame())
 ```
 
-Change only the list to choose another goal:
+`objective` follows the output column order: `"maximize"` raises an output,
+`"minimize"` lowers it, and `"ignore"` excludes it from optimization.
+Use `["maximize", "maximize", "maximize"]` to raise all three.
 
-```python
-objective = ["maximize", "minimize"]  # developmental high, housekeeping low
-objective = ["minimize", "maximize"]  # developmental low, housekeeping high
-objective = ["maximize", "ignore"]    # developmental high, housekeeping unconstrained
-```
+The default objective maximizes the minimum signed prediction across active
+outputs. All raw predictions, including ignored outputs, remain in
+`result.activities`. For fixed output scales or thresholds, use
+`MultiTaskObjective(directions=[...], scales=[...], ...)`.
 
-The list must match the number of outputs and contain at least one active task.
-The default score is the minimum signed prediction across active tasks
-(positive for maximize, negative for minimize), prioritizing the weakest task.
-Ignored outputs remain in the results but do not affect ranking or gradients.
-These are optimization directions, not absolute activity guarantees.
-For different output scales or explicit thresholds, the optional
-`MultiTaskObjective(directions=[...], scales=[...], ...)` interface is available.
-
-[Python example](sequence_optimization/examples/deepstarr_multitask.py).
+[Three-output CNN example](sequence_optimization/examples/multitask_cnn.py).
 
 ### Multiple models: lentiMPRA
 
@@ -168,14 +165,14 @@ and WTC11:
 
 ```python
 from bioseq_models import load_model
-from sequence_optimization import CombinedScorer, basesearch_optimize
+from sequence_optimization import CombinedScorer, genetic_algorithm_optimize
 
 scorer = CombinedScorer(
     [load_model(name, device="cpu") for name in
      ["agarwal_k562", "agarwal_hepg2", "agarwal_wtc11"]],
     names=["K562", "HepG2", "WTC11"],
 )
-result = basesearch_optimize(
+result = genetic_algorithm_optimize(
     scorer, length=230,
     objective=["maximize", "minimize", "minimize"],
     num_candidates=4, budget=100, seed=7,
@@ -195,7 +192,7 @@ scorer = CombinedScorer(
       "deepstarr_mouse_midbrain_activity"]],
     names=["heart", "limb", "midbrain"],
 )
-result = basesearch_optimize(
+result = genetic_algorithm_optimize(
     scorer, length=1001,
     objective=["maximize", "minimize", "minimize"],
     num_candidates=4, budget=100, seed=7,
@@ -204,10 +201,6 @@ print(result.to_frame())
 ```
 
 [Python example functions](sequence_optimization/examples/multiple_models.py).
-[Example sequences and predictions](docs/multiple_model_examples_2026-09-09.json)
-were generated with a 100-query budget. The lentiMPRA best candidate predicts
-K562/HepG2/WTC11 = 0.603/-0.585/-0.936. The Mouse short run predicts
-heart/limb/midbrain = 0.022/0.041/0.032 and does not establish heart specificity.
 Each child scorer must accept the
 same designed sequence and handle its own encoding, padding or fixed context.
 Gradient algorithms require every child to expose a differentiable `score_soft`;
@@ -258,132 +251,6 @@ same for black-box and gradient algorithms.
 RNA input is accepted, but `U` is always normalized to `T`. Internally and in
 all returned candidates the alphabet is ACGT, never ACGU.
 
-## Algorithms
-
-Choose an algorithm using its function below. See
-[model input requirements](docs/model_input_requirements.md)
-for model-specific gradient adapters.
-
-| Function | Algorithm | Optimus usage |
-|---|---|---|
-| `random_optimize` | Random search | Direct |
-| `basesearch_optimize` | BaseSearch priority-decayed mutation search | Direct |
-| `ism_optimize` / `ISM_optimize` | Greedy in-silico mutagenesis | Direct |
-| `simulated_annealing_optimize` | Simulated annealing | Direct |
-| `genetic_algorithm_optimize` | Genetic algorithm | Direct |
-| `adalead_optimize` | AdaLead-style local search | Direct |
-| `beam_search_optimize` | Beam search | Direct |
-| `cross_entropy_optimize` | Cross-entropy method | Direct |
-| `cbas_optimize` | CbAS with an internal autoregressive generator | Direct |
-| `vanilla_activation_maximization_optimize` | Activation maximization | Differentiable wrapper |
-| `fast_seqprop_optimize` | Fast SeqProp | Differentiable wrapper |
-| `den_optimize` | Deep exploration network | Differentiable wrapper |
-| `ledidi_optimize` | Ledidi-style objective maximization | Differentiable wrapper |
-
-CbAS creates and fits its own proposal generator from the seed sequences and
-queried activities. DEN also creates an internal generator, but it optimizes
-that generator through the activity model, so the supplied scorer must support
-`score_soft`.
-
-For gradient algorithms, wrap the model to expose differentiable inputs:
-
-```python
-from sequence_optimization import DifferentiableSequencePredictor
-
-differentiable_optimus = DifferentiableSequencePredictor(
-    model.model,
-    onehot=model.encoder,
-    device=model.device,
-    task_names=model.task_names,
-    soft_input_transform=lambda probabilities: probabilities.transpose(1, 2),
-)
-```
-
-The transpose adapts the optimizer's canonical `[batch, length, A/C/G/T]`
-representation to Optimus's `[batch, A/C/G/T, length]` tensor layout. Pass
-`differentiable_optimus` to any of the four gradient optimizers.
-
-### BaseSearch
-
-BaseSearch maintains a priority queue of parents, discounts a parent's priority
-after selection, alternates broad and single-base mutations, and evaluates only
-previously unseen sequences. It needs only discrete `score()` predictions.
-The algorithm is based on
-[Yao et al., Advanced Science (2026)](https://doi.org/10.1002/advs.202516600).
-
-```python
-from bioseq_models import load_model
-from sequence_optimization import basesearch_optimize
-
-model = load_model("optimus5prime", device="cpu")
-result = basesearch_optimize(
-    model, length=50, num_candidates=4, budget=100,
-    basesearch_decay=0.995, mutation_rate=0.1, seed=7,
-)
-print(result.to_frame())
-```
-
-Search behavior and parameters:
-
-- Start with the shared `initial` seeds or random initialization; maintain one
-  queue entry per unique evaluated sequence.
-- Alternate broad and local proposals, beginning with broad. Broad mutations
-  choose `max(2, Binomial(length, mutation_rate))` distinct positions and replace
-  every selected base. Length-one sequences always use a single substitution.
-- Positive priorities decay by multiplication. For zero/negative activity,
-  use `p - (1-decay) * max(abs(p), 1e-12)` to ensure selection lowers priority.
-- With `basesearch_queue_size=1024`, prune to that size when the queue exceeds
-  twice that size. Keep all scored sequences in the result archive and duplicate
-  memory, even when removed from the parent queue.
-- Stop on budget exhaustion, complete search-space coverage, or
-  `basesearch_max_stalled=1024` consecutive duplicate proposals. The latter may
-  stop before exhausting the budget; metadata records the reason.
-
-Results rank by objective score. Queue priorities only control parent selection.
-
-### Ledidi
-
-The [Ledidi](https://github.com/jmschrei/ledidi)-style optimizer maximizes the
-selected objective with an edit penalty:
-`-mean(objective_score) + ledidi_edit_penalty * mean(number_of_substitutions)`.
-It uses hard Gumbel-softmax samples and requires a differentiable scorer.
-
-```python
-from bioseq_models import load_model
-from sequence_optimization import (
-    DifferentiableSequencePredictor, ledidi_optimize,
-)
-
-model = load_model("optimus5prime", device="cpu")
-scorer = DifferentiableSequencePredictor(
-    model.model, onehot=model.encoder, device=model.device, task_names=model.task_names,
-    soft_input_transform=lambda x: x.transpose(1, 2),
-)
-result = ledidi_optimize(
-    scorer, length=50, num_candidates=4, budget=200,
-    learning_rate=1.0, ledidi_edit_penalty=0.0, seed=7,
-)
-print(result.to_frame())
-```
-
-Supply `initial=[...]` to edit known sequences; otherwise random seeds are used.
-`ledidi_edit_penalty` defaults to 0.1 per substitution; zero removes the explicit
-edit penalty. `ledidi_temperature=1.0` and `ledidi_epsilon=1e-4` control sampling
-temperature and the seed prior. Small epsilon strongly favors seed bases, so a
-very short run may return unchanged seeds. Each seed has independent weights
-and one sample per iteration. The result archive ranks candidates by activity;
-the edit penalty guides search but is not a hard edit limit or a final ranking
-criterion. `scores` contain the selected objective and `activities` retain all raw outputs.
-
-Budget accounting follows the other gradient algorithms: repeated discrete
-proposals count. Additional differentiable evaluations are reported separately
-as `metadata['soft_query_count']`; `budget` is not the total number of network
-forward/backward operations. Ledidi supports multi-output scorers through the
-same objective interface as the other algorithms.
-
-Use `run("algorithm_name", ...)` for the registry-based interface, or
-`run_many(...)` to compare several algorithms with independent query budgets.
-
 ## Seed sequences or random initialization
 
 Pass `initial=[...]` to any optimizer to use known sequences. If `initial` is
@@ -405,7 +272,6 @@ saturated = optimize_to_saturation(
     length=50,
     algorithm="genetic_algorithm",
     num_candidates=16,
-    initial=initial,
     saturation=SaturationConfig(
         fractions=(0.8, 0.9),
         maximum_queries=800,
