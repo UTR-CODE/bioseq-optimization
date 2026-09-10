@@ -16,6 +16,12 @@
 - [den_optimize](algorithms/den.md)
 - [ledidi_optimize](algorithms/ledidi.md)
 - [Objective parameters](objectives.md)
+- [Initial sequences, budgets and saturation screening](search_workflow.md)
+
+## Custom CNN tasks
+
+- [Multi-task: three outputs](tasks/multi_task.md)
+- [Multiple independent models](tasks/multiple_models.md)
 
 ## Model parameters and tasks
 

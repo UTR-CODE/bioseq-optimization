@@ -9,12 +9,12 @@ The main workflow is:
 
 ```python
 from bioseq_models import load_model
-from sequence_optimization import SequenceSpace, genetic_algorithm_optimize
+from sequence_optimization import genetic_algorithm_optimize
 
 model = load_model("optimus5prime")
 result = genetic_algorithm_optimize(
     model,
-    SequenceSpace(length=50),
+    length=50,
     num_candidates=16,
     budget=160,
     seed=7,

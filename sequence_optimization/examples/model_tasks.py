@@ -4,45 +4,12 @@ from bioseq_models import load_model
 
 from sequence_optimization import (
     CombinedScorer,
-    DifferentiableSequencePredictor,
     genetic_algorithm_optimize,
-    optimize,
 )
 
 REFERENCE_CDS = "ATG" + "GCT" * 18 + "TAA"
 FIXED_UTR5 = "ACGT" * 10
 FIXED_UTR3 = "ACGT" * 10
-
-
-def optimus_algorithms(
-    algorithms=("genetic_algorithm", "basesearch", "simulated_annealing"),
-    *,
-    budget=100,
-    device="cpu",
-):
-    model = load_model("optimus5prime", device=device)
-    gradient = {"ledidi", "vanilla_activation_maximization", "fast_seqprop", "den"}
-    results = {}
-    for algorithm in algorithms:
-        predictor = model
-        if algorithm in gradient:
-            predictor = DifferentiableSequencePredictor(
-                model.model,
-                onehot=model.encoder,
-                device=device,
-                task_names=model.task_names,
-                soft_input_transform=lambda values: values.transpose(1, 2),
-            )
-        results[algorithm] = optimize(
-            predictor,
-            length=50,
-            algorithm=algorithm,
-            objective=["maximize"],
-            num_candidates=4,
-            budget=budget,
-            seed=7,
-        )
-    return results
 
 
 def design_utr_code(region="utr5", *, budget=100, device="cpu", synonymous_codons=None):

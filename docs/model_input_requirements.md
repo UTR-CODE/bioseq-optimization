@@ -9,6 +9,7 @@ shared `[batch, length, A/C/G/T]` input.
 |---|---|
 | Optimus 5-Prime | Channels-first one-hot input |
 | DeepSTARR and DeepSTARR-Mouse/Embryo | Channels-first one-hot input |
+| Malinois | Fixed left/right assay context and channels-first input |
 | Agarwal HepG2, K562, WTC11 | Channels-first input in A/G/C/T order |
 | Cetnar stability | Channels-last input; use CPU for gradients in eval mode |
 | DREAM LegNet | Model-specific context and channel adapter |

@@ -105,5 +105,5 @@ model = load_model("optimus5prime", device="cpu")
 predictions = model.score(["ACGT" * 12 + "AC"])  # NumPy [1, 1]
 ```
 
-No separate input conversion is needed for `.score()`. `model.model` is the
-underlying PyTorch network and expects the model-specific tensor input.
+`.score()` performs the model's input conversion. `model.model` is the underlying
+PyTorch network and expects the model-specific tensor input.

@@ -7,20 +7,6 @@ pytest.importorskip("bioseq_models")
 from sequence_optimization.examples import model_tasks as tasks
 
 
-def test_optimus_algorithm_comparison(monkeypatch):
-    class Predictor:
-        task_names = ("mrl",)
-
-        def score(self, values):
-            assert all(len(value) == 50 for value in values)
-            return np.array([[value.count("G")] for value in values])
-
-    monkeypatch.setattr(tasks, "load_model", lambda *args, **kwargs: Predictor())
-    results = tasks.optimus_algorithms(budget=12)
-    assert set(results) == {"genetic_algorithm", "basesearch", "simulated_annealing"}
-    assert all(result.query_count <= 12 for result in results.values())
-
-
 @pytest.mark.parametrize(
     "function,args,kwargs,length,directions",
     [

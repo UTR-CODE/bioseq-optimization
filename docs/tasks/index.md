@@ -12,4 +12,10 @@
 - [Malinois cell-line-specific enhancers](../models/malinois.md)
 - [Synonymous CDS constraints](synonymous_cds.md)
 
-Task recipes use [genetic optimization](../algorithms/genetic_algorithm.md), except the Optimus comparison, which accepts a list of algorithms.
+## Custom CNNs
+
+- [Multi-task: three outputs](multi_task.md)
+- [Multiple independent models](multiple_models.md)
+
+[Optimizer parameters](../algorithms.md) ·
+[Initial sequences, budgets and saturation screening](../search_workflow.md).
