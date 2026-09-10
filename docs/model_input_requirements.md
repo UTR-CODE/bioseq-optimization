@@ -16,7 +16,7 @@ shared `[batch, length, A/C/G/T]` input.
 | UTR-CODE | Transcript and fixed-context adapter |
 | CDS Stability | Codon tokenization and auxiliary-input adapter |
 
-Use `DifferentiableTorchSequenceScorer` with the model's input conversion
+Use `DifferentiableSequencePredictor` with the model's input conversion
 and a suitable `soft_input_transform`. Both paths must represent the same
 sequence, including padding, channel order and fixed context.
 

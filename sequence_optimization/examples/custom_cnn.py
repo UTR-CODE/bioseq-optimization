@@ -4,7 +4,7 @@ import torch
 from torch import nn
 
 from sequence_optimization import (
-    TorchSequenceScorer,
+    SequencePredictor,
     genetic_algorithm_optimize,
 )
 
@@ -25,8 +25,8 @@ class MinimalCNN(nn.Module):
 
 def main() -> None:
     # In a real application, construct the trained architecture and load its
-    # checkpoint before wrapping it in TorchSequenceScorer.
-    scorer = TorchSequenceScorer(
+    # checkpoint before wrapping it in SequencePredictor.
+    scorer = SequencePredictor(
         MinimalCNN(),
         device="cpu",
         task_names=("activity",),

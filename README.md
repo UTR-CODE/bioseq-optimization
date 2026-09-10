@@ -39,58 +39,14 @@ python -m pytest -q
 
 ## Examples
 
-### Optional: a minimal custom CNN
-
-This complete example defines a one-output CNN, wraps it as a scorer, and runs
-the genetic algorithm. The fixed weights make the demonstration reproducible;
-in an application, replace them with weights loaded from a trained checkpoint.
-
-```python
-import torch
-from torch import nn
-
-from sequence_optimization import (
-    TorchSequenceScorer,
-    genetic_algorithm_optimize,
-)
-
-
-class MinimalCNN(nn.Module):
-    def __init__(self):
-        super().__init__()
-        self.convolution = nn.Conv1d(4, 1, kernel_size=1, bias=False)
-        with torch.no_grad():
-            self.convolution.weight.zero_()
-            self.convolution.weight[0, 2, 0] = 1.0  # reward G
-
-    def forward(self, inputs):
-        return self.convolution(inputs).mean(dim=2)
-
-
-scorer = TorchSequenceScorer(
-    MinimalCNN(),
-    device="cpu",
-    task_names=("activity",),
-)
-result = genetic_algorithm_optimize(
-    scorer,
-    length=20,
-    num_candidates=4,
-    budget=40,
-    mutation_rate=0.1,
-    seed=7,
-)
-print(result.to_frame())
-```
-
-The runnable version is
-[`sequence_optimization/examples/custom_cnn.py`](sequence_optimization/examples/custom_cnn.py).
-
 ### Single task: Optimus 5-Prime from `bioseq-models`
 
 This example loads Optimus from `bioseq-models`, starts from five 50-nt 5′UTR
 sequences, and returns the five best unique candidates found by the genetic
 algorithm.
+
+`model.score(sequences)` accepts nucleotide strings and returns a NumPy
+prediction array; the loaded model handles its input conversion.
 
 ```python
 from bioseq_models import load_model
@@ -337,11 +293,11 @@ that generator through the activity model, so the supplied scorer must support
 For gradient algorithms, wrap the model to expose differentiable inputs:
 
 ```python
-from sequence_optimization import DifferentiableTorchSequenceScorer
+from sequence_optimization import DifferentiableSequencePredictor
 
-differentiable_optimus = DifferentiableTorchSequenceScorer(
+differentiable_optimus = DifferentiableSequencePredictor(
     model.model,
-    model.encoder,
+    onehot=model.encoder,
     device=model.device,
     task_names=model.task_names,
     soft_input_transform=lambda probabilities: probabilities.transpose(1, 2),
@@ -400,12 +356,12 @@ It uses hard Gumbel-softmax samples and requires a differentiable scorer.
 ```python
 from bioseq_models import load_model
 from sequence_optimization import (
-    DifferentiableTorchSequenceScorer, ledidi_optimize,
+    DifferentiableSequencePredictor, ledidi_optimize,
 )
 
 model = load_model("optimus5prime", device="cpu")
-scorer = DifferentiableTorchSequenceScorer(
-    model.model, model.encoder, device=model.device, task_names=model.task_names,
+scorer = DifferentiableSequencePredictor(
+    model.model, onehot=model.encoder, device=model.device, task_names=model.task_names,
     soft_input_transform=lambda x: x.transpose(1, 2),
 )
 result = ledidi_optimize(
@@ -472,15 +428,8 @@ first complete candidate archive to the final observed plateau.
 
 ## Use your own model
 
-Wrap a callable with `CallableScorer`, a frozen PyTorch model with
-`TorchSequenceScorer`, or a differentiable PyTorch model with
-`DifferentiableTorchSequenceScorer`. See the local
-[`custom_cnn.py`](sequence_optimization/examples/custom_cnn.py) example for a
-complete minimal integration.
-
-A scorer must accept a batch of sequence strings and return either `[batch]`
-or `[batch, tasks]` activities. The optimizer never trains the supplied
-activity model.
+See [Wrap your own model](docs/custom_models.md) for input conversion and
+prediction examples.
 
 ## License and model provenance
 

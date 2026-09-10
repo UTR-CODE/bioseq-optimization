@@ -169,7 +169,7 @@ class CallableScorer:
         return as_score_batch(self.function(values))
 
 
-class TorchSequenceScorer:
+class SequencePredictor:
     """Wrap a PyTorch model; default inputs are float32 onehot [N, 4, L].
 
     Supply an optional custom input converter for other model conventions.
@@ -180,6 +180,7 @@ class TorchSequenceScorer:
         model: Any,
         encoder: Callable[[np.ndarray], Any] | None = None,
         *,
+        onehot: Callable[[np.ndarray], Any] | None = None,
         device: Any = None,
         batch_size: int = 4096,
         task_names: Sequence[str] | None = None,
@@ -188,12 +189,16 @@ class TorchSequenceScorer:
     ) -> None:
         if batch_size < 1:
             raise ValueError("batch_size must be positive")
+        if onehot is not None:
+            if encoder is not None:
+                raise ValueError("supply only one input conversion function")
+            encoder = onehot
         if encoder is None:
-            from .onehot import onehot
+            from .onehot import onehot as default_onehot
             import torch
 
             def encoder(values):
-                return torch.from_numpy(onehot(values, channels_first=True))
+                return torch.from_numpy(default_onehot(values, channels_first=True))
 
         self.model, self.encoder, self.device, self.batch_size = (
             model,
@@ -202,6 +207,7 @@ class TorchSequenceScorer:
             batch_size,
         )
         self.task_names = _validate_task_names(task_names)
+        self.onehot = self.encoder
         self.pad_to_length, self.padding_side = _validate_padding(
             pad_to_length, padding_side
         )
@@ -220,7 +226,9 @@ class TorchSequenceScorer:
         with torch.no_grad():
             for start in range(0, len(values), self.batch_size):
                 batch = values[start : start + self.batch_size]
-                inputs = self.encoder(batch)
+                inputs = self.onehot(batch)
+                if isinstance(inputs, np.ndarray):
+                    inputs = torch.from_numpy(inputs)
                 if self.device is not None and hasattr(inputs, "to"):
                     inputs = inputs.to(self.device)
                 output = self.model(inputs)
@@ -244,7 +252,7 @@ class TorchSequenceScorer:
         return ScoreBatch(combined, combined_uncertainty)
 
 
-class DifferentiableTorchSequenceScorer(TorchSequenceScorer):
+class DifferentiableSequencePredictor(SequencePredictor):
     """PyTorch scorer that also accepts differentiable soft one-hot sequences.
 
     Discrete optimizers use :meth:`score`. Gradient-based optimizers call
@@ -258,11 +266,12 @@ class DifferentiableTorchSequenceScorer(TorchSequenceScorer):
         model: Any,
         encoder: Callable[[np.ndarray], Any] | None = None,
         *,
+        onehot: Callable[[np.ndarray], Any] | None = None,
         soft_input_transform: Callable[[Any], Any] | None = None,
         **kwargs: Any,
     ) -> None:
-        default_onehot = encoder is None
-        super().__init__(model, encoder, **kwargs)
+        default_onehot = encoder is None and onehot is None
+        super().__init__(model, encoder, onehot=onehot, **kwargs)
         self.soft_input_transform = soft_input_transform or (
             (lambda values: values.transpose(1, 2))
             if default_onehot
@@ -297,6 +306,10 @@ class DifferentiableTorchSequenceScorer(TorchSequenceScorer):
             if uncertainties.shape != activities.shape:
                 raise ValueError("differentiable uncertainties must match activities")
         return activities, uncertainties
+
+
+TorchSequenceScorer = SequencePredictor
+DifferentiableTorchSequenceScorer = DifferentiableSequencePredictor
 
 
 def _validate_task_names(task_names: Sequence[str] | None) -> tuple[str, ...] | None:
