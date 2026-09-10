@@ -507,6 +507,8 @@ class OptimizationConfig:
     basesearch_decay: float = 0.995
     basesearch_queue_size: int = 1024
     basesearch_max_stalled: int = 1024
+    reference_cds: str | None = None
+    synonymous_codons: dict[str, Sequence[str]] | None = None
 
     def __post_init__(self) -> None:
         if not 0 < self.basesearch_decay < 1:

@@ -8,9 +8,8 @@ from typing import Any
 
 import numpy as np
 
-from .algorithms import _REGISTRY, _initial, available_algorithms
+from .algorithms import _REGISTRY, _initial, _configured_space, available_algorithms
 from .api import (
-    _sequence_space,
     CachedScorer,
     OptimizationConfig,
     OptimizationResult,
@@ -218,7 +217,6 @@ def optimize_to_saturation(
     A q80 result is the earliest archive whose top-candidate mean reaches 80%
     of the gain between the first valid archive and the final observed plateau.
     """
-    space = _sequence_space(length, alphabet)
     key = str(algorithm).strip().lower()
     if key not in _REGISTRY:
         raise KeyError(
@@ -232,6 +230,7 @@ def optimize_to_saturation(
         **optimizer_parameters,
     )
     rng = np.random.default_rng(seed)
+    space = _configured_space(length, alphabet, config, key)
     random.seed(seed)
     prepared = _initial(initial, space, config, rng)
     objective_scorer = ObjectiveScorer(

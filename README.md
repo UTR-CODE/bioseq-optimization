@@ -1,113 +1,42 @@
 # Biosequence Optimization
 
-`bioseq-optimization` is a model-agnostic DNA/RNA sequence-design toolkit.
-It contains optimization algorithms, objectives, sequence initialization,
-query accounting, and scorer interfaces. It does **not** contain model
-architectures, training code, datasets, or checkpoints.
-
-Ready-to-use Optimus 5-Prime, DeepSTARR, and other reproduced activity models
-are maintained in the separate
-[`bioseq-models`](https://github.com/UTR-CODE/bioseq-models) repository.
-
-The workflow accepts single-output models (Optimus), multi-output models
-(DeepSTARR), or independent models combined with `CombinedScorer`.
-A direction list selects which outputs to raise, lower, or ignore.
+Design DNA/RNA sequences with a predictor and an optimization objective.
 
 ## Installation
-
-Install only the optimization package:
 
 ```bash
 python -m pip install git+ssh://git@github.com/UTR-CODE/bioseq-optimization.git
 ```
 
-To use the ready-to-use models as well:
+For pretrained models used in the task guides:
 
 ```bash
 python -m pip install git+ssh://git@github.com/UTR-CODE/bioseq-models.git
 ```
 
-For development:
-
-```bash
-git clone git@github.com:UTR-CODE/bioseq-optimization.git
-cd bioseq-optimization
-python -m pip install -e .
-python -m pytest -q
-```
-
 ## Algorithms
 
-| Function | Algorithm | Scorer requirement |
+| Algorithm | Function | Predictor interface |
 |---|---|---|
-| `random_optimize` | Random search | `score` |
-| `basesearch_optimize` | BaseSearch priority-decayed mutation search | `score` |
-| `ism_optimize` / `ISM_optimize` | Greedy in-silico mutagenesis | `score` |
-| `simulated_annealing_optimize` | Simulated annealing | `score` |
-| `genetic_algorithm_optimize` | Genetic algorithm | `score` |
-| `adalead_optimize` | AdaLead-style local search | `score` |
-| `beam_search_optimize` | Beam search | `score` |
-| `cross_entropy_optimize` | Cross-entropy method | `score` |
-| `cbas_optimize` | CbAS with an internal autoregressive generator | `score` |
-| `vanilla_activation_maximization_optimize` | Activation maximization | `score_soft` |
-| `fast_seqprop_optimize` | Fast SeqProp | `score_soft` |
-| `den_optimize` | Deep exploration network | `score_soft` |
-| `ledidi_optimize` | Ledidi-style objective maximization | `score_soft` |
+| [random](docs/algorithms/random.md) | `random_optimize` | `score` |
+| [genetic_algorithm](docs/algorithms/genetic_algorithm.md) | `genetic_algorithm_optimize` | `score` |
+| [ism_greedy](docs/algorithms/ism_greedy.md) | `ism_optimize` | `score` |
+| [simulated_annealing](docs/algorithms/simulated_annealing.md) | `simulated_annealing_optimize` | `score` |
+| [adalead](docs/algorithms/adalead.md) | `adalead_optimize` | `score` |
+| [beam_search](docs/algorithms/beam_search.md) | `beam_search_optimize` | `score` |
+| [cross_entropy_method](docs/algorithms/cross_entropy_method.md) | `cross_entropy_optimize` | `score` |
+| [basesearch](docs/algorithms/basesearch.md) | `basesearch_optimize` | `score` |
+| [cbas](docs/algorithms/cbas.md) | `cbas_optimize` | `score` |
+| [vanilla_activation_maximization](docs/algorithms/vanilla_activation_maximization.md) | `vanilla_activation_maximization_optimize` | `score_soft` |
+| [fast_seqprop](docs/algorithms/fast_seqprop.md) | `fast_seqprop_optimize` | `score_soft` |
+| [den](docs/algorithms/den.md) | `den_optimize` | `score_soft` |
+| [ledidi](docs/algorithms/ledidi.md) | `ledidi_optimize` | `score_soft` |
 
-[Algorithm parameters](docs/algorithms.md) · [Model input requirements](docs/model_input_requirements.md)
+[Algorithm and model parameters](docs/algorithms.md).
 
-## Examples
+## 1. Single task: custom CNN
 
-### Single task: Optimus 5-Prime from `bioseq-models`
-
-This example loads Optimus from `bioseq-models`, starts from five 50-nt 5′UTR
-sequences, and returns the five best unique candidates found by the genetic
-algorithm.
-
-`model.score(sequences)` accepts nucleotide strings and returns a NumPy
-prediction array; the loaded model handles its input conversion.
-
-```python
-from bioseq_models import load_model
-from sequence_optimization import genetic_algorithm_optimize
-
-model = load_model("optimus5prime", device="cpu")
-
-initial = [
-    "CCACTCGATTAACATGTTAACAACATACTCGTCCGGCCGATCAGCGGCTA",
-    "CAAATCATGTGCAGCCCTGGCGACCGTACTGCGGTACAAGAAAGTATAGT",
-    "GTTATACTAGAAGAAACTTGAGATTATGGAGCAGTCCGTCAAGGACGCGA",
-    "CTTAGACAAAAACAACGCGCTTTCCAGTATGCGGAGCCTTGACGGTAAAC",
-    "GGTACCTCTAGTTTAATCCCTCCCTTATACGGTGCAACCCGCTCCCCTCA",
-]
-
-result = genetic_algorithm_optimize(
-    model,
-    length=50,
-    initial=initial,
-    objective=["maximize"],
-    num_candidates=5,
-    budget=80,
-    mutation_rate=0.1,
-    elite_fraction=0.4,
-    seed=7,
-)
-
-print(result.sequences[:5])
-print(result.activities[:5])
-```
-
-`budget=80` means that this run may query the activity model for at most 80
-candidate sequences. It is a model-evaluation budget, not a training epoch or
-sequence count in the final result.
-
-The arrays are available as `result.sequences`, `result.scores`,
-`result.uncertainties`, `result.activities`, and `result.task_names`.
-
-### Multi-task: three-output CNN
-
-The CNN below predicts three values per sequence. Its demonstration weights
-measure G, C and T fractions centered at 0.25; use trained weights for a real task.
+The example weights measure nucleotide composition; use trained weights for a biological task.
 
 ```python
 import torch
@@ -115,6 +44,32 @@ from torch import nn
 from sequence_optimization import SequencePredictor, genetic_algorithm_optimize
 
 
+class SingleOutputCNN(nn.Module):
+    def __init__(self, base="G"):
+        super().__init__()
+        self.conv = nn.Conv1d(4, 1, kernel_size=1)
+        with torch.no_grad():
+            self.conv.weight.zero_()
+            self.conv.weight[0, "ACGT".index(base), 0] = 1
+            self.conv.bias.fill_(-0.25)
+
+    def forward(self, values):
+        return self.conv(values).mean(dim=2)
+
+
+predictor = SequencePredictor(SingleOutputCNN(), device="cpu")
+result = genetic_algorithm_optimize(
+    predictor, length=20, objective=["maximize"],
+    num_candidates=4, budget=80, seed=7,
+)
+print(result.to_frame())
+```
+
+[Optimus: compare optimization algorithms](docs/models/optimus.md).
+
+## 2. Multi-task: custom three-output CNN
+
+```python
 class ThreeOutputCNN(nn.Module):
     def __init__(self):
         super().__init__()
@@ -130,169 +85,77 @@ class ThreeOutputCNN(nn.Module):
         return self.conv(values).mean(dim=2)
 
 
-predictor = SequencePredictor(
-    ThreeOutputCNN(),
-    task_names=["output_1", "output_2", "output_3"],
-    device="cpu",
-)
+predictor = SequencePredictor(ThreeOutputCNN(), device="cpu")
 result = genetic_algorithm_optimize(
-    predictor,
-    length=20,
+    predictor, length=20,
     objective=["maximize", "minimize", "ignore"],
-    num_candidates=4,
-    budget=80,
-    mutation_rate=0.1,
-    seed=7,
+    num_candidates=4, budget=80, seed=7,
 )
 print(result.to_frame())
 ```
 
-`objective` follows the output column order: `"maximize"` raises an output,
-`"minimize"` lowers it, and `"ignore"` excludes it from optimization.
-Use `["maximize", "maximize", "maximize"]` to raise all three.
+Directions follow output order. `maximize` raises an output, `minimize` lowers it,
+and `ignore` excludes it from the objective. Use three `maximize` entries for all-high.
 
-The default objective maximizes the minimum signed prediction across active
-outputs. All raw predictions, including ignored outputs, remain in
-`result.activities`. For fixed output scales or thresholds, use
-`MultiTaskObjective(directions=[...], scales=[...], ...)`.
+[DeepSTARR: housekeeping specificity](docs/models/deepstarr.md) ·
+[Malinois: cell-line specificity](docs/models/malinois.md).
 
-[Three-output CNN example](sequence_optimization/examples/multitask_cnn.py).
-
-### Multiple models: lentiMPRA
-
-Combine single-output scorers in output order. Raise K562 while lowering HepG2
-and WTC11:
+## 3. Multiple independent models: custom CNNs
 
 ```python
-from bioseq_models import load_model
-from sequence_optimization import CombinedScorer, genetic_algorithm_optimize
+from sequence_optimization import CombinedScorer
 
-scorer = CombinedScorer(
-    [load_model(name, device="cpu") for name in
-     ["agarwal_k562", "agarwal_hepg2", "agarwal_wtc11"]],
-    names=["K562", "HepG2", "WTC11"],
+predictor = CombinedScorer(
+    [SequencePredictor(SingleOutputCNN(base)) for base in "GCT"],
+    names=["model_a", "model_b", "model_c"],
 )
 result = genetic_algorithm_optimize(
-    scorer, length=230,
+    predictor, length=20,
     objective=["maximize", "minimize", "minimize"],
-    num_candidates=4, budget=100, seed=7,
+    num_candidates=4, budget=80, seed=7,
 )
 print(result.to_frame())
 ```
 
-### Multiple models: DeepSTARR Mouse
+Each model evaluates the same sequence. The objective list follows model order.
 
-Use the same optimizer to raise heart activity and lower limb and midbrain
-activity. These are tissue models:
+[Agarwal: three cell lines](docs/models/agarwal.md) ·
+[DeepSTARR Mouse](docs/models/deepstarr_mouse.md) ·
+[DeepSTARR-Embryo](docs/models/deepstarr_embryo.md).
 
-```python
-scorer = CombinedScorer(
-    [load_model(name, device="cpu") for name in
-     ["deepstarr_mouse_heart_activity", "deepstarr_mouse_limb_activity",
-      "deepstarr_mouse_midbrain_activity"]],
-    names=["heart", "limb", "midbrain"],
-)
-result = genetic_algorithm_optimize(
-    scorer, length=1001,
-    objective=["maximize", "minimize", "minimize"],
-    num_candidates=4, budget=100, seed=7,
-)
-print(result.to_frame())
-```
+[Custom CNN example functions](sequence_optimization/examples/custom_cnn_tasks.py).
 
-[Python example functions](sequence_optimization/examples/multiple_models.py).
-Each child scorer must accept the
-same designed sequence and handle its own encoding, padding or fixed context.
-Gradient algorithms require every child to expose a differentiable `score_soft`;
-wrap models individually before combining them.
+## Model tasks
 
-`budget=100` counts combined candidate evaluations: each of three models gets
-up to 100 sequence evaluations (300 total, excluding additional gradient
-evaluations and internal ensemble members). Cumulative counts are available as
-`scorer.model_query_counts` and `scorer.model_soft_query_counts`.
-Cache hits can consume proposal budget without another model forward pass.
-All raw outputs remain in the result. To adjust different output scales, use
-fixed reference scales with `MultiTaskObjective(directions=[...], scales=[...])`.
-These examples optimize raw predictions; search directions do not guarantee
-absolute activity levels.
+- [Optimus 5-Prime](docs/models/optimus.md)
+- [UTR-CODE: 5′UTR, 3′UTR and CDS](docs/models/utr_code.md)
+- [CDS stability](docs/models/cds_stability.md)
+- [DeepSTARR: housekeeping high, developmental low](docs/models/deepstarr.md)
+- [DREAM LegNet promoter activity](docs/models/dream_legnet.md)
+- [Cetnar mRNA stability](docs/models/cetnar_stability.md)
+- [Agarwal lentiMPRA cell specificity](docs/models/agarwal.md)
+- [DeepSTARR Mouse tissue activity](docs/models/deepstarr_mouse.md)
+- [DeepSTARR-Embryo tissue activity](docs/models/deepstarr_embryo.md)
+- [Malinois cell-line-specific enhancers](docs/models/malinois.md)
+- [Constrain CDS optimization to synonymous codons](docs/tasks/synonymous_cds.md)
 
-## Variable biological length
+## Inputs and results
 
-The sequence being designed may be shorter than the model input. Set
-`pad_to_length` and choose the padding side on the scorer. The optimizer still
-searches only the biological ACGT sequence; `N` is added only immediately
-before model encoding.
+`initial=[...]` supplies unique starting sequences; omit it to start randomly.
+`num_candidates` controls seed and result count. `budget` limits candidate
+evaluations/proposals; cached repeats can consume budget without another model
+call. For combined models, each uncached candidate is evaluated by every model.
+Additional differentiable evaluations are outside this budget.
 
-```python
-from bioseq_models import load_model
-from sequence_optimization import genetic_algorithm_optimize
+`result.sequences` contains the designed strings, `result.scores` the objective,
+and `result.activities` all raw predictions, including ignored outputs.
 
-model = load_model(
-    "optimus5prime",
-    pad_to_length=50,
-    padding_side="left",       # or "right"
-)
-
-result = genetic_algorithm_optimize(
-    model,
-    length=40,  # optimize the real 40-nt sequence
-    num_candidates=16,
-    budget=160,
-    seed=7,
-)
-```
-
-For discrete scoring, padding produces strings such as
-`NNNNNNNNNNACGT...`. Model encoders should encode `N` as an all-zero
-nucleotide vector. For differentiable optimization the toolkit adds the same
-all-zero vectors to the soft one-hot tensor, so left/right padding behaves the
-same for black-box and gradient algorithms.
-
-RNA input is accepted, but `U` is always normalized to `T`. Internally and in
-all returned candidates the alphabet is ACGT, never ACGU.
-
-## Seed sequences or random initialization
-
-Pass `initial=[...]` to any optimizer to use known sequences. If `initial` is
-omitted, candidates are sampled uniformly at the requested length. The helper
-`load_seed_sequences(path, length=50)` reads one sequence per line; blank lines and
-lines starting with `#` are ignored.
-
-## Stop at a plateau instead of choosing a fixed budget
-
-`optimize_to_saturation` tracks the mean score of the retained candidates,
-stops after a plateau, and returns the earliest candidate sets reaching chosen
-fractions of the observed improvement.
-
-```python
-from sequence_optimization import SaturationConfig, optimize_to_saturation
-
-saturated = optimize_to_saturation(
-    model,
-    length=50,
-    algorithm="genetic_algorithm",
-    num_candidates=16,
-    saturation=SaturationConfig(
-        fractions=(0.8, 0.9),
-        maximum_queries=800,
-    ),
-    seed=7,
-)
-
-q80 = saturated[0.8]
-q90 = saturated[0.9]
-```
-
-`maximum_queries` is only a safety ceiling. The normal stop condition is the
-detected plateau. Here q80 and q90 mean 80% and 90% of the improvement from the
-first complete candidate archive to the final observed plateau.
+The default multi-output objective is the minimum signed prediction across
+active outputs. For thresholds or fixed output normalization, see
+[objective parameters](docs/objectives.md). Search directions alone do not
+guarantee absolute activity levels.
 
 ## Use your own model
 
-See [Wrap your own model](docs/custom_models.md) for input conversion and
-prediction examples.
-
-## License and model provenance
-
-This repository contains only optimization software. Consult `bioseq-models`
-for checkpoint provenance, model-specific dependencies, and model licensing.
+[Wrap your own model](docs/custom_models.md) ·
+[Model input requirements](docs/model_input_requirements.md).

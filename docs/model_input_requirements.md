@@ -22,5 +22,6 @@ sequence, including padding, channel order and fixed context.
 
 Sequence length must match the scorer's accepted input. For transcript models,
 configure the designed region and fixed flanking regions in the scorer.
-Nucleotide optimization does not automatically preserve amino-acid sequences
-or enforce an open reading frame.
+For CDS design, use [synonymous codon constraints](tasks/synonymous_cds.md)
+to preserve the reference protein. Unconstrained nucleotide optimization does
+not preserve amino-acid sequences or enforce an open reading frame.

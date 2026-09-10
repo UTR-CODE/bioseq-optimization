@@ -97,7 +97,7 @@ def _initial(
     initial, space: SequenceSpace, config: OptimizationConfig, rng: np.random.Generator
 ) -> np.ndarray:
     if initial is None:
-        capacity = space.alphabet_size**space.length
+        capacity = getattr(space, "capacity", space.alphabet_size**space.length)
         if config.num_candidates > capacity:
             raise ValueError(
                 f"cannot draw {config.num_candidates} unique seeds from a space of size {capacity}"
@@ -233,14 +233,19 @@ def genetic_algorithm(initial, scorer, space, config, rng):
     while scorer.remaining is None or scorer.remaining >= len(population):
         before = scorer.query_count
         elite = population[np.argsort(scores)[-elite_count:]]
-        a = space.encode(elite[rng.integers(len(elite), size=len(population))])
-        b = space.encode(elite[rng.integers(len(elite), size=len(population))])
-        child = np.where(rng.random(a.shape) < 0.5, a, b)
-        mask = rng.random(child.shape) < config.mutation_rate
-        child = np.where(
-            mask, rng.integers(space.alphabet_size, size=child.shape), child
-        )
-        children = space.decode(child)
+        if hasattr(space, "offspring"):
+            children = space.offspring(
+                elite, len(population), config.mutation_rate, rng
+            )
+        else:
+            a = space.encode(elite[rng.integers(len(elite), size=len(population))])
+            b = space.encode(elite[rng.integers(len(elite), size=len(population))])
+            child = np.where(rng.random(a.shape) < 0.5, a, b)
+            mask = rng.random(child.shape) < config.mutation_rate
+            child = np.where(
+                mask, rng.integers(space.alphabet_size, size=child.shape), child
+            )
+            children = space.decode(child)
         child_scores = _score(scorer, archive, children).scores
         combined = np.concatenate([population, children])
         combined_scores = np.concatenate([scores, child_scores])
@@ -295,6 +300,22 @@ def adalead(initial, scorer, space, config, rng):
     )
 
 
+def _configured_space(length, alphabet, config, algorithm):
+    if config.reference_cds is None:
+        if config.synonymous_codons is not None:
+            raise ValueError("synonymous_codons requires reference_cds")
+        return _sequence_space(length, alphabet)
+    if algorithm != "genetic_algorithm":
+        raise ValueError("synonymous CDS constraints require genetic_algorithm")
+    from .codons import SynonymousCodonSpace
+
+    space = SynonymousCodonSpace(config.reference_cds, config.synonymous_codons)
+    requested = _sequence_space(length, alphabet)
+    if requested.length != space.length or requested.alphabet != "ACGT":
+        raise ValueError("length must match reference_cds and alphabet must be ACGT")
+    return space
+
+
 def run(
     name: str,
     scorer: SequenceScorer,
@@ -316,8 +337,8 @@ def run(
     The model output is scalarized by ``objective``. If omitted, output zero is
     maximized, which is the natural default for a single-task model.
     """
-    space = _sequence_space(length, alphabet)
     key = str(name).strip().lower()
+    space = _configured_space(length, alphabet, config, key)
     if key not in _REGISTRY:
         raise KeyError(
             f"unknown algorithm {name!r}; choose from {', '.join(available_algorithms())}"
@@ -432,6 +453,8 @@ def optimize(
     basesearch_decay: float = 0.995,
     basesearch_queue_size: int = 1024,
     basesearch_max_stalled: int = 1024,
+    reference_cds: str | None = None,
+    synonymous_codons: dict[str, Sequence[str]] | None = None,
     count_repeated: bool = False,
 ) -> OptimizationResult:
     """Convenience interface that constructs :class:`OptimizationConfig`."""
@@ -454,6 +477,8 @@ def optimize(
         basesearch_decay=basesearch_decay,
         basesearch_queue_size=basesearch_queue_size,
         basesearch_max_stalled=basesearch_max_stalled,
+        reference_cds=reference_cds,
+        synonymous_codons=synonymous_codons,
     )
     return run(
         algorithm,
