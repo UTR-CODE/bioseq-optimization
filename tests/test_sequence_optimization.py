@@ -1,3 +1,5 @@
+import inspect
+
 import numpy as np
 import pytest
 
@@ -15,7 +17,6 @@ from sequence_optimization import (
     available_algorithms,
     genetic_algorithm_optimize,
     load_seed_sequences,
-    optimize_to_saturation,
     pad_nucleotide_sequences,
     random_seed_sequences,
     run,
@@ -324,10 +325,9 @@ def test_differentiable_algorithms_share_the_result_contract():
 
 
 def test_saturation_returns_requested_q80_and_q90_archives():
-    result = optimize_to_saturation(
+    result = genetic_algorithm_optimize(
         CallableScorer(lambda values: [value.count("G") for value in values]),
         SequenceSpace(5),
-        algorithm="genetic_algorithm",
         num_candidates=4,
         initial=["AAAAA", "CCCCC", "GGGGG", "TTTTT"],
         saturation=SaturationConfig(
@@ -342,3 +342,42 @@ def test_saturation_returns_requested_q80_and_q90_archives():
     assert set(result.selections) == {0.8, 0.9}
     assert result[0.8].query_count <= result[0.9].query_count
     assert result[0.9].metadata["total_convergence_queries"] == result.total_query_count
+
+
+def test_saturation_and_budget_are_mutually_exclusive():
+    scorer = CallableScorer(lambda values: [value.count("G") for value in values])
+    with pytest.raises(ValueError, match="budget is invalid"):
+        genetic_algorithm_optimize(
+            scorer,
+            length=5,
+            budget=40,
+            saturation=SaturationConfig(maximum_queries=40),
+            num_candidates=4,
+        )
+    with pytest.raises(ValueError, match="budget is required"):
+        genetic_algorithm_optimize(scorer, length=5, num_candidates=4)
+
+
+def test_public_optimizers_expose_saturation_parameter():
+    import sequence_optimization as so
+
+    assert not hasattr(so, "optimize_to_saturation")
+    functions = [
+        so.random_optimize,
+        so.genetic_algorithm_optimize,
+        so.ism_optimize,
+        so.simulated_annealing_optimize,
+        so.adalead_optimize,
+        so.beam_search_optimize,
+        so.cross_entropy_optimize,
+        so.basesearch_optimize,
+        so.cbas_optimize,
+        so.vanilla_activation_maximization_optimize,
+        so.fast_seqprop_optimize,
+        so.den_optimize,
+        so.ledidi_optimize,
+    ]
+    for function in functions:
+        signature = inspect.signature(function)
+        assert signature.parameters["saturation"].default is None
+        assert signature.parameters["budget"].default is None

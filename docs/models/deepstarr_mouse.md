@@ -185,25 +185,25 @@ gradient_model = CombinedScorer(
 )
 
 vanilla_result = vanilla_activation_maximization_optimize(
-    gradient_model, length=1001, budget=100, num_candidates=4,
+    gradient_model, length=1001, budget=1000, num_candidates=4,
     initial=initial,
     objective=["maximize", "minimize", "minimize", "minimize", "minimize", "minimize"],
     seed=7,
 )
 fast_seqprop_result = fast_seqprop_optimize(
-    gradient_model, length=1001, budget=100, num_candidates=4,
+    gradient_model, length=1001, budget=1000, num_candidates=4,
     initial=initial,
     objective=["maximize", "minimize", "minimize", "minimize", "minimize", "minimize"],
     seed=7,
 )
 ledidi_result = ledidi_optimize(
-    gradient_model, length=1001, budget=100, num_candidates=4,
+    gradient_model, length=1001, budget=1000, num_candidates=4,
     initial=initial,
     objective=["maximize", "minimize", "minimize", "minimize", "minimize", "minimize"],
     seed=7,
 )
 den_result = den_optimize(
-    gradient_model, length=1001, budget=100, num_candidates=4,
+    gradient_model, length=1001, budget=1000, num_candidates=4,
     initial=initial,
     objective=["maximize", "minimize", "minimize", "minimize", "minimize", "minimize"],
     seed=7,

@@ -18,6 +18,7 @@ from .api import (
     SequenceSpace,
 )
 from .objectives import MultiTaskObjective, ObjectiveScorer, TargetObjective
+from .saturation import SaturationConfig, SaturationResult
 
 Optimizer = Callable[
     [np.ndarray, CachedScorer, SequenceSpace, OptimizationConfig, np.random.Generator],
@@ -427,7 +428,8 @@ def optimize(
     length: int,
     *,
     algorithm: str,
-    budget: int,
+    budget: int | None = None,
+    saturation: SaturationConfig | None = None,
     num_candidates: int = 100,
     alphabet: str = "ACGT",
     initial: Sequence[str] | np.ndarray | None = None,
@@ -456,10 +458,9 @@ def optimize(
     reference_cds: str | None = None,
     synonymous_codons: dict[str, Sequence[str]] | None = None,
     count_repeated: bool = False,
-) -> OptimizationResult:
-    """Convenience interface that constructs :class:`OptimizationConfig`."""
-    config = OptimizationConfig(
-        budget=budget,
+) -> OptimizationResult | SaturationResult:
+    """Optimize with either a fixed budget or saturation-based stopping."""
+    parameters = dict(
         num_candidates=num_candidates,
         mutation_rate=mutation_rate,
         elite_fraction=elite_fraction,
@@ -480,6 +481,28 @@ def optimize(
         reference_cds=reference_cds,
         synonymous_codons=synonymous_codons,
     )
+    if saturation is not None:
+        if budget is not None:
+            raise ValueError("budget is invalid when saturation is set; omit budget")
+        from .saturation import _optimize_with_saturation
+
+        if not isinstance(saturation, SaturationConfig):
+            raise TypeError("saturation must be a SaturationConfig or None")
+        return _optimize_with_saturation(
+            scorer,
+            length,
+            algorithm=algorithm,
+            alphabet=alphabet,
+            initial=initial,
+            objective=objective,
+            saturation=saturation,
+            seed=seed,
+            count_repeated=count_repeated,
+            **parameters,
+        )
+    if budget is None:
+        raise ValueError("budget is required when saturation is None")
+    config = OptimizationConfig(budget=budget, **parameters)
     return run(
         algorithm,
         scorer,
@@ -494,79 +517,239 @@ def optimize(
 
 
 def basesearch_optimize(
-    scorer: SequenceScorer, length: int, **kwargs
-) -> OptimizationResult:
+    scorer: SequenceScorer,
+    length: int,
+    *,
+    budget: int | None = None,
+    saturation: SaturationConfig | None = None,
+    **kwargs,
+) -> OptimizationResult | SaturationResult:
     """Priority-decayed black-box search with unique mutation proposals."""
-    return optimize(scorer, length, algorithm="basesearch", **kwargs)
+    return optimize(
+        scorer,
+        length,
+        algorithm="basesearch",
+        budget=budget,
+        saturation=saturation,
+        **kwargs,
+    )
 
 
 def random_optimize(
-    scorer: SequenceScorer, length: int, **kwargs
-) -> OptimizationResult:
-    return optimize(scorer, length, algorithm="random", **kwargs)
+    scorer: SequenceScorer,
+    length: int,
+    *,
+    budget: int | None = None,
+    saturation: SaturationConfig | None = None,
+    **kwargs,
+) -> OptimizationResult | SaturationResult:
+    return optimize(
+        scorer,
+        length,
+        algorithm="random",
+        budget=budget,
+        saturation=saturation,
+        **kwargs,
+    )
 
 
-def ism_optimize(scorer: SequenceScorer, length: int, **kwargs) -> OptimizationResult:
-    return optimize(scorer, length, algorithm="ism_greedy", **kwargs)
+def ism_optimize(
+    scorer: SequenceScorer,
+    length: int,
+    *,
+    budget: int | None = None,
+    saturation: SaturationConfig | None = None,
+    **kwargs,
+) -> OptimizationResult | SaturationResult:
+    return optimize(
+        scorer,
+        length,
+        algorithm="ism_greedy",
+        budget=budget,
+        saturation=saturation,
+        **kwargs,
+    )
 
 
 def simulated_annealing_optimize(
-    scorer: SequenceScorer, length: int, **kwargs
-) -> OptimizationResult:
-    return optimize(scorer, length, algorithm="simulated_annealing", **kwargs)
+    scorer: SequenceScorer,
+    length: int,
+    *,
+    budget: int | None = None,
+    saturation: SaturationConfig | None = None,
+    **kwargs,
+) -> OptimizationResult | SaturationResult:
+    return optimize(
+        scorer,
+        length,
+        algorithm="simulated_annealing",
+        budget=budget,
+        saturation=saturation,
+        **kwargs,
+    )
 
 
 def genetic_algorithm_optimize(
-    scorer: SequenceScorer, length: int, **kwargs
-) -> OptimizationResult:
-    return optimize(scorer, length, algorithm="genetic_algorithm", **kwargs)
+    scorer: SequenceScorer,
+    length: int,
+    *,
+    budget: int | None = None,
+    saturation: SaturationConfig | None = None,
+    **kwargs,
+) -> OptimizationResult | SaturationResult:
+    return optimize(
+        scorer,
+        length,
+        algorithm="genetic_algorithm",
+        budget=budget,
+        saturation=saturation,
+        **kwargs,
+    )
 
 
 def adalead_optimize(
-    scorer: SequenceScorer, length: int, **kwargs
-) -> OptimizationResult:
-    return optimize(scorer, length, algorithm="adalead", **kwargs)
+    scorer: SequenceScorer,
+    length: int,
+    *,
+    budget: int | None = None,
+    saturation: SaturationConfig | None = None,
+    **kwargs,
+) -> OptimizationResult | SaturationResult:
+    return optimize(
+        scorer,
+        length,
+        algorithm="adalead",
+        budget=budget,
+        saturation=saturation,
+        **kwargs,
+    )
 
 
 def beam_search_optimize(
-    scorer: SequenceScorer, length: int, **kwargs
-) -> OptimizationResult:
-    return optimize(scorer, length, algorithm="beam_search", **kwargs)
+    scorer: SequenceScorer,
+    length: int,
+    *,
+    budget: int | None = None,
+    saturation: SaturationConfig | None = None,
+    **kwargs,
+) -> OptimizationResult | SaturationResult:
+    return optimize(
+        scorer,
+        length,
+        algorithm="beam_search",
+        budget=budget,
+        saturation=saturation,
+        **kwargs,
+    )
 
 
 def cross_entropy_optimize(
-    scorer: SequenceScorer, length: int, **kwargs
-) -> OptimizationResult:
-    return optimize(scorer, length, algorithm="cross_entropy_method", **kwargs)
+    scorer: SequenceScorer,
+    length: int,
+    *,
+    budget: int | None = None,
+    saturation: SaturationConfig | None = None,
+    **kwargs,
+) -> OptimizationResult | SaturationResult:
+    return optimize(
+        scorer,
+        length,
+        algorithm="cross_entropy_method",
+        budget=budget,
+        saturation=saturation,
+        **kwargs,
+    )
 
 
-def cbas_optimize(scorer: SequenceScorer, length: int, **kwargs) -> OptimizationResult:
-    return optimize(scorer, length, algorithm="cbas", **kwargs)
+def cbas_optimize(
+    scorer: SequenceScorer,
+    length: int,
+    *,
+    budget: int | None = None,
+    saturation: SaturationConfig | None = None,
+    **kwargs,
+) -> OptimizationResult | SaturationResult:
+    return optimize(
+        scorer,
+        length,
+        algorithm="cbas",
+        budget=budget,
+        saturation=saturation,
+        **kwargs,
+    )
 
 
 def vanilla_activation_maximization_optimize(
-    scorer: SequenceScorer, length: int, **kwargs
-) -> OptimizationResult:
+    scorer: SequenceScorer,
+    length: int,
+    *,
+    budget: int | None = None,
+    saturation: SaturationConfig | None = None,
+    **kwargs,
+) -> OptimizationResult | SaturationResult:
     return optimize(
-        scorer, length, algorithm="vanilla_activation_maximization", **kwargs
+        scorer,
+        length,
+        algorithm="vanilla_activation_maximization",
+        budget=budget,
+        saturation=saturation,
+        **kwargs,
     )
 
 
 def fast_seqprop_optimize(
-    scorer: SequenceScorer, length: int, **kwargs
-) -> OptimizationResult:
-    return optimize(scorer, length, algorithm="fast_seqprop", **kwargs)
+    scorer: SequenceScorer,
+    length: int,
+    *,
+    budget: int | None = None,
+    saturation: SaturationConfig | None = None,
+    **kwargs,
+) -> OptimizationResult | SaturationResult:
+    return optimize(
+        scorer,
+        length,
+        algorithm="fast_seqprop",
+        budget=budget,
+        saturation=saturation,
+        **kwargs,
+    )
 
 
 def ledidi_optimize(
-    scorer: SequenceScorer, length: int, **kwargs
-) -> OptimizationResult:
+    scorer: SequenceScorer,
+    length: int,
+    *,
+    budget: int | None = None,
+    saturation: SaturationConfig | None = None,
+    **kwargs,
+) -> OptimizationResult | SaturationResult:
     """Ledidi-style single-output maximization with an edit penalty."""
-    return optimize(scorer, length, algorithm="ledidi", **kwargs)
+    return optimize(
+        scorer,
+        length,
+        algorithm="ledidi",
+        budget=budget,
+        saturation=saturation,
+        **kwargs,
+    )
 
 
-def den_optimize(scorer: SequenceScorer, length: int, **kwargs) -> OptimizationResult:
-    return optimize(scorer, length, algorithm="den", **kwargs)
+def den_optimize(
+    scorer: SequenceScorer,
+    length: int,
+    *,
+    budget: int | None = None,
+    saturation: SaturationConfig | None = None,
+    **kwargs,
+) -> OptimizationResult | SaturationResult:
+    return optimize(
+        scorer,
+        length,
+        algorithm="den",
+        budget=budget,
+        saturation=saturation,
+        **kwargs,
+    )
 
 
 # Requested spelling retained as a public alias; lower-case ``ism_optimize`` is

@@ -1,9 +1,9 @@
 # Search workflow
 
 The public optimizer functions accept a scorer, the length of the designed
-sequence, an objective, a candidate count, and a query budget. A search can
-start from supplied sequences, reproducible random sequences, or sequences
-loaded from a text file.
+sequence, an objective, a candidate count, and either a fixed query budget or
+a saturation stopping rule. A search can start from supplied sequences,
+reproducible random sequences, or sequences loaded from a text file.
 
 ## Starting sequences
 
@@ -14,16 +14,11 @@ candidates.
 
 ```python
 from bioseq_models import load_model
-from sequence_optimization import genetic_algorithm_optimize
+from sequence_optimization import genetic_algorithm_optimize, random_seed_sequences
 
 model = load_model("optimus5prime", device="cpu")
 
-initial = [
-    "CCACTCGATTAACATGTTAACAACATACTCGTCCGGCCGATCAGCGGCTA",
-    "GGTACCTCTAGTTTAATCCCTCCCTTATACGGTGCAACCCGCTCCCCTCA",
-    "TGCATTTTTTTCACATCTATTTGCGTTTCACATCTTTTCTTACCTCTTGA",
-    "CTCATTTTTCACCTCCCTTTTATCTCTCTGCTTACGTTTCGATCCCATCA",
-]
+initial = random_seed_sequences(length=50, count=4, seed=7)
 
 result = genetic_algorithm_optimize(
     model,
@@ -31,13 +26,14 @@ result = genetic_algorithm_optimize(
     initial=initial,
     objective=["maximize"],
     num_candidates=4,
-    budget=200,
+    budget=1000,
     seed=7,
 )
 ```
 
-Omit `initial` to let an optimizer sample its own random starting set. For a
-reusable set, create it explicitly with `random_seed_sequences`:
+Omit `initial` to let an optimizer sample its own random starting set. To share
+the same starting set between runs, call `random_seed_sequences` in each
+example with the same arguments:
 
 ```python
 from sequence_optimization import random_seed_sequences
@@ -66,16 +62,15 @@ Blank lines and lines whose first non-whitespace character is `#` are ignored.
 The loader normalizes lowercase DNA and RNA notation, validates sequence length
 and alphabet, rejects duplicates, and checks `count` when it is provided.
 
-For a constrained CDS search, ordinary random nucleotide seeds do not preserve
-the reading frame or amino-acid sequence. Supply `reference_cds` and any
-`synonymous_codons` constraints to `genetic_algorithm_optimize`, and make sure
-explicit initial sequences satisfy the codon table. See [synonymous CDS
-constraints](tasks/synonymous_cds.md).
+For a constrained CDS search, use complete, explicitly prepared CDSs as
+`initial`, and pass `reference_cds` and `synonymous_codons` to
+`genetic_algorithm_optimize`. Every initial sequence must encode the same
+protein as the reference. See [synonymous CDS constraints](tasks/synonymous_cds.md).
 
 ## Candidate count and budgets
 
 `num_candidates` controls both the number of starting sequences and the number
-of sequences retained in the result. `budget` must be at least
+of sequences retained in the result. In fixed-budget mode, `budget` must be at least
 `num_candidates`. It limits candidate query or proposal accounting; it is not
 a training epoch count and does not mean that the final result contains that
 many sequences.
@@ -109,14 +104,13 @@ optimizer-budget candidates.
 
 ## Stop at saturation
 
-`optimize_to_saturation` runs an optimizer until the retained-candidate mean
-score stops making material progress, then returns candidate sets at selected
-fractions of the observed gain. `maximum_queries` is a safety ceiling. The
-minimum and plateau-patience limits can be set explicitly with
-`SaturationConfig`.
+Pass `saturation=SaturationConfig(...)` to an optimizer to continue until the
+retained-candidate mean score stops making material progress, then return
+candidate sets at selected fractions of the observed gain. `maximum_queries`
+is a safety ceiling.
 
-`optimize_to_saturation` does not take a fixed `budget` argument. Its query
-limits are configured through `SaturationConfig`:
+When `saturation` is set, omit `budget`; supplying both raises `ValueError`.
+When `saturation=None`, `budget` is required. Saturation query limits are:
 
 | Parameter | Default | Meaning |
 |---|---|---|
@@ -129,13 +123,14 @@ limits are configured through `SaturationConfig`:
 ```python
 from sequence_optimization import (
     SaturationConfig,
-    optimize_to_saturation,
+    genetic_algorithm_optimize,
+    random_seed_sequences,
 )
 
-saturated = optimize_to_saturation(
+initial = random_seed_sequences(length=50, count=4, seed=7)
+saturated = genetic_algorithm_optimize(
     model,
     length=50,
-    algorithm="genetic_algorithm",
     initial=initial,
     objective=["maximize"],
     num_candidates=4,

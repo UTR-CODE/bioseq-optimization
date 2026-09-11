@@ -7,10 +7,10 @@ import importlib
 import json
 from pathlib import Path
 
-from .algorithms import available_algorithms, run
+from .algorithms import available_algorithms, optimize, run
 from .api import CallableScorer, OptimizationConfig
 from .objectives import TargetObjective
-from .saturation import SaturationConfig, optimize_to_saturation
+from .saturation import SaturationConfig
 from .seeds import load_seed_sequences, random_seed_sequences
 
 
@@ -135,7 +135,7 @@ def main() -> None:
         fractions = tuple(
             float(value.strip()) for value in args.saturation_fractions.split(",")
         )
-        saturated = optimize_to_saturation(
+        saturated = optimize(
             scorer,
             args.length,
             algorithm=args.algorithm,

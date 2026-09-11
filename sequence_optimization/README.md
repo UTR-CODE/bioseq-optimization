@@ -9,14 +9,16 @@ The main workflow is:
 
 ```python
 from bioseq_models import load_model
-from sequence_optimization import genetic_algorithm_optimize
+from sequence_optimization import genetic_algorithm_optimize, random_seed_sequences
 
 model = load_model("optimus5prime")
+initial = random_seed_sequences(length=50, count=16, seed=7)
 result = genetic_algorithm_optimize(
     model,
     length=50,
+    initial=initial,
     num_candidates=16,
-    budget=160,
+    budget=1000,
     seed=7,
 )
 ```

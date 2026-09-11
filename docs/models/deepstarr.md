@@ -120,19 +120,19 @@ gradient_model = DifferentiableSequencePredictor(
 )
 
 vanilla_result = vanilla_activation_maximization_optimize(
-    gradient_model, length=249, budget=100, num_candidates=4,
+    gradient_model, length=249, budget=1000, num_candidates=4,
     initial=initial, objective=["minimize", "maximize"], seed=7,
 )
 fast_seqprop_result = fast_seqprop_optimize(
-    gradient_model, length=249, budget=100, num_candidates=4,
+    gradient_model, length=249, budget=1000, num_candidates=4,
     initial=initial, objective=["minimize", "maximize"], seed=7,
 )
 ledidi_result = ledidi_optimize(
-    gradient_model, length=249, budget=100, num_candidates=4,
+    gradient_model, length=249, budget=1000, num_candidates=4,
     initial=initial, objective=["minimize", "maximize"], seed=7,
 )
 den_result = den_optimize(
-    gradient_model, length=249, budget=100, num_candidates=4,
+    gradient_model, length=249, budget=1000, num_candidates=4,
     initial=initial, objective=["minimize", "maximize"], seed=7,
 )
 ```

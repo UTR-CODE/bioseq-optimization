@@ -5,11 +5,12 @@ from bioseq_models import load_model
 from sequence_optimization import genetic_algorithm_optimize
 
 reference = "ATG" + "GCT" * 18 + "TAA"
+allowed_codons = {"A": ["GCT", "GCC"]}
 initial = [
     reference,
-    "ATG" + "GCC" + "GCT" * 17 + "TAA",
-    "ATG" + "GCC" * 2 + "GCT" * 16 + "TAA",
-    "ATG" + "GCC" * 3 + "GCT" * 15 + "TAA",
+    "ATG" + "GCT" * 17 + "GCC" + "TAA",
+    "ATG" + "GCT" * 16 + "GCC" * 2 + "TAA",
+    "ATG" + "GCT" * 15 + "GCC" * 3 + "TAA",
 ]
 model = load_model("cds_stability", species="human", device="cpu")
 result = genetic_algorithm_optimize(
@@ -17,10 +18,10 @@ result = genetic_algorithm_optimize(
     length=len(reference),
     initial=initial,
     reference_cds=reference,
-    synonymous_codons={"A": ["GCT", "GCC"]},
+    synonymous_codons=allowed_codons,
     objective=["maximize"],
     num_candidates=4,
-    budget=200,
+    budget=4000,
     mutation_rate=0.1,
     elite_fraction=0.5,
     seed=7,
@@ -29,37 +30,38 @@ print(result.to_frame())
 ```
 
 Use the actual CDS to preserve its protein sequence. The reference must begin
-with ATG, end with a stop codon and contain no internal stops. The first and
-last codons remain fixed. Each supplied amino-acid key restricts internal
-codons to its list; omitted amino acids use all synonymous codons from the
+with `ATG`, end with `TAA`, `TAG`, or `TGA`, and contain no internal stops. The
+start codon remains fixed; the terminal codon may vary among allowed synonymous
+stop codons. Each supplied amino-acid key restricts codons to its list; omitted
+amino acids use all synonymous codons from the
 [standard genetic code](https://www.ncbi.nlm.nih.gov/Taxonomy/Utils/wprintgc.cgi#SG1).
 Alternative genetic codes are not supported.
 
-Every initial and proposed candidate respects the codon table. Crossover and
-mutation act on codons, with mutation_rate applied per codon. Explicit initial
+Every initial and proposed candidate starts with `ATG`, ends with one of the
+three stop codons, and translates to the reference protein. Crossover and
+mutation act on codons, with `mutation_rate` applied per codon. Explicit initial
 sequences must already satisfy the constraint; the reference need not be a
 candidate if its internal codons are excluded by the custom table. The number
 of allowed unique sequences must be at least num_candidates.
 
-These constraints are supported by genetic_algorithm, including its
-optimize_to_saturation entry point. Other algorithms reject constrained CDS
-requests. Without reference_cds, sequence optimization does not preserve reading
-frames or amino-acid sequences.
+These constraints are supported by `genetic_algorithm_optimize`, including its
+`saturation` parameter. Other algorithms reject constrained CDS requests.
+Without `reference_cds`, sequence optimization does not preserve reading frames
+or amino-acid sequences.
 
 ## Select candidates at saturation
 
 Pass the same CDS constraints when using saturation stopping:
 
 ```python
-from sequence_optimization import SaturationConfig, optimize_to_saturation
+from sequence_optimization import SaturationConfig
 
-saturated = optimize_to_saturation(
+saturated = genetic_algorithm_optimize(
     model,
     length=len(reference),
-    algorithm="genetic_algorithm",
     initial=initial,
     reference_cds=reference,
-    synonymous_codons={"A": ["GCT", "GCC"]},
+    synonymous_codons=allowed_codons,
     objective=["maximize"],
     num_candidates=4,
     mutation_rate=0.1,

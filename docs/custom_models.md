@@ -10,13 +10,18 @@ not initialize new model weights or train the model.
 For a model accepting float32 `[N, 4, L]` tensors in A/C/G/T channel order:
 
 ```python
-from sequence_optimization import SequencePredictor, basesearch_optimize
+from sequence_optimization import (
+    SequencePredictor,
+    basesearch_optimize,
+    random_seed_sequences,
+)
 
 predictor = SequencePredictor(model, device="cpu")  # your existing nn.Module
 predictions = predictor.score(["ACGT" * 5]).scores
+initial = random_seed_sequences(length=20, count=4, seed=7)
 result = basesearch_optimize(
-    predictor, length=20, objective=["maximize"],
-    num_candidates=4, budget=40, seed=7,
+    predictor, length=20, initial=initial, objective=["maximize"],
+    num_candidates=4, budget=1000, seed=7,
 )
 ```
 
@@ -30,7 +35,12 @@ This model expects `[N, L, 4]` in A/G/C/T order:
 ```python
 from functools import partial
 import torch
-from sequence_optimization import SequencePredictor, basesearch_optimize, onehot
+from sequence_optimization import (
+    SequencePredictor,
+    basesearch_optimize,
+    onehot,
+    random_seed_sequences,
+)
 
 
 class MyModel(torch.nn.Module):
@@ -54,9 +64,10 @@ predictor = SequencePredictor(
 )
 print(predictor.score(["AGGT", "AAAA"]).scores)
 
+initial = random_seed_sequences(length=20, count=4, seed=7)
 result = basesearch_optimize(
-    predictor, length=20, objective=["maximize"],
-    num_candidates=4, budget=40, seed=7,
+    predictor, length=20, initial=initial, objective=["maximize"],
+    num_candidates=4, budget=1000, seed=7,
 )
 print(result.to_frame())
 ```
@@ -72,7 +83,11 @@ Use `DifferentiableSequencePredictor` when optimizing through the model's
 gradients. For the A/G/C/T, channels-last model above:
 
 ```python
-from sequence_optimization import DifferentiableSequencePredictor, ledidi_optimize
+from sequence_optimization import (
+    DifferentiableSequencePredictor,
+    ledidi_optimize,
+    random_seed_sequences,
+)
 
 predictor = DifferentiableSequencePredictor(
     model,
@@ -81,9 +96,10 @@ predictor = DifferentiableSequencePredictor(
     task_names=["activity"],
     device="cpu",
 )
+initial = random_seed_sequences(length=20, count=4, seed=7)
 result = ledidi_optimize(
-    predictor, length=20, objective=["maximize"],
-    num_candidates=4, budget=40, seed=7,
+    predictor, length=20, initial=initial, objective=["maximize"],
+    num_candidates=4, budget=1000, seed=7,
 )
 ```
 

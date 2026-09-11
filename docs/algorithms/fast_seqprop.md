@@ -6,7 +6,8 @@ Optimize normalized logits with straight-through categorical samples. Requires s
 |---|---|---|
 | `scorer` | required | Predictor accepting sequence strings |
 | `length` | required | Candidate sequence length |
-| `budget` | required | Candidate evaluation/proposal budget, at least num_candidates |
+| `budget` | None | Fixed candidate budget; required when saturation is None and invalid when saturation is set |
+| `saturation` | None | SaturationConfig for plateau-based stopping; omit budget when set |
 | `num_candidates` | 100 | Number of unique seeds and retained results |
 | `initial` | None | Exactly num_candidates unique starting sequences; otherwise random |
 | `objective` | None | Output directions or objective object; default maximizes output zero |
@@ -16,10 +17,13 @@ Optimize normalized logits with straight-through categorical samples. Requires s
 | `learning_rate` | 0.1 | Positive optimization step size |
 
 ```python
-from sequence_optimization import fast_seqprop_optimize
+from sequence_optimization import fast_seqprop_optimize, random_seed_sequences
 
-result = fast_seqprop_optimize(predictor, length=50, budget=200, num_candidates=4,
-    objective=["maximize"], seed=7)
+initial = random_seed_sequences(length=50, count=4, seed=7)
+result = fast_seqprop_optimize(
+    predictor, length=50, initial=initial, budget=1000,
+    num_candidates=4, objective=["maximize"], seed=7,
+)
 ```
 
 For gradient algorithms, use a [differentiable predictor](../custom_models.md#gradient-optimization).

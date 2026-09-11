@@ -7,7 +7,6 @@ from sequence_optimization import (
     basesearch_optimize,
     CallableScorer,
     SaturationConfig,
-    optimize_to_saturation,
 )
 from sequence_optimization.advanced import _decay_base_priority
 
@@ -87,10 +86,9 @@ def test_initial_only_budget_and_saturation():
     result = basesearch_optimize(scorer, SequenceSpace(8), num_candidates=4, budget=4)
     assert result.query_count == 4
     assert result.trajectory == []
-    saturated = optimize_to_saturation(
+    saturated = basesearch_optimize(
         scorer,
         SequenceSpace(8),
-        algorithm="basesearch",
         num_candidates=4,
         saturation=SaturationConfig(
             minimum_queries=8, plateau_patience_queries=8, maximum_queries=40

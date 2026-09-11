@@ -1,12 +1,13 @@
 # genetic_algorithm_optimize
 
-Elite selection, crossover and mutation. With reference_cds, crossover and mutation operate on whole codons; protein sequence and terminal codons are preserved. Only the standard genetic code is supported. Unspecified amino acids use all standard synonymous codons. A custom table restricts permitted codons, not amino-acid identity.
+Elite selection, crossover and mutation. With `reference_cds`, crossover and mutation operate on whole codons; every candidate starts with `ATG`, ends with `TAA`, `TAG`, or `TGA`, and encodes the reference protein. Only the standard genetic code is supported. Unspecified amino acids use all standard synonymous codons. A custom table restricts permitted codons, not amino-acid identity.
 
 | Parameter | Default | Meaning |
 |---|---|---|
 | `scorer` | required | Predictor accepting sequence strings |
 | `length` | required | Candidate sequence length |
-| `budget` | required | Candidate evaluation/proposal budget, at least num_candidates |
+| `budget` | None | Fixed candidate budget; required when saturation is None and invalid when saturation is set |
+| `saturation` | None | SaturationConfig for plateau-based stopping; omit budget when set |
 | `num_candidates` | 100 | Number of unique seeds and retained results |
 | `initial` | None | Exactly num_candidates unique starting sequences; otherwise random |
 | `objective` | None | Output directions or objective object; default maximizes output zero |
@@ -15,14 +16,17 @@ Elite selection, crossover and mutation. With reference_cds, crossover and mutat
 | `count_repeated` | False | Charge repeated proposals even when cached |
 | `mutation_rate` | 0.02 | Mutation probability per position (0 < value <= 1); per codon for constrained CDS |
 | `elite_fraction` | 0.2 | Elite proportion (0 < value <= 1) |
-| `reference_cds` | None | Complete ATG-to-stop reference CDS; length must match |
+| `reference_cds` | None | Complete CDS beginning with ATG and ending with TAA, TAG, or TGA; length must match |
 | `synonymous_codons` | None | Optional amino-acid to allowed codon lists; requires reference_cds |
 
 ```python
-from sequence_optimization import genetic_algorithm_optimize
+from sequence_optimization import genetic_algorithm_optimize, random_seed_sequences
 
-result = genetic_algorithm_optimize(predictor, length=50, budget=200, num_candidates=4,
-    mutation_rate=0.1, objective=["maximize"], seed=7)
+initial = random_seed_sequences(length=50, count=4, seed=7)
+result = genetic_algorithm_optimize(
+    predictor, length=50, initial=initial, budget=1000,
+    num_candidates=4, mutation_rate=0.1, objective=["maximize"], seed=7,
+)
 ```
 
 For gradient algorithms, use a [differentiable predictor](../custom_models.md#gradient-optimization).

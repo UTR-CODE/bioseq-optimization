@@ -41,7 +41,11 @@ The example weights measure nucleotide composition; use trained weights for a bi
 ```python
 import torch
 from torch import nn
-from sequence_optimization import SequencePredictor, genetic_algorithm_optimize
+from sequence_optimization import (
+    SequencePredictor,
+    genetic_algorithm_optimize,
+    random_seed_sequences,
+)
 
 
 class SingleOutputCNN(nn.Module):
@@ -58,20 +62,27 @@ class SingleOutputCNN(nn.Module):
 
 
 single_model = SequencePredictor(SingleOutputCNN(), device="cpu")
-initial = ["ACGT" * 5, "AAGT" * 5, "ACCT" * 5, "AGGT" * 5]
+initial = random_seed_sequences(length=20, count=4, seed=7)
 single_result = genetic_algorithm_optimize(
     single_model,
     length=20,
     initial=initial,
     objective=["maximize"],
     num_candidates=4,
-    budget=200,
+    budget=1000,
     mutation_rate=0.1,
     elite_fraction=0.5,
     seed=7,
 )
 print(single_result.to_frame())
 ```
+
+| sequence | score | activity_task_0 |
+|---|---:|---:|
+| GCGGGGGGGGGGGGGGGGGG | 0.70 | 0.70 |
+| GGAGGGGGGGGGGGGGGGGG | 0.70 | 0.70 |
+| GGGGGGGGAGGGGGGGGGGG | 0.70 | 0.70 |
+| GGGGGGGGGGGGGGGTGGGG | 0.70 | 0.70 |
 
 [Optimus: compare optimization algorithms](docs/models/optimus.md).
 
@@ -84,7 +95,11 @@ optimization objective:
 ```python
 import torch
 from torch import nn
-from sequence_optimization import SequencePredictor, genetic_algorithm_optimize
+from sequence_optimization import (
+    SequencePredictor,
+    genetic_algorithm_optimize,
+    random_seed_sequences,
+)
 
 
 class ThreeOutputCNN(nn.Module):
@@ -107,20 +122,27 @@ multi_model = SequencePredictor(
     task_names=["G_activity", "C_activity", "T_activity"],
     device="cpu",
 )
-initial = ["ACGT" * 5, "AAGT" * 5, "ACCT" * 5, "AGGT" * 5]
+initial = random_seed_sequences(length=20, count=4, seed=7)
 specific_result = genetic_algorithm_optimize(
     multi_model,
     length=20,
     initial=initial,
     objective=["maximize", "minimize", "ignore"],
     num_candidates=4,
-    budget=200,
+    budget=1000,
     mutation_rate=0.1,
     elite_fraction=0.5,
     seed=7,
 )
 print(specific_result.to_frame())
 ```
+
+| sequence | score | G_activity | C_activity | T_activity |
+|---|---:|---:|---:|---:|
+| AGGGGGTGGGGAGAGATAAG | 0.25 | 0.35 | -0.25 | -0.15 |
+| GAGAGAAGTGTGGGTTGTGG | 0.25 | 0.30 | -0.25 | 0.00 |
+| GAGAGAATTGTGGGGTGGGG | 0.25 | 0.35 | -0.25 | -0.05 |
+| GAGAGAATTGTGGGGTGTGG | 0.25 | 0.30 | -0.25 | 0.00 |
 
 Directions follow output order. `maximize` raises an output, `minimize` lowers it,
 and `ignore` excludes it from the objective. Ignored outputs are still reported
@@ -129,19 +151,27 @@ in `result.activities`; they are not constrained to remain unchanged.
 To raise all three outputs, run a separate search from the same initial sequences:
 
 ```python
+initial = random_seed_sequences(length=20, count=4, seed=7)
 all_high_result = genetic_algorithm_optimize(
     multi_model,
     length=20,
     initial=initial,
     objective=["maximize", "maximize", "maximize"],
     num_candidates=4,
-    budget=200,
+    budget=1000,
     mutation_rate=0.1,
     elite_fraction=0.5,
     seed=7,
 )
-print(all_high_result.activities)
+print(all_high_result.to_frame())
 ```
+
+| sequence | score | G_activity | C_activity | T_activity |
+|---|---:|---:|---:|---:|
+| ACCCGCTTCGGGGTTTGGCT | 0.05 | 0.10 | 0.05 | 0.05 |
+| ACCGGATCGCTGCGCTTTTG | 0.05 | 0.05 | 0.05 | 0.05 |
+| ACCGGCGCGATGCTCTTTTG | 0.05 | 0.05 | 0.05 | 0.05 |
+| ACCGGCGCGTGGCTCTTTTG | 0.05 | 0.10 | 0.05 | 0.05 |
 
 The default direction-list score is the smallest signed prediction: the
 weakest active output determines the score. This encourages balanced progress,
@@ -156,7 +186,12 @@ For fixed output normalization or activity thresholds, see
 ## 3. Multiple independent models: custom CNNs
 
 ```python
-from sequence_optimization import CombinedScorer, SequencePredictor, genetic_algorithm_optimize
+from sequence_optimization import (
+    CombinedScorer,
+    SequencePredictor,
+    genetic_algorithm_optimize,
+    random_seed_sequences,
+)
 
 model_a = SequencePredictor(SingleOutputCNN("G"), device="cpu")
 model_b = SequencePredictor(SingleOutputCNN("C"), device="cpu")
@@ -165,14 +200,14 @@ combined = CombinedScorer(
     [model_a, model_b, model_c],
     names=["model_a", "model_b", "model_c"],
 )
-initial = ["ACGT" * 5, "AAGT" * 5, "ACCT" * 5, "AGGT" * 5]
+initial = random_seed_sequences(length=20, count=4, seed=7)
 combined_result = genetic_algorithm_optimize(
     combined,
     length=20,
     initial=initial,
     objective=["maximize", "minimize", "minimize"],
     num_candidates=4,
-    budget=200,
+    budget=1000,
     mutation_rate=0.1,
     elite_fraction=0.5,
     seed=7,
@@ -181,12 +216,22 @@ print(combined_result.to_frame())
 print(combined.model_query_counts)
 ```
 
+| sequence | score | model_a | model_b | model_c |
+|---|---:|---:|---:|---:|
+| AGGAGGAGGGGAGAGAAGAA | 0.25 | 0.30 | -0.25 | -0.25 |
+| GAAAGAAAGGGAGAGAAGGG | 0.25 | 0.25 | -0.25 | -0.25 |
+| GAGAAAAAGGGGGAGAAGGG | 0.25 | 0.30 | -0.25 | -0.25 |
+| GAGAAAAGAGGAGGGAAGAG | 0.25 | 0.25 | -0.25 | -0.25 |
+
+The query counters for this run are
+`{'model_a': 275, 'model_b': 275, 'model_c': 275}`.
+
 `SingleOutputCNN` is defined in the first example. Each model evaluates the same
 sequence and returns one output; each can use its own input conversion. The
 objective list follows the order in `CombinedScorer`, so this search raises
 model A's prediction and lowers B's and C's.
 
-`budget=200` applies to combined candidate evaluations, not 200 split between
+`budget=1000` applies to combined candidate evaluations, not 1000 split between
 the models. Each uncached candidate is sent to all three models. The counters
 above report cumulative discrete sequence evaluations per model.
 
@@ -213,25 +258,11 @@ still evaluated. Use fixed reference scales when outputs have different units.
 - [Malinois cell-line-specific enhancers](docs/models/malinois.md)
 - [Constrain CDS optimization to synonymous codons](docs/tasks/synonymous_cds.md)
 
-## Initial sequences
-
-`initial` supplies the starting sequences. Provide exactly `num_candidates`
-unique strings, each matching `length`. Omit `initial` to sample random starting
-sequences, or generate a shared starting set before comparing optimizers:
-
-```python
-from sequence_optimization import random_seed_sequences
-
-initial = random_seed_sequences(length=20, count=4, seed=7)
-```
-
-`load_seed_sequences("seeds.txt", length=20, count=4)` reads one sequence per
-line. Blank lines and lines starting with `#` are ignored.
-
 ## Budget and results
 
 `num_candidates=4` sets the starting population and the number of unique
-candidates retained in the result. `budget=200` limits counted candidate
+candidates retained in the result. Each example constructs exactly four unique
+starting sequences with `random_seed_sequences`. `budget=1000` limits counted candidate
 evaluations, including the initial population; it is not the number of epochs
 or the result size. A run may stop before exhausting the budget.
 
@@ -246,17 +277,19 @@ and `result.activities` all raw predictions, including ignored outputs.
 
 ## Saturation screening
 
-Using `single_model` and `initial` from the single-task example, call
-`optimize_to_saturation` to stop after progress levels off. It tracks the
+Using `single_model` from the single-task example, generate an initial set and
+pass a `SaturationConfig` to stop after progress levels off. It tracks the
 mean objective of the best `num_candidates` unique sequences found so far.
+Omit `budget` in this mode; passing both `budget` and `saturation` raises
+`ValueError`.
 
 ```python
-from sequence_optimization import SaturationConfig, optimize_to_saturation
+from sequence_optimization import SaturationConfig, random_seed_sequences
 
-saturated = optimize_to_saturation(
+initial = random_seed_sequences(length=20, count=4, seed=7)
+saturated = genetic_algorithm_optimize(
     single_model,
     length=20,
-    algorithm="genetic_algorithm",
     initial=initial,
     objective=["maximize"],
     num_candidates=4,

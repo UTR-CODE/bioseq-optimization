@@ -66,18 +66,7 @@ and its third to T.
 
 ## Starting sequences
 
-Use the same four unique 20-base sequences for each comparison:
-
-```python
-initial = [
-    "ACGTACGTACGTACGTACGT",
-    "TGCATGCATGCATGCATGCA",
-    "GGGGCCCCAAAATTTTGGCC",
-    "AAAACCCCGGGGTTTTACGT",
-]
-```
-
-For reproducible random starts, use this instead of the explicit list:
+Create the same four reproducible 20-base sequences for each comparison:
 
 ```python
 initial = random_seed_sequences(length=20, count=4, seed=7)
@@ -105,68 +94,68 @@ optimizers use `score`, and the last four also use `score_soft`.
 
 ```python
 random_result = random_optimize(
-    predictor, length=20, budget=80, initial=initial,
+    predictor, length=20, budget=1000, initial=initial,
     num_candidates=4, objective=["maximize", "minimize", "ignore"], seed=7,
 )
 
 genetic_result = genetic_algorithm_optimize(
-    predictor, length=20, budget=80, initial=initial,
+    predictor, length=20, budget=1000, initial=initial,
     num_candidates=4, objective=["maximize", "minimize", "ignore"],
     mutation_rate=0.1, elite_fraction=0.5, seed=7,
 )
 
 ism_result = ism_optimize(
-    predictor, length=20, budget=80, initial=initial,
+    predictor, length=20, budget=1000, initial=initial,
     num_candidates=4, objective=["maximize", "minimize", "ignore"], seed=7,
 )
 
 annealing_result = simulated_annealing_optimize(
-    predictor, length=20, budget=80, initial=initial,
+    predictor, length=20, budget=1000, initial=initial,
     num_candidates=4, objective=["maximize", "minimize", "ignore"], seed=7,
 )
 
 adalead_result = adalead_optimize(
-    predictor, length=20, budget=80, initial=initial,
+    predictor, length=20, budget=1000, initial=initial,
     num_candidates=4, objective=["maximize", "minimize", "ignore"], seed=7,
 )
 
 beam_result = beam_search_optimize(
-    predictor, length=20, budget=80, initial=initial,
+    predictor, length=20, budget=1000, initial=initial,
     num_candidates=4, objective=["maximize", "minimize", "ignore"], seed=7,
 )
 
 cross_entropy_result = cross_entropy_optimize(
-    predictor, length=20, budget=80, initial=initial,
+    predictor, length=20, budget=1000, initial=initial,
     num_candidates=4, objective=["maximize", "minimize", "ignore"], seed=7,
 )
 
 basesearch_result = basesearch_optimize(
-    predictor, length=20, budget=80, initial=initial,
+    predictor, length=20, budget=1000, initial=initial,
     num_candidates=4, objective=["maximize", "minimize", "ignore"], seed=7,
 )
 
 cbas_result = cbas_optimize(
-    predictor, length=20, budget=80, initial=initial,
+    predictor, length=20, budget=1000, initial=initial,
     num_candidates=4, objective=["maximize", "minimize", "ignore"], seed=7,
 )
 
 vanilla_result = vanilla_activation_maximization_optimize(
-    predictor, length=20, budget=80, initial=initial,
+    predictor, length=20, budget=1000, initial=initial,
     num_candidates=4, objective=["maximize", "minimize", "ignore"], seed=7,
 )
 
 fast_seqprop_result = fast_seqprop_optimize(
-    predictor, length=20, budget=80, initial=initial,
+    predictor, length=20, budget=1000, initial=initial,
     num_candidates=4, objective=["maximize", "minimize", "ignore"], seed=7,
 )
 
 den_result = den_optimize(
-    predictor, length=20, budget=80, initial=initial,
+    predictor, length=20, budget=1000, initial=initial,
     num_candidates=4, objective=["maximize", "minimize", "ignore"], seed=7,
 )
 
 ledidi_result = ledidi_optimize(
-    predictor, length=20, budget=80, initial=initial,
+    predictor, length=20, budget=1000, initial=initial,
     num_candidates=4, objective=["maximize", "minimize", "ignore"], seed=7,
 )
 ```
@@ -181,7 +170,7 @@ To raise all three outputs, give all three positions the `maximize` direction:
 
 ```python
 all_high_result = genetic_algorithm_optimize(
-    predictor, length=20, budget=80, initial=initial,
+    predictor, length=20, budget=1000, initial=initial,
     num_candidates=4,
     objective=["maximize", "maximize", "maximize"],
     mutation_rate=0.1, elite_fraction=0.5,

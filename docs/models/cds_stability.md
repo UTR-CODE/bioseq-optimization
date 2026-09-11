@@ -3,10 +3,11 @@
 Load name: `cds_stability`.
 
 The model returns `stability_score`; maximize it. Candidates must be complete
-CDSs with an `ATG` start codon, a terminal stop codon, no internal stops, and a
-length divisible by three. The adapter accepts at most 9,000 nt. The internal
-CodonBERT branch represents only the first 3,066 nt; longer sequences are still
-accepted by the full model but are truncated in that branch.
+CDSs with an `ATG` start codon, a `TAA`, `TAG`, or `TGA` terminal codon, no
+internal stops, and a length divisible by three. The adapter accepts at most
+9,000 nt. The internal CodonBERT branch represents only the first 3,066 nt;
+longer sequences are still accepted by the full model but are truncated in
+that branch.
 
 ## Model loading parameters
 
@@ -37,8 +38,10 @@ model = load_model(
     batch_size=4,
     device="cpu",
 )
+reference_cds = "ATG" + "GCT" * 18 + "TAA"
+allowed_codons = {"A": ["GCT", "GCC"]}
 initial_cds = [
-    "ATG" + "GCT" * 18 + "TAA",
+    reference_cds,
     "ATG" + "GCT" * 17 + "GCC" + "TAA",
     "ATG" + "GCT" * 16 + "GCC" * 2 + "TAA",
     "ATG" + "GCT" * 15 + "GCC" * 3 + "TAA",
@@ -48,8 +51,8 @@ result_constrained = genetic_algorithm_optimize(
     model,
     length=60,
     initial=initial_cds,
-    reference_cds="ATG" + "GCT" * 18 + "TAA",
-    synonymous_codons={"A": ["GCT", "GCC"]},
+    reference_cds=reference_cds,
+    synonymous_codons=allowed_codons,
     objective=["maximize"],
     num_candidates=4,
     budget=4000,
@@ -69,11 +72,15 @@ optimizer shown here.
 
 ```python
 from bioseq_models import load_model
-from sequence_optimization import CombinedScorer, genetic_algorithm_optimize
+from sequence_optimization import (
+    CombinedScorer,
+    genetic_algorithm_optimize,
+)
 
 fixed_utr5 = "ACGT" * 10  # replace with the transcript 5′UTR
 fixed_utr3 = "ACGT" * 10  # replace with the transcript 3′UTR
 reference_cds = "ATG" + "GCT" * 18 + "TAA"
+allowed_codons = {"A": ["GCT", "GCC"]}
 initial_cds = [
     reference_cds,
     "ATG" + "GCT" * 17 + "GCC" + "TAA",
@@ -106,7 +113,7 @@ result_joint = genetic_algorithm_optimize(
     length=60,
     initial=initial_cds,
     reference_cds=reference_cds,
-    synonymous_codons={"A": ["GCT", "GCC"]},
+    synonymous_codons=allowed_codons,
     objective=["maximize", "maximize"],
     num_candidates=4,
     budget=4000,

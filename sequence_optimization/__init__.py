@@ -47,7 +47,7 @@ from .algorithms import (
 from .combined import CombinedScorer
 from .onehot import onehot
 from .objectives import MultiTaskObjective, TargetObjective
-from .saturation import SaturationConfig, SaturationResult, optimize_to_saturation
+from .saturation import SaturationConfig, SaturationResult
 from .seeds import load_seed_sequences, random_seed_sequences
 
 __all__ = [
@@ -91,7 +91,6 @@ __all__ = [
     "den_optimize",
     "SaturationConfig",
     "SaturationResult",
-    "optimize_to_saturation",
     "load_seed_sequences",
     "random_seed_sequences",
 ]

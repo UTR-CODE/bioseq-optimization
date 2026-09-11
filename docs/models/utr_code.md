@@ -198,8 +198,10 @@ model_cds = load_model(
     batch_size=256,
     device="cpu",
 )
+reference_cds = "ATG" + "GCT" * 18 + "TAA"
+allowed_codons = {"A": ["GCT", "GCC"]}
 initial_cds = [
-    "ATG" + "GCT" * 18 + "TAA",
+    reference_cds,
     "ATG" + "GCT" * 17 + "GCC" + "TAA",
     "ATG" + "GCT" * 16 + "GCC" * 2 + "TAA",
     "ATG" + "GCT" * 15 + "GCC" * 3 + "TAA",
@@ -208,8 +210,8 @@ result_synonymous = genetic_algorithm_optimize(
     model_cds,
     length=60,
     initial=initial_cds,
-    reference_cds="ATG" + "GCT" * 18 + "TAA",
-    synonymous_codons={"A": ["GCT", "GCC"]},
+    reference_cds=reference_cds,
+    synonymous_codons=allowed_codons,
     objective=["maximize"],
     num_candidates=4,
     budget=4000,

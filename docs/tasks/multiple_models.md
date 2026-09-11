@@ -71,25 +71,14 @@ order. The objective list uses the same order.
 
 ## Starting sequences
 
-Use these four unique 20-base sequences for each run:
-
-```python
-initial = [
-    "ACGTACGTACGTACGTACGT",
-    "TGCATGCATGCATGCATGCA",
-    "GGGGCCCCAAAATTTTGGCC",
-    "AAAACCCCGGGGTTTTACGT",
-]
-```
-
-The reproducible random alternative is:
+Create four reproducible 20-base sequences for each run:
 
 ```python
 initial = random_seed_sequences(length=20, count=4, seed=7)
 ```
 
-Use one of these definitions, not both. Explicit starts must be unique and
-their count must equal `num_candidates`.
+The starting sequences must be unique and their count must equal
+`num_candidates`.
 
 ## Goals and normalization
 
@@ -111,68 +100,68 @@ the black-box `score` method and the last four also use differentiable
 
 ```python
 random_result = random_optimize(
-    predictor, length=20, budget=80, initial=initial,
+    predictor, length=20, budget=1000, initial=initial,
     num_candidates=4, objective=["maximize", "minimize", "minimize"], seed=7,
 )
 
 genetic_result = genetic_algorithm_optimize(
-    predictor, length=20, budget=80, initial=initial,
+    predictor, length=20, budget=1000, initial=initial,
     num_candidates=4, objective=["maximize", "minimize", "minimize"],
     mutation_rate=0.1, elite_fraction=0.5, seed=7,
 )
 
 ism_result = ism_optimize(
-    predictor, length=20, budget=80, initial=initial,
+    predictor, length=20, budget=1000, initial=initial,
     num_candidates=4, objective=["maximize", "minimize", "minimize"], seed=7,
 )
 
 annealing_result = simulated_annealing_optimize(
-    predictor, length=20, budget=80, initial=initial,
+    predictor, length=20, budget=1000, initial=initial,
     num_candidates=4, objective=["maximize", "minimize", "minimize"], seed=7,
 )
 
 adalead_result = adalead_optimize(
-    predictor, length=20, budget=80, initial=initial,
+    predictor, length=20, budget=1000, initial=initial,
     num_candidates=4, objective=["maximize", "minimize", "minimize"], seed=7,
 )
 
 beam_result = beam_search_optimize(
-    predictor, length=20, budget=80, initial=initial,
+    predictor, length=20, budget=1000, initial=initial,
     num_candidates=4, objective=["maximize", "minimize", "minimize"], seed=7,
 )
 
 cross_entropy_result = cross_entropy_optimize(
-    predictor, length=20, budget=80, initial=initial,
+    predictor, length=20, budget=1000, initial=initial,
     num_candidates=4, objective=["maximize", "minimize", "minimize"], seed=7,
 )
 
 basesearch_result = basesearch_optimize(
-    predictor, length=20, budget=80, initial=initial,
+    predictor, length=20, budget=1000, initial=initial,
     num_candidates=4, objective=["maximize", "minimize", "minimize"], seed=7,
 )
 
 cbas_result = cbas_optimize(
-    predictor, length=20, budget=80, initial=initial,
+    predictor, length=20, budget=1000, initial=initial,
     num_candidates=4, objective=["maximize", "minimize", "minimize"], seed=7,
 )
 
 vanilla_result = vanilla_activation_maximization_optimize(
-    predictor, length=20, budget=80, initial=initial,
+    predictor, length=20, budget=1000, initial=initial,
     num_candidates=4, objective=["maximize", "minimize", "minimize"], seed=7,
 )
 
 fast_seqprop_result = fast_seqprop_optimize(
-    predictor, length=20, budget=80, initial=initial,
+    predictor, length=20, budget=1000, initial=initial,
     num_candidates=4, objective=["maximize", "minimize", "minimize"], seed=7,
 )
 
 den_result = den_optimize(
-    predictor, length=20, budget=80, initial=initial,
+    predictor, length=20, budget=1000, initial=initial,
     num_candidates=4, objective=["maximize", "minimize", "minimize"], seed=7,
 )
 
 ledidi_result = ledidi_optimize(
-    predictor, length=20, budget=80, initial=initial,
+    predictor, length=20, budget=1000, initial=initial,
     num_candidates=4, objective=["maximize", "minimize", "minimize"], seed=7,
 )
 ```
@@ -188,7 +177,7 @@ to `maximize`:
 
 ```python
 all_high_result = genetic_algorithm_optimize(
-    predictor, length=20, budget=80, initial=initial,
+    predictor, length=20, budget=1000, initial=initial,
     num_candidates=4,
     objective=["maximize", "maximize", "maximize"],
     mutation_rate=0.1, elite_fraction=0.5,

@@ -1,15 +1,27 @@
 """Python task recipes; model loading is confined to examples."""
 
+from itertools import islice, product
+
 from bioseq_models import load_model
 
 from sequence_optimization import (
     CombinedScorer,
     genetic_algorithm_optimize,
 )
+from sequence_optimization.codons import SynonymousCodonSpace
 
 REFERENCE_CDS = "ATG" + "GCT" * 18 + "TAA"
 FIXED_UTR5 = "ACGT" * 10
 FIXED_UTR3 = "ACGT" * 10
+
+
+def _initial_cds(synonymous_codons=None, count=4):
+    space = SynonymousCodonSpace(REFERENCE_CDS, synonymous_codons)
+    if space.capacity < count:
+        raise ValueError(
+            f"synonymous CDS space contains {space.capacity} sequences; {count} required"
+        )
+    return ["".join(codons) for codons in islice(product(*space.choices), count)]
 
 
 def design_utr_code(region="utr5", *, budget=100, device="cpu", synonymous_codons=None):
@@ -23,6 +35,7 @@ def design_utr_code(region="utr5", *, budget=100, device="cpu", synonymous_codon
     options = {}
     if region == "cds":
         options = {
+            "initial": _initial_cds(synonymous_codons),
             "reference_cds": REFERENCE_CDS,
             "synonymous_codons": synonymous_codons,
         }
@@ -55,6 +68,7 @@ def design_cds_stability(
     return genetic_algorithm_optimize(
         predictor,
         length=len(REFERENCE_CDS),
+        initial=_initial_cds(synonymous_codons),
         reference_cds=REFERENCE_CDS,
         synonymous_codons=synonymous_codons,
         objective=directions,

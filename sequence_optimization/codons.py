@@ -10,6 +10,7 @@ from .api import SequenceSpace, normalize_nucleotide_sequences
 
 _AMINO = "FFLLSSSSYY**CC*WLLLLPPPPHHQQRRRRIIIMTTTTNNKKSSRRVVVVAAAADDEEGGGG"
 GENETIC_CODE = dict(zip(map("".join, product("TCAG", repeat=3)), _AMINO))
+STOP_CODONS = frozenset({"TAA", "TAG", "TGA"})
 
 
 class SynonymousCodonSpace(SequenceSpace):
@@ -24,10 +25,12 @@ class SynonymousCodonSpace(SequenceSpace):
             raise ValueError("reference_cds must be a complete ACGT CDS in frame")
         codons = [reference[i : i + 3] for i in range(0, len(reference), 3)]
         protein = [GENETIC_CODE[codon] for codon in codons]
-        if codons[0] != "ATG" or protein[-1] != "*" or "*" in protein[:-1]:
-            raise ValueError(
-                "reference_cds requires ATG, a terminal stop, and no internal stops"
-            )
+        if codons[0] != "ATG":
+            raise ValueError("reference_cds must begin with ATG")
+        if codons[-1] not in STOP_CODONS:
+            raise ValueError("reference_cds must end with TAA, TAG, or TGA")
+        if "*" in protein[:-1]:
+            raise ValueError("reference_cds must not contain an internal stop codon")
         table = {
             aa: tuple(c for c, value in GENETIC_CODE.items() if value == aa)
             for aa in set(_AMINO)
@@ -44,15 +47,25 @@ class SynonymousCodonSpace(SequenceSpace):
                 raise ValueError(f"invalid synonymous codons for {aa!r}")
             table[aa] = choices
         choices = [
-            (codons[i],) if i in (0, len(codons) - 1) else table[aa]
-            for i, aa in enumerate(protein)
+            (codons[i],) if i == 0 else table[aa] for i, aa in enumerate(protein)
         ]
         object.__setattr__(self, "choices", tuple(choices))
         object.__setattr__(self, "capacity", prod(map(len, choices)))
         object.__setattr__(self, "reference_cds", reference)
+        object.__setattr__(self, "protein", tuple(protein))
 
     def validate(self, sequences):
         values = super().validate(sequences)
+        if any(sequence[:3] != "ATG" for sequence in values):
+            raise ValueError("CDS candidates must begin with ATG")
+        if any(sequence[-3:] not in STOP_CODONS for sequence in values):
+            raise ValueError("CDS candidates must end with TAA, TAG, or TGA")
+        if any(
+            tuple(GENETIC_CODE[sequence[i : i + 3]] for i in range(0, self.length, 3))
+            != self.protein
+            for sequence in values
+        ):
+            raise ValueError("CDS candidates must preserve the reference protein")
         if any(
             sequence[3 * i : 3 * i + 3] not in choices
             for sequence in values

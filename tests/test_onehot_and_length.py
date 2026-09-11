@@ -80,11 +80,10 @@ def test_length_seed_and_saturation_interfaces(tmp_path):
         alphabet="AC",
     )
     assert all(set("".join(result.sequences)) <= set("AC") for result in many.values())
-    result = so.optimize_to_saturation(
+    result = so.random_optimize(
         scorer,
         length=4,
         alphabet="AC",
-        algorithm="random",
         num_candidates=4,
         saturation=so.SaturationConfig(
             minimum_queries=4, plateau_patience_queries=4, maximum_queries=12

@@ -8,7 +8,6 @@ from typing import Any
 
 import numpy as np
 
-from .algorithms import _REGISTRY, _initial, _configured_space, available_algorithms
 from .api import (
     CachedScorer,
     OptimizationConfig,
@@ -194,7 +193,7 @@ def _selection_result(
     return result
 
 
-def optimize_to_saturation(
+def _optimize_with_saturation(
     scorer: SequenceScorer,
     length: int,
     *,
@@ -207,7 +206,7 @@ def optimize_to_saturation(
     | list[str]
     | tuple[str, ...]
     | None = None,
-    saturation: SaturationConfig | None = None,
+    saturation: SaturationConfig,
     seed: int = 0,
     count_repeated: bool = False,
     **optimizer_parameters: Any,
@@ -217,12 +216,19 @@ def optimize_to_saturation(
     A q80 result is the earliest archive whose top-candidate mean reaches 80%
     of the gain between the first valid archive and the final observed plateau.
     """
+    from .algorithms import (
+        _REGISTRY,
+        _configured_space,
+        _initial,
+        available_algorithms,
+    )
+
     key = str(algorithm).strip().lower()
     if key not in _REGISTRY:
         raise KeyError(
             f"unknown algorithm {algorithm!r}; choose from {', '.join(available_algorithms())}"
         )
-    options = saturation or SaturationConfig()
+    options = saturation
     minimum, patience, maximum = options.resolve(num_candidates)
     config = OptimizationConfig(
         budget=maximum,

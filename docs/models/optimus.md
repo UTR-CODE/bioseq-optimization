@@ -4,8 +4,8 @@ Load name: `optimus5prime`.
 
 Optimus 5-Prime accepts 50-nt sequences and returns mean ribosome load (MRL).
 The examples below maximize the single MRL output on CPU. They use the same
-four starting sequences, `num_candidates=4`, `budget=200`, and `seed=7` so
-that the optimizer calls are directly comparable. The 200 counted candidate
+four starting sequences, `num_candidates=4`, `budget=1000`, and `seed=7` so
+that the optimizer calls are directly comparable. The 1000 counted candidate
 evaluations/proposals exceed the 154 needed for four initial sequences and one
 complete 50-nt DNA single-base neighborhood (`3 * 50 = 150` mutants).
 
@@ -39,6 +39,7 @@ from sequence_optimization import (
     genetic_algorithm_optimize,
     ism_optimize,
     ledidi_optimize,
+    random_seed_sequences,
     random_optimize,
     simulated_annealing_optimize,
     vanilla_activation_maximization_optimize,
@@ -46,12 +47,7 @@ from sequence_optimization import (
 
 model = load_model("optimus5prime", device="cpu")
 
-initial = [
-    "CCACTCGATTAACATGTTAACAACATACTCGTCCGGCCGATCAGCGGCTA",
-    "GGTACCTCTAGTTTAATCCCTCCCTTATACGGTGCAACCCGCTCCCCTCA",
-    "TGCATTTTTTTCACATCTATTTGCGTTTCACATCTTTTCTTACCTCTTGA",
-    "CTCATTTTTCACCTCCCTTTTATCTCTCTGCTTACGTTTCGATCCCATCA",
-]
+initial = random_seed_sequences(length=50, count=4, seed=7)
 
 ```
 
@@ -69,7 +65,7 @@ random_result = random_optimize(
     initial=initial,
     objective=["maximize"],
     num_candidates=4,
-    budget=200,
+    budget=1000,
     seed=7,
 )
 print(random_result.to_frame())
@@ -84,7 +80,7 @@ genetic_result = genetic_algorithm_optimize(
     initial=initial,
     objective=["maximize"],
     num_candidates=4,
-    budget=200,
+    budget=1000,
     mutation_rate=0.1,
     elite_fraction=0.5,
     seed=7,
@@ -101,7 +97,7 @@ ism_result = ism_optimize(
     initial=initial,
     objective=["maximize"],
     num_candidates=4,
-    budget=200,
+    budget=1000,
     seed=7,
 )
 print(ism_result.to_frame())
@@ -116,7 +112,7 @@ annealing_result = simulated_annealing_optimize(
     initial=initial,
     objective=["maximize"],
     num_candidates=4,
-    budget=200,
+    budget=1000,
     seed=7,
 )
 print(annealing_result.to_frame())
@@ -131,7 +127,7 @@ adalead_result = adalead_optimize(
     initial=initial,
     objective=["maximize"],
     num_candidates=4,
-    budget=200,
+    budget=1000,
     seed=7,
 )
 print(adalead_result.to_frame())
@@ -146,7 +142,7 @@ beam_result = beam_search_optimize(
     initial=initial,
     objective=["maximize"],
     num_candidates=4,
-    budget=200,
+    budget=1000,
     seed=7,
 )
 print(beam_result.to_frame())
@@ -161,7 +157,7 @@ cross_entropy_result = cross_entropy_optimize(
     initial=initial,
     objective=["maximize"],
     num_candidates=4,
-    budget=200,
+    budget=1000,
     seed=7,
 )
 print(cross_entropy_result.to_frame())
@@ -176,7 +172,7 @@ basesearch_result = basesearch_optimize(
     initial=initial,
     objective=["maximize"],
     num_candidates=4,
-    budget=200,
+    budget=1000,
     seed=7,
 )
 print(basesearch_result.to_frame())
@@ -191,7 +187,7 @@ cbas_result = cbas_optimize(
     initial=initial,
     objective=["maximize"],
     num_candidates=4,
-    budget=200,
+    budget=1000,
     seed=7,
 )
 print(cbas_result.to_frame())
@@ -228,7 +224,7 @@ vanilla_result = vanilla_activation_maximization_optimize(
     initial=initial,
     objective=["maximize"],
     num_candidates=4,
-    budget=200,
+    budget=1000,
     seed=7,
 )
 print(vanilla_result.to_frame())
@@ -243,7 +239,7 @@ fast_seqprop_result = fast_seqprop_optimize(
     initial=initial,
     objective=["maximize"],
     num_candidates=4,
-    budget=200,
+    budget=1000,
     seed=7,
 )
 print(fast_seqprop_result.to_frame())
@@ -258,7 +254,7 @@ den_result = den_optimize(
     initial=initial,
     objective=["maximize"],
     num_candidates=4,
-    budget=200,
+    budget=1000,
     seed=7,
 )
 print(den_result.to_frame())
@@ -273,7 +269,7 @@ ledidi_result = ledidi_optimize(
     initial=initial,
     objective=["maximize"],
     num_candidates=4,
-    budget=200,
+    budget=1000,
     seed=7,
 )
 print(ledidi_result.to_frame())
@@ -292,12 +288,12 @@ progress instead of a fixed `budget`. The optimizer still has a safety ceiling
 through `maximum_queries`.
 
 ```python
-from sequence_optimization import SaturationConfig, optimize_to_saturation
+from sequence_optimization import SaturationConfig, random_seed_sequences
 
-saturated = optimize_to_saturation(
+initial = random_seed_sequences(length=50, count=4, seed=7)
+saturated = genetic_algorithm_optimize(
     model,
     length=50,
-    algorithm="genetic_algorithm",
     initial=initial,
     objective=["maximize"],
     num_candidates=4,
