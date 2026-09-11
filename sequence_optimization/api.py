@@ -347,12 +347,41 @@ class CachedScorer:
         budget: int | None = None,
         *,
         count_repeated: bool = False,
+        constraint=None,
+        constraint_rng: np.random.Generator | None = None,
     ) -> None:
         if budget is not None and budget < 0:
             raise ValueError("budget must be non-negative or None")
         self.scorer, self.budget, self.count_repeated = scorer, budget, count_repeated
         self.query_count = 0
+        self.model_query_count = 0
         self._cache: dict[str, tuple[np.ndarray, np.ndarray]] = {}
+        self._rejected: set[str] = set()
+        self.constraint_evaluator = None
+        if constraint is not None:
+            from .constraints import ConstraintEvaluator
+
+            self.constraint_evaluator = ConstraintEvaluator(
+                constraint,
+                np.random.default_rng() if constraint_rng is None else constraint_rng,
+            )
+
+    def set_constraint(
+        self, constraint, rng: np.random.Generator | None = None
+    ) -> None:
+        """Set a constraint before any values have been cached."""
+        if self._cache or self._rejected:
+            raise ValueError(
+                "constraint cannot change after sequences have been cached"
+            )
+        if constraint is None:
+            self.constraint_evaluator = None
+            return
+        from .constraints import ConstraintEvaluator
+
+        self.constraint_evaluator = ConstraintEvaluator(
+            constraint, np.random.default_rng() if rng is None else rng
+        )
 
     @property
     def remaining(self) -> int | None:
@@ -364,7 +393,9 @@ class CachedScorer:
             return ScoreBatch(np.empty(0), np.empty(0))
         missing = list(
             dict.fromkeys(
-                str(value) for value in values if str(value) not in self._cache
+                str(value)
+                for value in values
+                if str(value) not in self._cache and str(value) not in self._rejected
             )
         )
         cost = len(values) if self.count_repeated else len(missing)
@@ -373,10 +404,25 @@ class CachedScorer:
                 f"query budget exceeded: requested {cost}, remaining {self.remaining}"
             )
         if missing:
-            current = as_score_batch(self.scorer.score(np.asarray(missing, dtype=str)))
-            if len(current.scores) != len(missing):
+            accepted = missing
+            if self.constraint_evaluator is not None:
+                passed = self.constraint_evaluator.evaluate(missing)
+                accepted = [value for value, keep in zip(missing, passed) if keep]
+                self._rejected.update(
+                    value for value, keep in zip(missing, passed) if not keep
+                )
+            current = (
+                as_score_batch(self.scorer.score(np.asarray(accepted, dtype=str)))
+                if accepted
+                else ScoreBatch(np.empty(0), np.empty(0))
+            )
+            if len(current.scores) != len(accepted):
                 raise ValueError(
-                    f"scorer returned {len(current.scores)} rows for {len(missing)} sequences"
+                    f"scorer returned {len(current.scores)} rows for {len(accepted)} sequences"
+                )
+            if self.constraint_evaluator is not None and current.scores.ndim != 1:
+                raise ValueError(
+                    "constraints require scalar objective scores; pass objective to the optimizer"
                 )
             uncertainty = (
                 np.zeros_like(current.scores)
@@ -389,14 +435,36 @@ class CachedScorer:
                         np.asarray(score, dtype=np.float64).copy(),
                         np.asarray(std, dtype=np.float64).copy(),
                     )
-                    for key, score, std in zip(missing, current.scores, uncertainty)
+                    for key, score, std in zip(accepted, current.scores, uncertainty)
                 }
             )
+            self.model_query_count += len(accepted)
         self.query_count += cost
+        rejected_score = np.asarray(np.finfo(np.float64).min)
         return ScoreBatch(
-            np.stack([self._cache[str(value)][0] for value in values]),
-            np.stack([self._cache[str(value)][1] for value in values]),
+            np.stack(
+                [
+                    rejected_score
+                    if str(value) in self._rejected
+                    else self._cache[str(value)][0]
+                    for value in values
+                ]
+            ),
+            np.stack(
+                [
+                    np.zeros_like(rejected_score)
+                    if str(value) in self._rejected
+                    else self._cache[str(value)][1]
+                    for value in values
+                ]
+            ),
         )
+
+    def constraints_passed(self, sequences) -> np.ndarray:
+        values = normalize_nucleotide_sequences(sequences)
+        if self.constraint_evaluator is None:
+            return np.ones(len(values), dtype=bool)
+        return self.constraint_evaluator.evaluate(values)
 
 
 @dataclass(frozen=True)
@@ -555,6 +623,8 @@ class OptimizationResult:
     trajectory: list[dict[str, float | int]] = field(default_factory=list)
     activities: np.ndarray | None = None
     task_names: tuple[str, ...] = ()
+    constraint_scores: np.ndarray | None = None
+    constraint_names: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         self.sequences = np.asarray(self.sequences, dtype=str).reshape(-1)
@@ -570,6 +640,29 @@ class OptimizationResult:
             _validate_task_names(self.task_names) if self.task_names else ()
         )
         self._validate_activities()
+        self._validate_constraint_scores()
+
+    def _validate_constraint_scores(self) -> None:
+        if self.constraint_scores is None:
+            if self.constraint_names:
+                raise ValueError("constraint_names require constraint_scores")
+            return
+        constraint_scores = np.asarray(self.constraint_scores, dtype=np.float64)
+        if constraint_scores.ndim == 1:
+            constraint_scores = constraint_scores[:, None]
+        if constraint_scores.ndim != 2 or len(constraint_scores) != len(self.sequences):
+            raise ValueError(
+                "constraint_scores must have shape [num_candidates, constraints]"
+            )
+        if not np.isfinite(constraint_scores).all() or np.any(
+            (constraint_scores < 0) | (constraint_scores > 1)
+        ):
+            raise ValueError("constraint_scores must be finite values in [0, 1]")
+        names = tuple(self.constraint_names)
+        if len(names) != constraint_scores.shape[1] or len(set(names)) != len(names):
+            raise ValueError("constraint_names must identify every constraint column")
+        self.constraint_scores = constraint_scores
+        self.constraint_names = names
 
     def _validate_activities(self) -> None:
         if self.activities is not None:
@@ -597,6 +690,17 @@ class OptimizationResult:
         self._validate_activities()
         return self
 
+    def attach_constraint_scores(
+        self,
+        constraint_scores: np.ndarray,
+        constraint_names: Sequence[str],
+    ) -> "OptimizationResult":
+        """Attach the pass probabilities returned by each constraint."""
+        self.constraint_scores = constraint_scores
+        self.constraint_names = tuple(constraint_names)
+        self._validate_constraint_scores()
+        return self
+
     def to_frame(self):
         import pandas as pd
 
@@ -607,6 +711,9 @@ class OptimizationResult:
                 "uncertainty": self.uncertainties,
             }
         )
+        if self.constraint_scores is not None:
+            for index, name in enumerate(self.constraint_names):
+                frame[f"constraint_{name}"] = self.constraint_scores[:, index]
         if self.activities is not None:
             for index, name in enumerate(self.task_names):
                 frame[f"activity_{name}"] = self.activities[:, index]

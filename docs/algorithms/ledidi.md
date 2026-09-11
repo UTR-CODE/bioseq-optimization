@@ -8,6 +8,7 @@ Maximize the selected objective with an edit penalty, using seed-prior logits an
 | `length` | required | Candidate sequence length |
 | `budget` | None | Fixed candidate budget; required when saturation is None and invalid when saturation is set |
 | `saturation` | None | SaturationConfig for plateau-based stopping; omit budget when set |
+| `constraint` | None | One constraint callable or a list of independently intersected constraint callables |
 | `num_candidates` | 100 | Number of unique seeds and retained results |
 | `initial` | None | Exactly num_candidates unique starting sequences; otherwise random |
 | `objective` | None | Output directions or objective object; default maximizes output zero |

@@ -275,6 +275,43 @@ Gradient evaluations are additional work outside this discrete budget.
 `result.sequences` contains the designed strings, `result.scores` the objective,
 and `result.activities` all raw predictions, including ignored outputs.
 
+## Sequence constraints
+
+Pass one function or a list of functions through `constraint`. Each function
+returns an independent pass probability in `[0, 1]`; only the intersection of
+all passing candidates is scored by the model and retained for optimization.
+
+```python
+import numpy as np
+
+
+def gc_at_most_60(sequences):
+    return np.asarray([
+        (sequence.count("G") + sequence.count("C")) / len(sequence) <= 0.60
+        for sequence in sequences
+    ], dtype=float)
+
+
+def excludes_motifs(sequence):
+    return float(all(motif not in sequence for motif in ("AAAA", "GGGG")))
+
+
+initial = random_seed_sequences(length=20, count=4, seed=7)
+constrained_result = genetic_algorithm_optimize(
+    single_model,
+    length=20,
+    initial=initial,
+    objective=["maximize"],
+    constraint=[gc_at_most_60, excludes_motifs],
+    num_candidates=4,
+    budget=1000,
+    seed=7,
+)
+print(constrained_result.to_frame())
+```
+
+[Hard, soft and multiple sequence constraints](docs/constraints.md).
+
 ## Saturation screening
 
 Using `single_model` from the single-task example, generate an initial set and

@@ -14,10 +14,10 @@ from .saturation import SaturationConfig
 from .seeds import load_seed_sequences, random_seed_sequences
 
 
-def _load_callable(specification: str):
+def _load_callable(specification: str, option: str):
     module_name, separator, function_name = specification.partition(":")
     if not separator:
-        raise ValueError("--scorer must have the form package.module:function")
+        raise ValueError(f"{option} must have the form package.module:function")
     function = getattr(importlib.import_module(module_name), function_name)
     if not callable(function):
         raise TypeError(f"{specification!r} is not callable")
@@ -44,6 +44,14 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--scorer", required=True, help="Python callable: package.module:function"
+    )
+    parser.add_argument(
+        "--constraint",
+        action="append",
+        help=(
+            "Optional package.module:function returning pass probabilities; "
+            "repeat for independent intersected constraints"
+        ),
     )
     parser.add_argument("--algorithm", choices=available_algorithms(), required=True)
     parser.add_argument("--length", type=int, required=True)
@@ -117,7 +125,7 @@ def main() -> None:
     if args.task_names:
         task_names = tuple(name.strip() for name in args.task_names.split(","))
     scorer = CallableScorer(
-        _load_callable(args.scorer),
+        _load_callable(args.scorer, "--scorer"),
         task_names=task_names,
         pad_to_length=args.pad_to_length,
         padding_side=args.padding_side,
@@ -126,6 +134,14 @@ def main() -> None:
         target=_target(args.target),
         mode=args.objective,
         penalty=args.other_penalty,
+    )
+    constraint = (
+        [
+            _load_callable(specification, "--constraint")
+            for specification in args.constraint
+        ]
+        if args.constraint
+        else None
     )
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -143,6 +159,7 @@ def main() -> None:
             alphabet=args.alphabet,
             initial=initial,
             objective=objective,
+            constraint=constraint,
             saturation=SaturationConfig(
                 fractions=fractions,
                 minimum_queries=args.minimum_queries,
@@ -178,6 +195,7 @@ def main() -> None:
             alphabet=args.alphabet,
             initial=initial,
             objective=objective,
+            constraint=constraint,
             seed=args.seed,
         )
         result.to_frame().to_csv(output, index=False)

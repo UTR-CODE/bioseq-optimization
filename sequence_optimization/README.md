@@ -36,4 +36,5 @@ Padding uses `N`; differentiable soft inputs use equivalent all-zero vectors.
 The optimized and returned sequence itself remains ACGT.
 
 See the [project README](../README.md) for algorithm choices, multi-task
-objectives, saturation stopping, installation, and complete examples.
+objectives, [sequence constraints](../docs/constraints.md), saturation stopping,
+installation, and complete examples.

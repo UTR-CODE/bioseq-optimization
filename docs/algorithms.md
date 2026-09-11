@@ -16,6 +16,7 @@
 - [den_optimize](algorithms/den.md)
 - [ledidi_optimize](algorithms/ledidi.md)
 - [Objective parameters](objectives.md)
+- [Hard, soft and multiple sequence constraints](constraints.md)
 - [Initial sequences, budgets and saturation screening](search_workflow.md)
 
 ## Custom CNN tasks

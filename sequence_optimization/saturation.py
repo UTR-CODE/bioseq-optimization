@@ -15,6 +15,7 @@ from .api import (
     ScoreBatch,
     SequenceScorer,
 )
+from .constraints import ConstraintSpec
 from .objectives import MultiTaskObjective, ObjectiveScorer, TargetObjective
 
 
@@ -143,7 +144,18 @@ class _TrackingScorer(CachedScorer):
     def score(self, sequences) -> ScoreBatch:
         values = np.asarray(sequences, dtype=str).reshape(-1)
         batch = super().score(values)
-        self.monitor.observe(values, batch, self.query_count)
+        passed = self.constraints_passed(values)
+        if passed.any():
+            self.monitor.observe(
+                values[passed],
+                ScoreBatch(
+                    batch.scores[passed],
+                    None
+                    if batch.uncertainties is None
+                    else batch.uncertainties[passed],
+                ),
+                self.query_count,
+            )
         return batch
 
 
@@ -157,6 +169,7 @@ def _selection_result(
     baseline: float,
     plateau: float,
     objective_scorer: ObjectiveScorer,
+    budgeted: CachedScorer,
     trajectory: list[dict[str, float | int]],
     stop_reason: str,
 ) -> OptimizationResult:
@@ -190,6 +203,17 @@ def _selection_result(
         result.metadata["objective_evaluation"] = objective_scorer.objective.evaluate(
             activities, objective_scorer.task_names
         )
+    if budgeted.constraint_evaluator is not None:
+        evaluator = budgeted.constraint_evaluator
+        result.attach_constraint_scores(
+            evaluator.probabilities_for(sequences), evaluator.names
+        )
+        result.metadata["constraint"] = {
+            **evaluator.describe(),
+            "screened_query_count": int(evaluator.evaluated_counts[0]),
+            "counted_query_count": total_queries,
+            "model_query_count": budgeted.model_query_count,
+        }
     return result
 
 
@@ -206,6 +230,7 @@ def _optimize_with_saturation(
     | list[str]
     | tuple[str, ...]
     | None = None,
+    constraint: ConstraintSpec | None = None,
     saturation: SaturationConfig,
     seed: int = 0,
     count_repeated: bool = False,
@@ -218,6 +243,7 @@ def _optimize_with_saturation(
     """
     from .algorithms import (
         _REGISTRY,
+        _constraint_initial,
         _configured_space,
         _initial,
         available_algorithms,
@@ -236,6 +262,9 @@ def _optimize_with_saturation(
         **optimizer_parameters,
     )
     rng = np.random.default_rng(seed)
+    constraint_rng = np.random.default_rng(
+        np.random.SeedSequence([int(seed), 0xC0DEC0DE])
+    )
     space = _configured_space(length, alphabet, config, key)
     random.seed(seed)
     prepared = _initial(initial, space, config, rng)
@@ -259,8 +288,11 @@ def _optimize_with_saturation(
         objective_scorer,
         maximum,
         count_repeated=count_repeated or key in proposal_count_algorithms,
+        constraint=constraint,
+        constraint_rng=constraint_rng,
         monitor=monitor,
     )
+    prepared = _constraint_initial(prepared, budgeted, space, config, rng)
     stop_reason = "algorithm_stopped"
     try:
         _REGISTRY[key](prepared, budgeted, space, config, rng)
@@ -308,6 +340,7 @@ def _optimize_with_saturation(
             baseline=baseline,
             plateau=plateau,
             objective_scorer=objective_scorer,
+            budgeted=budgeted,
             trajectory=trajectory,
             stop_reason=stop_reason,
         )

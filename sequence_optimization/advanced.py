@@ -9,7 +9,7 @@ import math
 import numpy as np
 
 from .algorithms import _finalize, _score, register_algorithm
-from .api import CachedScorer, SequenceSpace
+from .api import CachedScorer, ScoreBatch, SequenceSpace
 from .objectives import ObjectiveScorer
 
 
@@ -62,6 +62,9 @@ def basesearch(initial, scorer, space, config, rng):
             stalled += 1
             continue
         current = _score(scorer, archive, candidate)
+        if not scorer.constraints_passed(candidate)[0]:
+            stalled += 1
+            continue
         best_score = max(best_score, float(current.scores[0]))
         stalled = 0
         heapq.heappush(queue, (-float(current.scores[0]), str(candidate[0])))
@@ -178,8 +181,15 @@ def cross_entropy_method(initial, scorer, space, config, rng):
         sequences = space.decode(samples)
         before = scorer.query_count
         batch = _score(scorer, archive, sequences)
-        elite_count = max(1, int(round(count * config.elite_fraction)))
-        elite = samples[np.argsort(batch.scores)[-elite_count:]]
+        passed = scorer.constraints_passed(sequences)
+        accepted_samples = samples[passed]
+        accepted_scores = batch.scores[passed]
+        if not len(accepted_samples):
+            if scorer.query_count == before:
+                break
+            continue
+        elite_count = max(1, int(round(len(accepted_samples) * config.elite_fraction)))
+        elite = accepted_samples[np.argsort(accepted_scores)[-elite_count:]]
         fitted = np.full_like(probabilities, 1e-3)
         for position in range(space.length):
             fitted[position] += np.bincount(
@@ -322,6 +332,18 @@ def cbas(initial, scorer, space, config, rng):
         sequences = space.decode(samples.cpu().numpy())
         before = scorer.query_count
         batch = _score(scorer, archive, sequences)
+        passed = scorer.constraints_passed(sequences)
+        if not passed.any():
+            if scorer.query_count == before:
+                break
+            continue
+        samples = samples[
+            torch.as_tensor(passed, dtype=torch.bool, device=samples.device)
+        ]
+        batch = ScoreBatch(
+            batch.scores[passed],
+            None if batch.uncertainties is None else batch.uncertainties[passed],
+        )
         threshold = max(
             threshold, float(np.quantile(batch.scores, config.cbas_quantile))
         )
@@ -422,6 +444,14 @@ def _gradient_result(
     return _finalize(name, archive, config, scorer, metadata, trajectory)
 
 
+def _accepted_score_summary(batch, scorer, sequences, archive):
+    passed = scorer.constraints_passed(sequences)
+    values = batch.scores[passed]
+    if not len(values):
+        values = np.asarray([score for score, _ in archive.values()])
+    return float(values.max()), float(values.mean())
+
+
 @register_algorithm("vanilla_activation_maximization")
 def vanilla_activation_maximization(initial, scorer, space, config, rng):
     """Optimize a soft position-weight matrix through a differentiable model."""
@@ -441,17 +471,30 @@ def vanilla_activation_maximization(initial, scorer, space, config, rng):
     while scorer.remaining is None or scorer.remaining >= len(initial):
         optimizer.zero_grad(set_to_none=True)
         probabilities = torch.softmax(logits, dim=-1)
-        utilities, _ = objective.score_soft(probabilities)
-        (-utilities.mean()).backward()
-        optimizer.step()
-        hard = logits.detach().argmax(dim=-1).cpu().numpy()
-        sequences = space.decode(hard)
+        if scorer.constraint_evaluator is None:
+            utilities, _ = objective.score_soft(probabilities)
+            (-utilities.mean()).backward()
+            optimizer.step()
+            sampled = logits.detach().argmax(dim=-1)
+            sequences = space.decode(sampled.cpu().numpy())
+        else:
+            sampled = probabilities.detach().argmax(dim=-1)
+            sequences = space.decode(sampled.cpu().numpy())
+            passed = scorer.constraints_passed(sequences)
+            if passed.any():
+                mask = torch.as_tensor(passed, dtype=torch.bool, device=device)
+                utilities, _ = objective.score_soft(probabilities[mask])
+                (-utilities.mean()).backward()
+                optimizer.step()
         batch = _score(scorer, archive, sequences)
+        best_score, mean_score = _accepted_score_summary(
+            batch, scorer, sequences, archive
+        )
         trajectory.append(
             {
                 "query_count": scorer.query_count,
-                "best_score": float(batch.scores.max()),
-                "mean_score": float(batch.scores.mean()),
+                "best_score": best_score,
+                "mean_score": mean_score,
             }
         )
     return _gradient_result(
@@ -495,16 +538,22 @@ def fast_seqprop(initial, scorer, space, config, rng):
             normalized * gamma[:, None, :] + beta[:, None, :], dim=-1
         )
         straight_through, sampled = _straight_through(probabilities)
-        utilities, _ = objective.score_soft(straight_through)
-        (-utilities.mean()).backward()
-        optimizer.step()
         sequences = space.decode(sampled.detach().cpu().numpy())
+        passed = scorer.constraints_passed(sequences)
+        if passed.any():
+            mask = torch.as_tensor(passed, dtype=torch.bool, device=device)
+            utilities, _ = objective.score_soft(straight_through[mask])
+            (-utilities.mean()).backward()
+            optimizer.step()
         batch = _score(scorer, archive, sequences)
+        best_score, mean_score = _accepted_score_summary(
+            batch, scorer, sequences, archive
+        )
         trajectory.append(
             {
                 "query_count": scorer.query_count,
-                "best_score": float(batch.scores.max()),
-                "mean_score": float(batch.scores.mean()),
+                "best_score": best_score,
+                "mean_score": mean_score,
             }
         )
     return _gradient_result(
@@ -550,26 +599,36 @@ def ledidi(initial, scorer, space, config, rng):
             probabilities.dtype
         )
         straight_through = hard - probabilities.detach() + probabilities
-        utilities, _ = objective.score_soft(straight_through)
-        soft_queries += len(initial)
-        # Half the one-hot L1 distance is the number of substituted bases.
-        edit_loss = (straight_through - template).abs().sum() / (2 * len(initial))
-        loss = -utilities.mean() + config.ledidi_edit_penalty * edit_loss
-        if not torch.isfinite(loss):
-            raise ValueError("ledidi received a non-finite differentiable loss")
-        optimizer.zero_grad(set_to_none=True)
-        # Differentiate only the design weights, leaving scorer parameter grads alone.
-        (weights.grad,) = torch.autograd.grad(loss, weights)
-        optimizer.step()
         sequences = space.decode(sampled.detach().cpu().numpy())
+        passed = scorer.constraints_passed(sequences)
+        edit_loss_value = loss_value = 0.0
+        if passed.any():
+            mask = torch.as_tensor(passed, dtype=torch.bool, device=device)
+            accepted = straight_through[mask]
+            utilities, _ = objective.score_soft(accepted)
+            soft_queries += int(passed.sum())
+            # Half the one-hot L1 distance is the number of substituted bases.
+            edit_loss = (accepted - template[mask]).abs().sum() / (2 * len(accepted))
+            loss = -utilities.mean() + config.ledidi_edit_penalty * edit_loss
+            if not torch.isfinite(loss):
+                raise ValueError("ledidi received a non-finite differentiable loss")
+            optimizer.zero_grad(set_to_none=True)
+            # Differentiate only the design weights, leaving scorer parameter grads alone.
+            (weights.grad,) = torch.autograd.grad(loss, weights)
+            optimizer.step()
+            edit_loss_value = float(edit_loss.detach().cpu())
+            loss_value = float(loss.detach().cpu())
         batch = _score(scorer, archive, sequences)
+        best_score, mean_score = _accepted_score_summary(
+            batch, scorer, sequences, archive
+        )
         trajectory.append(
             {
                 "query_count": scorer.query_count,
-                "best_score": float(batch.scores.max()),
-                "mean_score": float(batch.scores.mean()),
-                "mean_edits": float(edit_loss.detach().cpu()),
-                "loss": float(loss.detach().cpu()),
+                "best_score": best_score,
+                "mean_score": mean_score,
+                "mean_edits": edit_loss_value,
+                "loss": loss_value,
             }
         )
     return _gradient_result(
@@ -644,28 +703,33 @@ def den(initial, scorer, space, config, rng):
         logits = generator(fixed_noise)
         probabilities = torch.softmax(logits, dim=-1)
         straight_through, sampled = _straight_through(probabilities)
-        utilities, _ = objective.score_soft(straight_through)
-        half = len(initial) // 2
-        if half:
-            pair_similarity = (
-                (straight_through[:half] * straight_through[half : 2 * half])
-                .sum(dim=-1)
-                .mean()
-            )
-        else:
-            pair_similarity = torch.zeros((), device=device)
-        loss = -utilities.mean() + config.den_diversity_weight * pair_similarity
-        optimizer.zero_grad(set_to_none=True)
-        loss.backward()
-        torch.nn.utils.clip_grad_norm_(generator.parameters(), 5.0)
-        optimizer.step()
         sequences = space.decode(sampled.detach().cpu().numpy())
+        passed = scorer.constraints_passed(sequences)
+        if passed.any():
+            mask = torch.as_tensor(passed, dtype=torch.bool, device=device)
+            accepted = straight_through[mask]
+            utilities, _ = objective.score_soft(accepted)
+            half = len(accepted) // 2
+            if half:
+                pair_similarity = (
+                    (accepted[:half] * accepted[half : 2 * half]).sum(dim=-1).mean()
+                )
+            else:
+                pair_similarity = torch.zeros((), device=device)
+            loss = -utilities.mean() + config.den_diversity_weight * pair_similarity
+            optimizer.zero_grad(set_to_none=True)
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(generator.parameters(), 5.0)
+            optimizer.step()
         batch = _score(scorer, archive, sequences)
+        best_score, mean_score = _accepted_score_summary(
+            batch, scorer, sequences, archive
+        )
         trajectory.append(
             {
                 "query_count": scorer.query_count,
-                "best_score": float(batch.scores.max()),
-                "mean_score": float(batch.scores.mean()),
+                "best_score": best_score,
+                "mean_score": mean_score,
             }
         )
     return _gradient_result(

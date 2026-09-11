@@ -67,6 +67,15 @@ For a constrained CDS search, use complete, explicitly prepared CDSs as
 `genetic_algorithm_optimize`. Every initial sequence must encode the same
 protein as the reference. See [synonymous CDS constraints](tasks/synonymous_cds.md).
 
+## Candidate constraints
+
+Use the `constraint` parameter to screen candidates by GC content, motifs, or
+other sequence rules before model prediction. It accepts one callable or a
+list whose independent passing sets are intersected. Hard constraints return
+zero or one; values between zero and one define reproducible pass
+probabilities. See [sequence constraints](constraints.md) for complete examples,
+result columns, and screening counts.
+
 ## Candidate count and budgets
 
 `num_candidates` controls both the number of starting sequences and the number
@@ -182,6 +191,7 @@ centers, scales, or explicit lower and upper bounds.
 An `OptimizationResult` provides `sequences`, scalar `scores`, raw model
 `activities`, `uncertainties`, `task_names`, `query_count`, `metadata`, and an
 optional `trajectory`. `result.to_frame()` presents sequence, scalar score,
-uncertainty, attached activity columns, and objective-evaluation margin or
-satisfaction columns when available. It does not include arbitrary metadata
-or the trajectory; read those from `result.metadata` and `result.trajectory`.
+uncertainty, attached activity columns, constraint-probability columns, and
+objective-evaluation margin or satisfaction columns when available. It does
+not include arbitrary metadata or the trajectory; read those from
+`result.metadata` and `result.trajectory`.

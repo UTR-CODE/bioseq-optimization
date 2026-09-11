@@ -45,6 +45,7 @@ from .algorithms import (
     vanilla_activation_maximization_optimize,
 )
 from .combined import CombinedScorer
+from .constraints import ConstraintFunction, ConstraintSpec
 from .onehot import onehot
 from .objectives import MultiTaskObjective, TargetObjective
 from .saturation import SaturationConfig, SaturationResult
@@ -54,6 +55,8 @@ __all__ = [
     "BudgetExceeded",
     "CallableScorer",
     "CombinedScorer",
+    "ConstraintFunction",
+    "ConstraintSpec",
     "onehot",
     "CachedScorer",
     "OptimizationConfig",

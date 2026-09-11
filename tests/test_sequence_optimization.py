@@ -70,8 +70,20 @@ def test_builtin_algorithms_share_common_result_contract():
         "cross_entropy_method",
         "cbas",
     }
+
+    def no_t(values):
+        return np.asarray(["T" not in value for value in values], dtype=float)
+
     for name in black_box:
-        result = run(name, scorer, space, config, initial=initial, seed=9)
+        result = run(
+            name,
+            scorer,
+            space,
+            config,
+            initial=initial,
+            constraint=no_t,
+            seed=9,
+        )
         assert (
             len(result.sequences)
             == len(result.scores)
@@ -79,6 +91,7 @@ def test_builtin_algorithms_share_common_result_contract():
             == 4
         )
         assert len(set(result.sequences.tolist())) == 4
+        assert all("T" not in sequence for sequence in result.sequences)
         assert result.query_count <= config.budget
     assert black_box <= set(available_algorithms())
 
@@ -286,6 +299,7 @@ def test_differentiable_algorithms_share_the_result_contract():
 
     class TwoTaskModel(torch.nn.Module):
         def forward(self, inputs):
+            assert not torch.any(inputs.argmax(dim=-1) == 3)
             return torch.stack(
                 [inputs[:, :, 2].sum(dim=1), inputs[:, :, 1].sum(dim=1)], dim=1
             )
@@ -309,7 +323,11 @@ def test_differentiable_algorithms_share_the_result_contract():
         den_seed_pretrain_epochs=2,
     )
     objective = TargetObjective(target="g_activity", mode="specificity")
-    for name in ("vanilla_activation_maximization", "fast_seqprop", "den"):
+
+    def no_t(values):
+        return np.asarray(["T" not in value for value in values], dtype=float)
+
+    for name in ("vanilla_activation_maximization", "fast_seqprop", "den", "ledidi"):
         result = run(
             name,
             scorer,
@@ -317,9 +335,11 @@ def test_differentiable_algorithms_share_the_result_contract():
             config,
             initial=initial,
             objective=objective,
+            constraint=no_t,
             seed=5,
         )
         assert result.query_count == 12
+        assert all("T" not in sequence for sequence in result.sequences)
         assert result.activities.shape == (4, 2)
         assert result.metadata["objective"]["target_name"] == "g_activity"
 
