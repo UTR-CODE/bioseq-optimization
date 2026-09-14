@@ -181,8 +181,8 @@ optimizer 提供的标准软输入形状为 `[N, L, 4]`，通道顺序为 A/C/G/
 - `minimize`：降低该输出；
 - `ignore`：不参与优化，但仍预测并返回。
 
-方向列表内部转换为 `MultiTaskObjective`，默认使用最小 signed margin，避免只优化
-最容易提升的输出。
+方向列表内部转换为 `MultiTaskObjective`，默认使用 active signed outputs 的等权平均。
+`model_weights` 可按模型输出顺序设置正的相对权重，并使用归一化加权平均。
 
 ### 7.2 `TargetObjective`
 

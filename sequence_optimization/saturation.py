@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import random
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -230,6 +231,7 @@ def _optimize_with_saturation(
     | list[str]
     | tuple[str, ...]
     | None = None,
+    model_weights: Sequence[float] | None = None,
     constraint: ConstraintSpec | None = None,
     saturation: SaturationConfig,
     seed: int = 0,
@@ -269,7 +271,9 @@ def _optimize_with_saturation(
     random.seed(seed)
     prepared = _initial(initial, space, config, rng)
     objective_scorer = ObjectiveScorer(
-        scorer, TargetObjective() if objective is None else objective
+        scorer,
+        TargetObjective() if objective is None else objective,
+        model_weights=model_weights,
     )
     monitor = _SaturationMonitor(
         num_candidates,

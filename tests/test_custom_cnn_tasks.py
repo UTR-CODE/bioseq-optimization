@@ -19,5 +19,5 @@ def test_three_custom_cnn_recipes():
         active = np.asarray(signs) != 0
         np.testing.assert_allclose(
             result.scores,
-            (result.activities[:, active] * np.asarray(signs)[active]).min(axis=1),
+            (result.activities[:, active] * np.asarray(signs)[active]).mean(axis=1),
         )

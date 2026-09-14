@@ -395,6 +395,7 @@ def run(
     | list[str]
     | tuple[str, ...]
     | None = None,
+    model_weights: Sequence[float] | None = None,
     constraint: ConstraintSpec | None = None,
     seed: int = 0,
     count_repeated: bool = False,
@@ -402,7 +403,8 @@ def run(
     """Run one algorithm against a single- or multi-task activity scorer.
 
     The model output is scalarized by ``objective``. If omitted, output zero is
-    maximized, which is the natural default for a single-task model.
+    maximized, which is the natural default for a single-task model. Direction
+    lists use a normalized weighted mean controlled by ``model_weights``.
     """
     key = str(name).strip().lower()
     space = _configured_space(length, alphabet, config, key)
@@ -418,7 +420,7 @@ def run(
     prepared = _initial(initial, space, config, rng)
     objective_scorer: ObjectiveScorer | None
     if isinstance(scorer, CachedScorer):
-        if objective is not None:
+        if objective is not None or model_weights is not None:
             raise ValueError(
                 "pass an uncached activity scorer when using a multi-task objective"
             )
@@ -428,7 +430,9 @@ def run(
         objective_scorer = None
     else:
         objective_scorer = ObjectiveScorer(
-            scorer, TargetObjective() if objective is None else objective
+            scorer,
+            TargetObjective() if objective is None else objective,
+            model_weights=model_weights,
         )
         proposal_count_algorithms = {
             "ledidi",
@@ -490,6 +494,7 @@ def run_many(
     | list[str]
     | tuple[str, ...]
     | None = None,
+    model_weights: Sequence[float] | None = None,
     constraint: ConstraintSpec | None = None,
     seed: int = 0,
 ) -> dict[str, OptimizationResult]:
@@ -503,6 +508,7 @@ def run_many(
             alphabet=alphabet,
             initial=initial,
             objective=objective,
+            model_weights=model_weights,
             constraint=constraint,
             seed=seed + offset,
         )
@@ -525,6 +531,7 @@ def optimize(
     | list[str]
     | tuple[str, ...]
     | None = None,
+    model_weights: Sequence[float] | None = None,
     constraint: ConstraintSpec | None = None,
     seed: int = 0,
     mutation_rate: float = 0.02,
@@ -547,7 +554,7 @@ def optimize(
     synonymous_codons: dict[str, Sequence[str]] | None = None,
     count_repeated: bool = False,
 ) -> OptimizationResult | SaturationResult:
-    """Optimize with either a fixed budget or saturation-based stopping."""
+    """Optimize with a fixed budget or saturation and optional model weights."""
     parameters = dict(
         num_candidates=num_candidates,
         mutation_rate=mutation_rate,
@@ -583,6 +590,7 @@ def optimize(
             alphabet=alphabet,
             initial=initial,
             objective=objective,
+            model_weights=model_weights,
             constraint=constraint,
             saturation=saturation,
             seed=seed,
@@ -600,6 +608,7 @@ def optimize(
         alphabet=alphabet,
         initial=initial,
         objective=objective,
+        model_weights=model_weights,
         constraint=constraint,
         seed=seed,
         count_repeated=count_repeated,
@@ -613,6 +622,7 @@ def basesearch_optimize(
     budget: int | None = None,
     saturation: SaturationConfig | None = None,
     constraint: ConstraintSpec | None = None,
+    model_weights: Sequence[float] | None = None,
     **kwargs,
 ) -> OptimizationResult | SaturationResult:
     """Priority-decayed black-box search with unique mutation proposals."""
@@ -623,6 +633,7 @@ def basesearch_optimize(
         budget=budget,
         saturation=saturation,
         constraint=constraint,
+        model_weights=model_weights,
         **kwargs,
     )
 
@@ -634,6 +645,7 @@ def random_optimize(
     budget: int | None = None,
     saturation: SaturationConfig | None = None,
     constraint: ConstraintSpec | None = None,
+    model_weights: Sequence[float] | None = None,
     **kwargs,
 ) -> OptimizationResult | SaturationResult:
     return optimize(
@@ -643,6 +655,7 @@ def random_optimize(
         budget=budget,
         saturation=saturation,
         constraint=constraint,
+        model_weights=model_weights,
         **kwargs,
     )
 
@@ -654,6 +667,7 @@ def ism_optimize(
     budget: int | None = None,
     saturation: SaturationConfig | None = None,
     constraint: ConstraintSpec | None = None,
+    model_weights: Sequence[float] | None = None,
     **kwargs,
 ) -> OptimizationResult | SaturationResult:
     return optimize(
@@ -663,6 +677,7 @@ def ism_optimize(
         budget=budget,
         saturation=saturation,
         constraint=constraint,
+        model_weights=model_weights,
         **kwargs,
     )
 
@@ -674,6 +689,7 @@ def simulated_annealing_optimize(
     budget: int | None = None,
     saturation: SaturationConfig | None = None,
     constraint: ConstraintSpec | None = None,
+    model_weights: Sequence[float] | None = None,
     **kwargs,
 ) -> OptimizationResult | SaturationResult:
     return optimize(
@@ -683,6 +699,7 @@ def simulated_annealing_optimize(
         budget=budget,
         saturation=saturation,
         constraint=constraint,
+        model_weights=model_weights,
         **kwargs,
     )
 
@@ -694,6 +711,7 @@ def genetic_algorithm_optimize(
     budget: int | None = None,
     saturation: SaturationConfig | None = None,
     constraint: ConstraintSpec | None = None,
+    model_weights: Sequence[float] | None = None,
     **kwargs,
 ) -> OptimizationResult | SaturationResult:
     return optimize(
@@ -703,6 +721,7 @@ def genetic_algorithm_optimize(
         budget=budget,
         saturation=saturation,
         constraint=constraint,
+        model_weights=model_weights,
         **kwargs,
     )
 
@@ -714,6 +733,7 @@ def adalead_optimize(
     budget: int | None = None,
     saturation: SaturationConfig | None = None,
     constraint: ConstraintSpec | None = None,
+    model_weights: Sequence[float] | None = None,
     **kwargs,
 ) -> OptimizationResult | SaturationResult:
     return optimize(
@@ -723,6 +743,7 @@ def adalead_optimize(
         budget=budget,
         saturation=saturation,
         constraint=constraint,
+        model_weights=model_weights,
         **kwargs,
     )
 
@@ -734,6 +755,7 @@ def beam_search_optimize(
     budget: int | None = None,
     saturation: SaturationConfig | None = None,
     constraint: ConstraintSpec | None = None,
+    model_weights: Sequence[float] | None = None,
     **kwargs,
 ) -> OptimizationResult | SaturationResult:
     return optimize(
@@ -743,6 +765,7 @@ def beam_search_optimize(
         budget=budget,
         saturation=saturation,
         constraint=constraint,
+        model_weights=model_weights,
         **kwargs,
     )
 
@@ -754,6 +777,7 @@ def cross_entropy_optimize(
     budget: int | None = None,
     saturation: SaturationConfig | None = None,
     constraint: ConstraintSpec | None = None,
+    model_weights: Sequence[float] | None = None,
     **kwargs,
 ) -> OptimizationResult | SaturationResult:
     return optimize(
@@ -763,6 +787,7 @@ def cross_entropy_optimize(
         budget=budget,
         saturation=saturation,
         constraint=constraint,
+        model_weights=model_weights,
         **kwargs,
     )
 
@@ -774,6 +799,7 @@ def cbas_optimize(
     budget: int | None = None,
     saturation: SaturationConfig | None = None,
     constraint: ConstraintSpec | None = None,
+    model_weights: Sequence[float] | None = None,
     **kwargs,
 ) -> OptimizationResult | SaturationResult:
     return optimize(
@@ -783,6 +809,7 @@ def cbas_optimize(
         budget=budget,
         saturation=saturation,
         constraint=constraint,
+        model_weights=model_weights,
         **kwargs,
     )
 
@@ -794,6 +821,7 @@ def vanilla_activation_maximization_optimize(
     budget: int | None = None,
     saturation: SaturationConfig | None = None,
     constraint: ConstraintSpec | None = None,
+    model_weights: Sequence[float] | None = None,
     **kwargs,
 ) -> OptimizationResult | SaturationResult:
     return optimize(
@@ -803,6 +831,7 @@ def vanilla_activation_maximization_optimize(
         budget=budget,
         saturation=saturation,
         constraint=constraint,
+        model_weights=model_weights,
         **kwargs,
     )
 
@@ -814,6 +843,7 @@ def fast_seqprop_optimize(
     budget: int | None = None,
     saturation: SaturationConfig | None = None,
     constraint: ConstraintSpec | None = None,
+    model_weights: Sequence[float] | None = None,
     **kwargs,
 ) -> OptimizationResult | SaturationResult:
     return optimize(
@@ -823,6 +853,7 @@ def fast_seqprop_optimize(
         budget=budget,
         saturation=saturation,
         constraint=constraint,
+        model_weights=model_weights,
         **kwargs,
     )
 
@@ -834,6 +865,7 @@ def ledidi_optimize(
     budget: int | None = None,
     saturation: SaturationConfig | None = None,
     constraint: ConstraintSpec | None = None,
+    model_weights: Sequence[float] | None = None,
     **kwargs,
 ) -> OptimizationResult | SaturationResult:
     """Ledidi-style single-output maximization with an edit penalty."""
@@ -844,6 +876,7 @@ def ledidi_optimize(
         budget=budget,
         saturation=saturation,
         constraint=constraint,
+        model_weights=model_weights,
         **kwargs,
     )
 
@@ -855,6 +888,7 @@ def den_optimize(
     budget: int | None = None,
     saturation: SaturationConfig | None = None,
     constraint: ConstraintSpec | None = None,
+    model_weights: Sequence[float] | None = None,
     **kwargs,
 ) -> OptimizationResult | SaturationResult:
     return optimize(
@@ -864,6 +898,7 @@ def den_optimize(
         budget=budget,
         saturation=saturation,
         constraint=constraint,
+        model_weights=model_weights,
         **kwargs,
     )
 

@@ -87,10 +87,11 @@ models with `objective=["maximize", "minimize", "minimize"]`.
 
 The objective is positional: the first direction applies to `predictor_g`,
 the second to `predictor_c`, and the third to `predictor_t`. The combined
-scorer returns all three raw outputs for every same-sequence evaluation. For
+scorer returns all three raw outputs for every same-sequence evaluation. The
+active signed outputs use an equal-weight mean by default. Pass
+`model_weights` in the same order to change their relative influence. For
 fixed centers, scales, bounds, or another aggregation, use the options in
-[objective parameters](../objectives.md); derive normalization from a fixed
-reference dataset instead of each candidate batch.
+[objective parameters](../objectives.md).
 
 ## Run each optimizer
 

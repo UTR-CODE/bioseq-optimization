@@ -401,3 +401,4 @@ def test_public_optimizers_expose_saturation_parameter():
         signature = inspect.signature(function)
         assert signature.parameters["saturation"].default is None
         assert signature.parameters["budget"].default is None
+        assert signature.parameters["model_weights"].default is None

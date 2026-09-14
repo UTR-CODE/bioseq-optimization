@@ -29,7 +29,7 @@ def test_combined_order_budget_and_raw_predictions():
     )
     expected = np.array([[s.count(base) for base in "GCT"] for s in result.sequences])
     np.testing.assert_array_equal(result.activities, expected)
-    np.testing.assert_array_equal(result.scores, np.min(expected * [1, -1, -1], axis=1))
+    np.testing.assert_allclose(result.scores, np.mean(expected * [1, -1, -1], axis=1))
     assert scorer.model_query_counts == dict.fromkeys(
         ["a", "b", "c"], result.query_count
     )

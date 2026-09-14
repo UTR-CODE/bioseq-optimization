@@ -12,6 +12,7 @@ Greedy single-base substitution sweeps. One complete neighborhood needs 3 × len
 | `num_candidates` | 100 | Number of unique seeds and retained results |
 | `initial` | None | Exactly num_candidates unique starting sequences; otherwise random |
 | `objective` | None | Output directions or objective object; default maximizes output zero |
+| `model_weights` | None | Positive relative weights for direction-list outputs; default equal weights |
 | `alphabet` | "ACGT" | Candidate alphabet |
 | `seed` | 0 | Random seed |
 | `count_repeated` | False | Charge repeated proposals even when cached |

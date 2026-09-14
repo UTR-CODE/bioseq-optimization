@@ -5,8 +5,10 @@ import torch
 from sequence_optimization import (
     CallableScorer,
     MultiTaskObjective,
+    SaturationConfig,
     SequenceSpace,
     basesearch_optimize,
+    genetic_algorithm_optimize,
 )
 from sequence_optimization.objectives import ObjectiveScorer
 
@@ -26,8 +28,11 @@ def test_direction_list_is_model_independent_and_ignores_third_output():
         Scorer(), SequenceSpace(8), objective=directions, budget=24, num_candidates=4
     )
     np.testing.assert_allclose(
-        result.scores, np.minimum(result.activities[:, 0], -result.activities[:, 1])
+        result.scores,
+        (result.activities[:, 0] - result.activities[:, 1]) / 2,
     )
+    assert result.metadata["objective"]["aggregation"] == "mean"
+    assert result.metadata["objective"]["model_weights"] == [1.0, 1.0]
     assert result.activities.shape == (4, 3)
     objective = MultiTaskObjective(directions=directions)
     values = torch.tensor([[1.0, -2.0, 1e6], [3.0, -1.0, -1e6]], requires_grad=True)
@@ -38,6 +43,118 @@ def test_direction_list_is_model_independent_and_ignores_third_output():
     np.testing.assert_array_equal(
         objective.scalarize(changed), objective.scalarize(values.detach().numpy())
     )
+
+
+def test_direction_list_accepts_normalized_model_weights():
+    scorer = CallableScorer(
+        lambda sequences: np.array(
+            [[sequence.count("G"), sequence.count("C")] for sequence in sequences]
+        )
+    )
+    wrapped = ObjectiveScorer(
+        scorer,
+        ["maximize", "minimize"],
+        model_weights=[2.0, 1.0],
+    )
+    batch = wrapped.score(["GGCC", "GCCC"])
+    np.testing.assert_allclose(batch.scores, [(2 * 2 - 2) / 3, (2 * 1 - 3) / 3])
+    assert wrapped.objective.describe(2)["model_weights"] == [2.0, 1.0]
+
+    ignored = MultiTaskObjective(
+        directions=["maximize", "minimize", "ignore"],
+        model_weights=[2.0, 1.0, 0.0],
+    )
+    np.testing.assert_allclose(ignored.scalarize([[2.0, 2.0, 1e9]]), [2 / 3])
+
+    result = basesearch_optimize(
+        scorer,
+        SequenceSpace(8),
+        objective=["maximize", "minimize"],
+        model_weights=[2.0, 1.0],
+        budget=12,
+        num_candidates=4,
+    )
+    np.testing.assert_allclose(
+        result.scores,
+        (2 * result.activities[:, 0] - result.activities[:, 1]) / 3,
+    )
+
+
+def test_direction_list_weights_apply_to_soft_scores_and_gradients():
+    class Scorer:
+        def score_soft(self, values):
+            return values, None
+
+    values = torch.tensor([[2.0, 4.0]], requires_grad=True)
+    wrapped = ObjectiveScorer(
+        Scorer(),
+        ["maximize", "minimize"],
+        model_weights=[3.0, 1.0],
+    )
+    score, uncertainty = wrapped.score_soft(values)
+    np.testing.assert_allclose(score.detach(), [(3 * 2 - 4) / 4])
+    assert uncertainty is None
+    score.sum().backward()
+    np.testing.assert_allclose(values.grad, [[0.75, -0.25]])
+
+
+@pytest.mark.parametrize(
+    "model_weights",
+    ([1.0], [1.0, -1.0], [0.0, 1.0], [float("nan"), 1.0]),
+)
+def test_invalid_model_weights(model_weights):
+    scorer = CallableScorer(lambda values: np.zeros((len(values), 2)))
+    with pytest.raises(ValueError):
+        basesearch_optimize(
+            scorer,
+            SequenceSpace(8),
+            objective=["maximize", "maximize"],
+            model_weights=model_weights,
+            budget=4,
+            num_candidates=4,
+        )
+
+
+def test_model_weights_require_a_direction_list():
+    scorer = CallableScorer(lambda values: np.zeros((len(values), 2)))
+    with pytest.raises(ValueError, match="direction list"):
+        basesearch_optimize(
+            scorer,
+            SequenceSpace(8),
+            objective=MultiTaskObjective(high="all"),
+            model_weights=[1.0, 1.0],
+            budget=4,
+            num_candidates=4,
+        )
+
+
+def test_model_weights_apply_during_saturation():
+    scorer = CallableScorer(
+        lambda values: np.array(
+            [[value.count("G"), value.count("C")] for value in values]
+        )
+    )
+    saturated = genetic_algorithm_optimize(
+        scorer,
+        SequenceSpace(4),
+        objective=["maximize", "minimize"],
+        model_weights=[3.0, 1.0],
+        initial=["AAAA", "CCCC", "GGGG", "TTTT"],
+        num_candidates=4,
+        saturation=SaturationConfig(
+            fractions=(0.8,),
+            minimum_queries=4,
+            plateau_patience_queries=4,
+            maximum_queries=12,
+        ),
+        seed=3,
+    )
+    selected = saturated[0.8]
+    np.testing.assert_allclose(
+        selected.scores,
+        (3 * selected.activities[:, 0] - selected.activities[:, 1]) / 4,
+    )
+    assert selected.metadata["objective"]["model_weights"] == [3.0, 1.0]
 
 
 @pytest.mark.parametrize(
@@ -67,6 +184,7 @@ def test_numpy_torch_values_and_gradients(aggregation):
         lower_bounds={0: 1},
         upper_bounds={1: 2},
         scales=[2, 4],
+        model_weights=[2, 0.5],
         aggregation=aggregation,
     )
     values = np.array([[5.0, 1.0], [0.0, 4.0]])
@@ -89,7 +207,7 @@ def test_numpy_torch_values_and_gradients(aggregation):
 
 def test_worst_and_threshold_semantics():
     values = np.array([[10.0, -1.0], [2.0, 2.0]])
-    worst = MultiTaskObjective(high="all")
+    worst = MultiTaskObjective(high="all", aggregation="worst")
     assert worst.scalarize(values)[1] > worst.scalarize(values)[0]
     specific = MultiTaskObjective(high=[0], low=[1])
     assert specific.scalarize(values)[0] > specific.scalarize(values)[1]
@@ -111,6 +229,8 @@ def test_worst_and_threshold_semantics():
         {"high": ["missing"]},
         {"high": "all", "scales": [1, 0]},
         {"high": "all", "scales": [1]},
+        {"high": "all", "model_weights": [1, 0]},
+        {"high": "all", "model_weights": [1]},
         {"high": "all", "centers": [0, float("nan")]},
         {"high": "all", "lower_bounds": {0: 2}},
         {"high": [0], "upper_bounds": {1: 1}},

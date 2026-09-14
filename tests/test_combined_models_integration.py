@@ -78,7 +78,7 @@ def test_all_algorithms_with_three_models(family, algorithm):
     )
     np.testing.assert_allclose(result.activities, expected, rtol=1e-4, atol=1e-4)
     np.testing.assert_allclose(
-        result.scores, np.min(result.activities * [1, -1, -1], axis=1)
+        result.scores, np.mean(result.activities * [1, -1, -1], axis=1)
     )
     assert result.task_names == tuple(names)
     counts = list(scorer.model_query_counts.values())

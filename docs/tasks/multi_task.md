@@ -81,11 +81,10 @@ The main goal maximizes G fraction, minimizes C fraction, and ignores T
 fraction with `objective=["maximize", "minimize", "ignore"]`.
 
 An ignored output remains available in `result.activities`, but it does not
-affect the scalar objective. The default multi-output aggregation is the worst
-signed active output. For fixed centers, scales, bounds, or a different
-aggregation, use the options described in [objective parameters](../objectives.md).
-Normalization should be computed from a fixed reference dataset rather than
-from each candidate batch.
+affect the scalar objective. Active outputs use an equal-weight signed mean by
+default. Pass `model_weights` to an optimizer to change their relative
+influence. For fixed centers, scales, bounds, or a different aggregation, use
+the options described in [objective parameters](../objectives.md).
 
 ## Run each optimizer
 

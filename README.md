@@ -139,10 +139,10 @@ print(specific_result.to_frame())
 
 | sequence | score | G_activity | C_activity | T_activity |
 |---|---:|---:|---:|---:|
-| AGGGGGTGGGGAGAGATAAG | 0.25 | 0.35 | -0.25 | -0.15 |
-| GAGAGAAGTGTGGGTTGTGG | 0.25 | 0.30 | -0.25 | 0.00 |
-| GAGAGAATTGTGGGGTGGGG | 0.25 | 0.35 | -0.25 | -0.05 |
-| GAGAGAATTGTGGGGTGTGG | 0.25 | 0.30 | -0.25 | 0.00 |
+| AGGGGGGGGGGGGGGGTGGG | 0.45 | 0.65 | -0.25 | -0.20 |
+| GGGGGGGGGGGGGGGTAGGG | 0.45 | 0.65 | -0.25 | -0.20 |
+| GGGGGGGGGGGGGGGTTGGG | 0.45 | 0.65 | -0.25 | -0.15 |
+| AGGAGGGGGGGGGGGGTGGG | 0.425 | 0.60 | -0.25 | -0.20 |
 
 Directions follow output order. `maximize` raises an output, `minimize` lowers it,
 and `ignore` excludes it from the objective. Ignored outputs are still reported
@@ -168,16 +168,14 @@ print(all_high_result.to_frame())
 
 | sequence | score | G_activity | C_activity | T_activity |
 |---|---:|---:|---:|---:|
-| ACCCGCTTCGGGGTTTGGCT | 0.05 | 0.10 | 0.05 | 0.05 |
-| ACCGGATCGCTGCGCTTTTG | 0.05 | 0.05 | 0.05 | 0.05 |
-| ACCGGCGCGATGCTCTTTTG | 0.05 | 0.05 | 0.05 | 0.05 |
-| ACCGGCGCGTGGCTCTTTTG | 0.05 | 0.10 | 0.05 | 0.05 |
+| TCGCTCTCCGGGTCTTCTCT | 0.083 | -0.05 | 0.15 | 0.15 |
+| TCCCTCGCCGGGGTTCGGCT | 0.083 | 0.10 | 0.15 | 0.00 |
+| TCCCTCTCCGGGGCTTGGCT | 0.083 | 0.05 | 0.15 | 0.05 |
+| TCCCTCTCCGGGTCTTCTCT | 0.083 | -0.10 | 0.20 | 0.15 |
 
-The default direction-list score is the smallest signed prediction: the
-weakest active output determines the score. This encourages balanced progress,
-but conflicting model predictions can prevent all goals from improving together.
-For fixed output normalization or activity thresholds, see
-[objective parameters](docs/objectives.md).
+The default direction-list score is the equal-weight mean of the signed active
+outputs. `ignore` outputs are excluded from that mean. Set `model_weights` when
+the active outputs should have different influence.
 
 [Multi-task CNN with every optimizer](docs/tasks/multi_task.md) ·
 [DeepSTARR: housekeeping specificity](docs/models/deepstarr.md) ·
@@ -218,13 +216,13 @@ print(combined.model_query_counts)
 
 | sequence | score | model_a | model_b | model_c |
 |---|---:|---:|---:|---:|
-| AGGAGGAGGGGAGAGAAGAA | 0.25 | 0.30 | -0.25 | -0.25 |
-| GAAAGAAAGGGAGAGAAGGG | 0.25 | 0.25 | -0.25 | -0.25 |
-| GAGAAAAAGGGGGAGAAGGG | 0.25 | 0.30 | -0.25 | -0.25 |
-| GAGAAAAGAGGAGGGAAGAG | 0.25 | 0.25 | -0.25 | -0.25 |
+| AGGGGGGGGGGGGGGGGGGG | 0.400 | 0.70 | -0.25 | -0.25 |
+| GGGGGGGGGGGGGGGGGAGG | 0.400 | 0.70 | -0.25 | -0.25 |
+| GCGGGGGGGGGGGGGGGGGG | 0.383 | 0.70 | -0.20 | -0.25 |
+| GGGGGGGGGGGGGGGGGTGG | 0.383 | 0.70 | -0.25 | -0.20 |
 
 The query counters for this run are
-`{'model_a': 275, 'model_b': 275, 'model_c': 275}`.
+`{'model_a': 262, 'model_b': 262, 'model_c': 262}`.
 
 `SingleOutputCNN` is defined in the first example. Each model evaluates the same
 sequence and returns one output; each can use its own input conversion. The
@@ -243,6 +241,47 @@ still evaluated. Use fixed reference scales when outputs have different units.
 [Agarwal: three cell lines](docs/models/agarwal.md) ·
 [DeepSTARR Mouse](docs/models/deepstarr_mouse.md) ·
 [DeepSTARR-Embryo](docs/models/deepstarr_embryo.md).
+
+## Set relative model weights
+
+The same `model_weights` parameter applies to a multi-output model and to
+independent models joined with `CombinedScorer`. Values follow model-output
+order. Active outputs must have positive finite weights; only their ratios
+matter. When omitted, every active output has weight 1.
+
+```python
+weighted_result = genetic_algorithm_optimize(
+    combined,
+    length=20,
+    initial=initial,
+    objective=["maximize", "minimize", "minimize"],
+    model_weights=[2.0, 1.0, 1.0],
+    num_candidates=4,
+    budget=1000,
+    mutation_rate=0.1,
+    elite_fraction=0.5,
+    seed=7,
+)
+```
+
+This gives `model_a` twice the influence of `model_b` or `model_c`. The scalar
+score is the normalized weighted mean
+`(2 * model_a - model_b - model_c) / 4`. For a multi-output scorer, use the
+same argument with weights ordered by its output columns.
+
+Three advanced `MultiTaskObjective` parameters cover goals that a weighted
+mean does not express:
+
+| Parameter | Meaning |
+|---|---|
+| `scales` | Positive divisors that put outputs with different numeric ranges or units on comparable scales. Derive them once from a fixed reference set. |
+| `aggregation` | How signed, scaled outputs are combined: `mean` permits trade-offs, `worst` prioritizes the weakest output, and `smoothmin` is a smooth approximation to `worst`. |
+| `lower_bounds` | Minimum raw prediction required for each maximized output. The corresponding `upper_bounds` set maximum values for minimized outputs. |
+
+These parameters are optional. Use `objective` with `model_weights` for the
+standard weighted-mean case; use
+[`MultiTaskObjective`](docs/objectives.md) when scale normalization, weakest-goal
+optimization, or absolute prediction thresholds are required.
 
 ## Model tasks
 

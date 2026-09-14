@@ -184,9 +184,11 @@ or model-specific optimum has been reached.
 ## Objectives and returned data
 
 Pass one direction per model output: `"maximize"`, `"minimize"`, or
-`"ignore"`. A direction guides the search but does not define an absolute
-activity threshold. Use [`MultiTaskObjective`](objectives.md) for fixed
-centers, scales, or explicit lower and upper bounds.
+`"ignore"`. Active outputs use an equal-weight signed mean by default; pass
+`model_weights` in output order to change their relative influence. A
+direction guides the search but does not define an absolute activity threshold.
+Use [`MultiTaskObjective`](objectives.md) for fixed centers, scales, another
+aggregation, or explicit lower and upper bounds.
 
 An `OptimizationResult` provides `sequences`, scalar `scores`, raw model
 `activities`, `uncertainties`, `task_names`, `query_count`, `metadata`, and an

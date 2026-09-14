@@ -22,5 +22,5 @@ def test_three_output_cnn_genetic_example():
     )
     np.testing.assert_allclose(result.activities, expected, atol=1e-7)
     np.testing.assert_allclose(
-        result.scores, np.minimum(expected[:, 0], -expected[:, 1]), atol=1e-7
+        result.scores, (expected[:, 0] - expected[:, 1]) / 2, atol=1e-7
     )

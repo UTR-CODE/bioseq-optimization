@@ -54,6 +54,6 @@ def test_task_directions_and_context(
     monkeypatch.setattr(tasks, "load_model", load)
     result = getattr(tasks, function)(*args, budget=12, **kwargs)
     np.testing.assert_allclose(
-        result.scores, (result.activities * directions).min(axis=1)
+        result.scores, (result.activities * directions).mean(axis=1)
     )
     assert len(result.sequences) == 4
