@@ -10,6 +10,7 @@
 - [DeepSTARR Mouse tissue activity](../models/deepstarr_mouse.md)
 - [DeepSTARR-Embryo tissue activity](../models/deepstarr_embryo.md)
 - [Malinois cell-line-specific enhancers](../models/malinois.md)
+- [Joint RPF and mRNA stability with synonymous codons](joint_rpf_stability.md)
 - [Synonymous CDS constraints](synonymous_cds.md)
 
 ## Custom CNNs

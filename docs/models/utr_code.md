@@ -226,4 +226,6 @@ and do not accept the synonymous-codon constraint.
 
 For fixed reference centers, scales, or bounds in a multi-output extension, see
 [objectives](../objectives.md). The [search workflow](../search_workflow.md)
-describes seed selection, budgets, and result inspection.
+describes seed selection, budgets, and result inspection. See
+[joint RPF and mRNA-stability optimization](../tasks/joint_rpf_stability.md) for
+a protein-preserving CDS task with UTR-CODE and CDS Stability.

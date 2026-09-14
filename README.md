@@ -256,6 +256,7 @@ still evaluated. Use fixed reference scales when outputs have different units.
 - [DeepSTARR Mouse tissue activity](docs/models/deepstarr_mouse.md)
 - [DeepSTARR-Embryo tissue activity](docs/models/deepstarr_embryo.md)
 - [Malinois cell-line-specific enhancers](docs/models/malinois.md)
+- [Joint RPF and mRNA stability with synonymous codons](docs/tasks/joint_rpf_stability.md)
 - [Constrain CDS optimization to synonymous codons](docs/tasks/synonymous_cds.md)
 
 ## Budget and results
