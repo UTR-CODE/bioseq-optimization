@@ -6,7 +6,7 @@ Fit positional categorical distributions to elites. Here learning_rate is the sm
 |---|---|---|
 | `scorer` | required | Predictor accepting sequence strings |
 | `length` | required | Candidate sequence length |
-| `budget` | None | Fixed candidate budget; required when saturation is None and invalid when saturation is set |
+| `budget` | 10,000 | Optional fixed candidate budget; invalid when saturation is set |
 | `saturation` | None | SaturationConfig for plateau-based stopping; omit budget when set |
 | `constraint` | None | One constraint callable or a list of independently intersected constraint callables |
 | `num_candidates` | 100 | Number of unique seeds and retained results |

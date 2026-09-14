@@ -235,7 +235,7 @@ above report cumulative discrete sequence evaluations per model.
 
 Use `objective=["maximize", "maximize", "maximize"]` for an all-high search,
 or `ignore` to exclude a model's output from the objective. An ignored model is
-still evaluated. Use fixed reference scales when outputs have different units.
+still evaluated.
 
 [Independent CNNs with every optimizer](docs/tasks/multiple_models.md) ·
 [Agarwal: three cell lines](docs/models/agarwal.md) ·
@@ -269,42 +269,35 @@ score is the normalized weighted mean
 `(2 * model_a - model_b - model_c) / 4`. For a multi-output scorer, use the
 same argument with weights ordered by its output columns.
 
-Three advanced `MultiTaskObjective` parameters cover goals that a weighted
-mean does not express:
+[`MultiTaskObjective` parameters](docs/objectives.md).
 
-| Parameter | Meaning |
-|---|---|
-| `scales` | Positive divisors that put outputs with different numeric ranges or units on comparable scales. Derive them once from a fixed reference set. |
-| `aggregation` | How signed, scaled outputs are combined: `mean` permits trade-offs, `worst` prioritizes the weakest output, and `smoothmin` is a smooth approximation to `worst`. |
-| `lower_bounds` | Minimum raw prediction required for each maximized output. The corresponding `upper_bounds` set maximum values for minimized outputs. |
+## Use your own model
 
-These parameters are optional. Use `objective` with `model_weights` for the
-standard weighted-mean case; use
-[`MultiTaskObjective`](docs/objectives.md) when scale normalization, weakest-goal
-optimization, or absolute prediction thresholds are required.
+[Wrap your own model](docs/custom_models.md) ·
+[Model input requirements](docs/model_input_requirements.md).
 
 ## Model tasks
 
-- [Optimus 5-Prime](docs/models/optimus.md)
-- [UTR-CODE: 5′UTR, 3′UTR and CDS](docs/models/utr_code.md)
-- [CDS stability](docs/models/cds_stability.md)
-- [DeepSTARR: housekeeping high, developmental low](docs/models/deepstarr.md)
-- [DREAM LegNet promoter activity](docs/models/dream_legnet.md)
-- [Cetnar mRNA stability](docs/models/cetnar_stability.md)
-- [Agarwal lentiMPRA cell specificity](docs/models/agarwal.md)
-- [DeepSTARR Mouse tissue activity](docs/models/deepstarr_mouse.md)
-- [DeepSTARR-Embryo tissue activity](docs/models/deepstarr_embryo.md)
-- [Malinois cell-line-specific enhancers](docs/models/malinois.md)
-- [Joint RPF and mRNA stability with synonymous codons](docs/tasks/joint_rpf_stability.md)
-- [Constrain CDS optimization to synonymous codons](docs/tasks/synonymous_cds.md)
+- [Optimize MRL by Optimus 5-Prime](docs/models/optimus.md)
+- [Optimize translation output in a 5′UTR, 3′UTR, or CDS by UTR-CODE](docs/models/utr_code.md)
+- [Optimize CDS stability by CDS Stability](docs/models/cds_stability.md)
+- [Optimize housekeeping enhancer activity and reduce developmental activity by DeepSTARR](docs/models/deepstarr.md)
+- [Optimize promoter activity by DREAM LegNet](docs/models/dream_legnet.md)
+- [Optimize predicted mRNA stability by Cetnar](docs/models/cetnar_stability.md)
+- [Optimize K562 specificity against HepG2 and WTC11 by Agarwal lentiMPRA](docs/models/agarwal.md)
+- [Optimize heart specificity across mouse tissues by DeepSTARR Mouse](docs/models/deepstarr_mouse.md)
+- [Optimize brain/VNC specificity across embryonic tissues by DeepSTARR-Embryo](docs/models/deepstarr_embryo.md)
+- [Optimize K562 enhancer specificity against HepG2 and SK-N-SH by Malinois](docs/models/malinois.md)
+- [Jointly optimize RPF and mRNA stability with synonymous codons](docs/tasks/joint_rpf_stability.md)
+- [Optimize protein-preserving CDS stability with synonymous codons](docs/tasks/synonymous_cds.md)
 
 ## Budget and results
 
 `num_candidates=4` sets the starting population and the number of unique
 candidates retained in the result. Each example constructs exactly four unique
-starting sequences with `random_seed_sequences`. `budget=1000` limits counted candidate
-evaluations, including the initial population; it is not the number of epochs
-or the result size. A run may stop before exhausting the budget.
+starting sequences with `random_seed_sequences`. `budget` defaults to 10,000
+counted candidate evaluations, including the initial population; it is not the
+number of epochs or the result size. A run may stop before exhausting the budget.
 
 With the default counting mode, the nine discrete optimizers except CbAS count
 uncached sequences. CbAS and the four gradient optimizers count repeated
@@ -408,8 +401,3 @@ to 9.66 at the observed plateau. q80 and q90 select the earliest retained sets
 that reach their respective fractions of that gain.
 
 [Initial sequences, budget accounting and saturation parameters](docs/search_workflow.md).
-
-## Use your own model
-
-[Wrap your own model](docs/custom_models.md) ·
-[Model input requirements](docs/model_input_requirements.md).

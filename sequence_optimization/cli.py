@@ -7,7 +7,7 @@ import importlib
 import json
 from pathlib import Path
 
-from .algorithms import available_algorithms, optimize, run
+from .algorithms import _DEFAULT_BUDGET, available_algorithms, optimize, run
 from .api import CallableScorer, OptimizationConfig
 from .objectives import TargetObjective
 from .saturation import SaturationConfig
@@ -70,8 +70,11 @@ def main() -> None:
     parser.add_argument(
         "--budget",
         type=_budget,
-        required=True,
-        help="A positive query count, or 'unlimited' to stop at a plateau",
+        default=_DEFAULT_BUDGET,
+        help=(
+            f"A positive query count (default: {_DEFAULT_BUDGET}), "
+            "or 'unlimited' to stop at a plateau"
+        ),
     )
     parser.add_argument("--num-candidates", type=int, default=100)
     parser.add_argument("--seed", type=int, default=0)

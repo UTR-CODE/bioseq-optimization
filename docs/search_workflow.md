@@ -79,10 +79,10 @@ result columns, and screening counts.
 ## Candidate count and budgets
 
 `num_candidates` controls both the number of starting sequences and the number
-of sequences retained in the result. In fixed-budget mode, `budget` must be at least
-`num_candidates`. It limits candidate query or proposal accounting; it is not
-a training epoch count and does not mean that the final result contains that
-many sequences.
+of sequences retained in the result. In fixed-budget mode, `budget` defaults to
+10,000 and must be at least `num_candidates`. It limits candidate query or
+proposal accounting; it is not a training epoch count and does not mean that
+the final result contains that many sequences.
 
 Discrete optimizers use a cache. With the default `count_repeated=False`, a
 sequence already scored by the wrapped scorer is a cache hit and does not
@@ -119,7 +119,7 @@ candidate sets at selected fractions of the observed gain. `maximum_queries`
 is a safety ceiling.
 
 When `saturation` is set, omit `budget`; supplying both raises `ValueError`.
-When `saturation=None`, `budget` is required. Saturation query limits are:
+When `saturation=None`, omitting `budget` uses 10,000. Saturation query limits are:
 
 | Parameter | Default | Meaning |
 |---|---|---|

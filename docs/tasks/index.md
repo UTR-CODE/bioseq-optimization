@@ -1,17 +1,17 @@
 # Model tasks
 
-- [Optimus 5-Prime](../models/optimus.md)
-- [UTR-CODE: 5′UTR, 3′UTR and CDS](../models/utr_code.md)
-- [CDS stability](../models/cds_stability.md)
-- [DeepSTARR: housekeeping high, developmental low](../models/deepstarr.md)
-- [DREAM LegNet promoter activity](../models/dream_legnet.md)
-- [Cetnar mRNA stability](../models/cetnar_stability.md)
-- [Agarwal lentiMPRA cell specificity](../models/agarwal.md)
-- [DeepSTARR Mouse tissue activity](../models/deepstarr_mouse.md)
-- [DeepSTARR-Embryo tissue activity](../models/deepstarr_embryo.md)
-- [Malinois cell-line-specific enhancers](../models/malinois.md)
-- [Joint RPF and mRNA stability with synonymous codons](joint_rpf_stability.md)
-- [Synonymous CDS constraints](synonymous_cds.md)
+- [Optimize MRL by Optimus 5-Prime](../models/optimus.md)
+- [Optimize translation output in a 5′UTR, 3′UTR, or CDS by UTR-CODE](../models/utr_code.md)
+- [Optimize CDS stability by CDS Stability](../models/cds_stability.md)
+- [Optimize housekeeping enhancer activity and reduce developmental activity by DeepSTARR](../models/deepstarr.md)
+- [Optimize promoter activity by DREAM LegNet](../models/dream_legnet.md)
+- [Optimize predicted mRNA stability by Cetnar](../models/cetnar_stability.md)
+- [Optimize K562 specificity against HepG2 and WTC11 by Agarwal lentiMPRA](../models/agarwal.md)
+- [Optimize heart specificity across mouse tissues by DeepSTARR Mouse](../models/deepstarr_mouse.md)
+- [Optimize brain/VNC specificity across embryonic tissues by DeepSTARR-Embryo](../models/deepstarr_embryo.md)
+- [Optimize K562 enhancer specificity against HepG2 and SK-N-SH by Malinois](../models/malinois.md)
+- [Jointly optimize RPF and mRNA stability with synonymous codons](joint_rpf_stability.md)
+- [Optimize protein-preserving CDS stability with synonymous codons](synonymous_cds.md)
 
 ## Custom CNNs
 

@@ -268,7 +268,7 @@ backward 不计入离散 `query_count`。`budget` 至少为 `num_candidates`；�
 
 ## 10. 固定预算和饱和停止
 
-固定预算调用必须提供 `budget`，返回 `OptimizationResult`。
+固定预算调用省略 `budget` 时默认使用 10,000，返回 `OptimizationResult`。
 
 饱和调用提供 `saturation=SaturationConfig(...)` 并省略 `budget`，返回
 `SaturationResult`。两者同时提供会报错。

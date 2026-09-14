@@ -26,6 +26,7 @@ Optimizer = Callable[
     OptimizationResult,
 ]
 _REGISTRY: dict[str, Optimizer] = {}
+_DEFAULT_BUDGET = 10_000
 
 
 def register_algorithm(name: str):
@@ -598,7 +599,7 @@ def optimize(
             **parameters,
         )
     if budget is None:
-        raise ValueError("budget is required when saturation is None")
+        budget = _DEFAULT_BUDGET
     config = OptimizationConfig(budget=budget, **parameters)
     return run(
         algorithm,

@@ -18,6 +18,7 @@ from sequence_optimization import (
     genetic_algorithm_optimize,
     load_seed_sequences,
     pad_nucleotide_sequences,
+    random_optimize,
     random_seed_sequences,
     run,
 )
@@ -374,8 +375,14 @@ def test_saturation_and_budget_are_mutually_exclusive():
             saturation=SaturationConfig(maximum_queries=40),
             num_candidates=4,
         )
-    with pytest.raises(ValueError, match="budget is required"):
-        genetic_algorithm_optimize(scorer, length=5, num_candidates=4)
+
+
+def test_omitted_budget_uses_default():
+    scorer = CallableScorer(lambda values: [value.count("G") for value in values])
+    result = random_optimize(scorer, length=1, num_candidates=4, seed=4)
+    assert result.query_count == 4
+    with pytest.raises(ValueError, match="budget must be at least num_candidates"):
+        random_optimize(scorer, length=1, num_candidates=10_001, seed=4)
 
 
 def test_public_optimizers_expose_saturation_parameter():
