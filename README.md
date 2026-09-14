@@ -314,31 +314,37 @@ print(constrained_result.to_frame())
 
 ## Saturation screening
 
-Using `single_model` from the single-task example, generate an initial set and
-pass a `SaturationConfig` to stop after progress levels off. It tracks the
-mean objective of the best `num_candidates` unique sequences found so far.
-Omit `budget` in this mode; passing both `budget` and `saturation` raises
-`ValueError`.
+Start Optimus 5-Prime from 100 random 50-nt sequences and maximize its MRL
+prediction. `SaturationConfig` stops the search after the mean MRL of the best
+100 unique sequences levels off. Omit `budget` in this mode; passing both
+`budget` and `saturation` raises `ValueError`.
 
 ```python
-from sequence_optimization import SaturationConfig, random_seed_sequences
+from bioseq_models import load_model
 
-initial = random_seed_sequences(length=20, count=4, seed=7)
+from sequence_optimization import (
+    SaturationConfig,
+    genetic_algorithm_optimize,
+    random_seed_sequences,
+)
+
+model = load_model("optimus5prime", device="cpu")
+initial = random_seed_sequences(length=50, count=100, seed=7)
 saturated = genetic_algorithm_optimize(
-    single_model,
-    length=20,
+    model,
+    length=50,
     initial=initial,
     objective=["maximize"],
-    num_candidates=4,
+    num_candidates=100,
     saturation=SaturationConfig(
         fractions=(0.8, 0.9),
-        minimum_queries=40,
-        plateau_patience_queries=80,
-        maximum_queries=800,
-        material_improvement=1e-4,
+        minimum_queries=1_000,
+        plateau_patience_queries=2_000,
+        maximum_queries=20_000,
+        material_improvement=0.01,
     ),
-    mutation_rate=0.1,
-    elite_fraction=0.5,
+    mutation_rate=0.02,
+    elite_fraction=0.2,
     seed=7,
 )
 q80 = saturated[0.8]
@@ -354,6 +360,12 @@ They are not score percentiles or guarantees of reaching the global optimum.
 The run must finish before these fractions can be selected. `maximum_queries`
 is a safety ceiling; an optimizer can also stop on its own before a plateau is
 detected. Check `stop_reason` to distinguish these cases.
+
+![Optimus 5-Prime saturation curve showing the initial, q80, q90, and plateau points](docs/assets/optimus-saturation.png)
+
+In this run, the top-100 mean MRL increases from 6.44 for the initial sequences
+to 9.66 at the observed plateau. q80 and q90 select the earliest retained sets
+that reach their respective fractions of that gain.
 
 [Initial sequences, budget accounting and saturation parameters](docs/search_workflow.md).
 
