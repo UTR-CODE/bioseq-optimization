@@ -16,6 +16,7 @@ dist/
 
 # Local scratch files can be many gigabytes.
 tmp/
+results/
 
 # Legacy local benchmark artifacts are not part of this repository.
 BioSeqBench/

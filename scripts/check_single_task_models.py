@@ -73,13 +73,20 @@ def main():
         space = SequenceSpace(length)
         initial = space.random(4, np.random.default_rng(7))
         soft_error = "requires a model-specific differentiable adapter"
-        needs_gradients = bool(set(args.algorithms or available_algorithms()) & GRADIENT)
-        if needs_gradients and model is not None and name not in {
-            "utr_code",
-            "cds_stability",
-            "dream_legnet",
-            "parm_k562",
-        }:
+        needs_gradients = bool(
+            set(args.algorithms or available_algorithms()) & GRADIENT
+        )
+        if (
+            needs_gradients
+            and model is not None
+            and name
+            not in {
+                "utr_code",
+                "cds_stability",
+                "dream_legnet",
+                "parm_k562",
+            }
+        ):
 
             def transform(values):
                 if name == "cetnar_stability":
