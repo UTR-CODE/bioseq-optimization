@@ -69,11 +69,13 @@ def test_synonymous_search_only_scores_allowed_cds():
         synonymous_codons=allowed,
         initial=[
             "ATG" + "GCC" * 8 + "TAA",
-            "ATG" + "GCG" + "GCC" * 7 + "TAA",
-            "ATG" + "GCG" * 2 + "GCC" * 6 + "TAA",
-            "ATG" + "GCG" * 3 + "GCC" * 5 + "TAA",
+            "ATG" + "GCC" + "GCG" + "GCC" * 6 + "TAA",
+            "ATG" + "GCC" + "GCG" * 2 + "GCC" * 5 + "TAA",
+            "ATG" + "GCC" + "GCG" * 3 + "GCC" * 4 + "TAA",
         ],
+        fixed_region=["5:6"],
         num_candidates=4,
+        diversity=0,
         budget=40,
         mutation_rate=0.3,
         seed=7,
@@ -82,6 +84,7 @@ def test_synonymous_search_only_scores_allowed_cds():
     assert result.query_count <= 40
     assert len(set(result.sequences)) == 4
     for value in queried:
+        assert value[5] == "C"
         assert value[:3] == "ATG" and value[-3:] in STOP_CODONS
         assert (
             "".join(GENETIC_CODE[value[i : i + 3]] for i in range(0, len(value), 3))

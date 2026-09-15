@@ -174,6 +174,11 @@ optimizer 提供的标准软输入形状为 `[N, L, 4]`，通道顺序为 A/C/G/
 `diversity` 默认为 5，规定多个返回序列之间的最小两两 Hamming distance；设为 0
 可关闭该筛选。无法从已评分 archive 选足 `num_candidates` 时，optimizer 明确报错。
 
+`fixed_region` 接受整数位置、Python `slice` 或 `"start:stop"` 字符串组成的列表，
+使用零起点、左闭右开和负索引语义。所有候选在这些位置共享同一模板；显式 initial
+必须在固定位置一致，省略 initial 时模板由 seed 可复现地抽取。固定位置在随机生成、
+突变、交叉、生成式和梯度优化中均被屏蔽；CDS 空间同时收窄同义密码子 choices。
+
 ## 7. 目标函数
 
 ### 7.1 方向列表

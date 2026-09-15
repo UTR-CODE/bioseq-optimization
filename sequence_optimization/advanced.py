@@ -38,9 +38,12 @@ def basesearch(initial, scorer, space, config, rng):
     trajectory = []
     attempts = stalled = duplicates = pruned = 0
     best_score = float(batch.scores.max())
-    capacity = space.alphabet_size**space.length
+    capacity = getattr(space, "capacity", space.alphabet_size**space.length)
     stop_reason = "budget"
     objective_version = scorer.objective_version
+    mutable_positions = np.asarray(
+        getattr(space, "mutable_positions", tuple(range(space.length))), dtype=int
+    )
     while scorer.remaining is None or scorer.remaining > 0:
         if not queue:
             stop_reason = "target_gate_exhausted"
@@ -55,11 +58,17 @@ def basesearch(initial, scorer, space, config, rng):
         priority = _decay_base_priority(-negative_priority, config.basesearch_decay)
         heapq.heappush(queue, (-priority, parent))
         encoded = space.encode([parent])
-        if attempts % 2 == 0 and space.length > 1:
-            count = max(2, int(rng.binomial(space.length, config.mutation_rate)))
-            positions = rng.choice(space.length, size=count, replace=False)
+        if not len(mutable_positions):
+            stop_reason = "fixed_region_exhausted"
+            break
+        if attempts % 2 == 0 and len(mutable_positions) > 1:
+            count = max(
+                2, int(rng.binomial(len(mutable_positions), config.mutation_rate))
+            )
+            count = min(count, len(mutable_positions))
+            positions = rng.choice(mutable_positions, size=count, replace=False)
         else:
-            positions = np.asarray([rng.integers(space.length)])
+            positions = np.asarray([rng.choice(mutable_positions)])
         offsets = rng.integers(1, space.alphabet_size, size=len(positions))
         encoded[0, positions] = (encoded[0, positions] + offsets) % space.alphabet_size
         candidate = space.decode(encoded)
@@ -201,6 +210,9 @@ def cross_entropy_method(initial, scorer, space, config, rng):
         cumulative = np.cumsum(probabilities, axis=1)
         cumulative[:, -1] = 1.0
         samples = (draws > cumulative[None, :, :]).sum(axis=2).astype(np.int16)
+        constrain_encoded = getattr(space, "constrain_encoded", None)
+        if constrain_encoded is not None:
+            samples = constrain_encoded(samples)
         sequences = space.decode(samples)
         before = scorer.query_count
         batch = _score(scorer, archive, sequences)
@@ -354,6 +366,9 @@ def cbas(initial, scorer, space, config, rng):
             else min(config.cbas_batch_size, scorer.remaining)
         )
         samples = search.sample(count)
+        constrain_encoded = getattr(space, "constrain_encoded", None)
+        if constrain_encoded is not None:
+            samples = constrain_encoded(samples)
         sequences = space.decode(samples.cpu().numpy())
         before = scorer.query_count
         batch = _score(scorer, archive, sequences)
@@ -459,6 +474,11 @@ def _straight_through(probabilities):
     return hard + probabilities - probabilities.detach(), sampled
 
 
+def _constrain_probabilities(space, probabilities):
+    constrain = getattr(space, "constrain_probabilities", None)
+    return probabilities if constrain is None else constrain(probabilities)
+
+
 def _gradient_result(
     name,
     archive,
@@ -497,7 +517,9 @@ def vanilla_activation_maximization(initial, scorer, space, config, rng):
     trajectory = []
     while scorer.remaining is None or scorer.remaining >= len(initial):
         optimizer.zero_grad(set_to_none=True)
-        probabilities = torch.softmax(logits, dim=-1)
+        probabilities = _constrain_probabilities(
+            space, torch.softmax(logits, dim=-1)
+        )
         if scorer.constraint_evaluator is None:
             utilities, _ = objective.score_soft(probabilities)
             (-utilities.mean()).backward()
@@ -561,8 +583,11 @@ def fast_seqprop(initial, scorer, space, config, rng):
         mean = logits.mean(dim=1, keepdim=True)
         variance = logits.var(dim=1, keepdim=True, unbiased=False)
         normalized = (logits - mean) / torch.sqrt(variance + 1e-5)
-        probabilities = torch.softmax(
-            normalized * gamma[:, None, :] + beta[:, None, :], dim=-1
+        probabilities = _constrain_probabilities(
+            space,
+            torch.softmax(
+                normalized * gamma[:, None, :] + beta[:, None, :], dim=-1
+            ),
         )
         straight_through, sampled = _straight_through(probabilities)
         sequences = space.decode(sampled.detach().cpu().numpy())
@@ -618,8 +643,11 @@ def ledidi(initial, scorer, space, config, rng):
     soft_queries = 0
     while scorer.remaining is None or scorer.remaining >= len(initial):
         noise = -torch.empty_like(weights).exponential_(generator=generator).log()
-        probabilities = torch.softmax(
-            (prior + weights + noise) / config.ledidi_temperature, dim=-1
+        probabilities = _constrain_probabilities(
+            space,
+            torch.softmax(
+                (prior + weights + noise) / config.ledidi_temperature, dim=-1
+            ),
         )
         sampled = probabilities.argmax(dim=-1)
         hard = functional.one_hot(sampled, num_classes=space.alphabet_size).to(
@@ -728,7 +756,9 @@ def den(initial, scorer, space, config, rng):
     trajectory = []
     while scorer.remaining is None or scorer.remaining >= len(initial):
         logits = generator(fixed_noise)
-        probabilities = torch.softmax(logits, dim=-1)
+        probabilities = _constrain_probabilities(
+            space, torch.softmax(logits, dim=-1)
+        )
         straight_through, sampled = _straight_through(probabilities)
         sequences = space.decode(sampled.detach().cpu().numpy())
         passed = scorer.constraints_passed(sequences)

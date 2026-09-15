@@ -255,6 +255,7 @@ def _optimize_with_saturation(
     """
     from .algorithms import (
         _REGISTRY,
+        _apply_fixed_region,
         _constraint_initial,
         _configured_space,
         _initial,
@@ -292,6 +293,7 @@ def _optimize_with_saturation(
             "numeric objective targets cannot be combined with saturation; "
             "use the target stopping rule with a fixed safety budget"
         )
+    space = _apply_fixed_region(space, config.fixed_region, initial, rng)
     prepared = _initial(initial, space, config, rng)
     monitor = _SaturationMonitor(
         num_candidates,
@@ -368,6 +370,10 @@ def _optimize_with_saturation(
             stop_reason=stop_reason,
             diversity=config.diversity,
         )
+    fixed_positions = tuple(getattr(space, "fixed_positions", ()))
+    if fixed_positions:
+        for result in selections.values():
+            result.metadata["fixed_positions"] = list(fixed_positions)
     return SaturationResult(
         selections=selections,
         total_query_count=budgeted.query_count,

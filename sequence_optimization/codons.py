@@ -90,3 +90,27 @@ class SynonymousCodonSpace(SequenceSpace):
             mask = rng.random(count) < mutation_rate
             child[mask, i] = rng.choice(choices, size=mask.sum())
         return np.asarray(["".join(row) for row in child])
+
+    def with_fixed_positions(self, template, positions):
+        """Return this CDS space with codon choices restricted at fixed bases."""
+        value = str(self.validate([template])[0])
+        fixed = set(int(position) for position in positions)
+        choices = []
+        for codon_index, codon_choices in enumerate(self.choices):
+            restricted = tuple(
+                codon
+                for codon in codon_choices
+                if all(
+                    codon[offset] == value[3 * codon_index + offset]
+                    for offset in range(3)
+                    if 3 * codon_index + offset in fixed
+                )
+            )
+            choices.append(restricted)
+        result = object.__new__(type(self))
+        SequenceSpace.__init__(result, self.length, self.alphabet)
+        object.__setattr__(result, "choices", tuple(choices))
+        object.__setattr__(result, "capacity", prod(map(len, choices)))
+        object.__setattr__(result, "reference_cds", self.reference_cds)
+        object.__setattr__(result, "protein", self.protein)
+        return result

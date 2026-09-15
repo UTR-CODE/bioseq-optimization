@@ -109,6 +109,7 @@ class ScoreBatch:
 
 
 ScorerOutput: TypeAlias = ScoreBatch | ArrayLike | tuple[ArrayLike, ArrayLike | None]
+FixedRegionSpec: TypeAlias = int | str | slice
 
 
 def as_score_batch(result: ScorerOutput) -> ScoreBatch:
@@ -603,6 +604,220 @@ class SequenceSpace:
         return self.decode(encoded)
 
 
+def resolve_fixed_positions(
+    fixed_region: Sequence[FixedRegionSpec] | None,
+    length: int,
+) -> tuple[int, ...]:
+    """Resolve integer and Python-style slice entries to zero-based positions."""
+    if fixed_region is None:
+        return ()
+    if isinstance(fixed_region, (str, bytes)) or not isinstance(
+        fixed_region, Sequence
+    ):
+        raise ValueError("fixed_region must be a list of positions or slices")
+    positions: set[int] = set()
+    for entry in fixed_region:
+        region: int | slice
+        if isinstance(entry, bool):
+            raise ValueError("fixed_region entries must be integers or slices")
+        if isinstance(entry, (int, np.integer)):
+            region = int(entry)
+        elif isinstance(entry, str):
+            value = entry.strip()
+            if not value:
+                raise ValueError("fixed_region entries must not be empty")
+            if ":" not in value:
+                try:
+                    region = int(value)
+                except ValueError as error:
+                    raise ValueError(
+                        f"invalid fixed_region entry {entry!r}"
+                    ) from error
+            else:
+                parts = value.split(":")
+                if len(parts) != 2:
+                    raise ValueError(
+                        "fixed_region string slices must use start:stop"
+                    )
+                try:
+                    start, stop = (
+                        None if part.strip() == "" else int(part)
+                        for part in parts
+                    )
+                except ValueError as error:
+                    raise ValueError(
+                        f"invalid fixed_region entry {entry!r}"
+                    ) from error
+                region = slice(start, stop)
+        elif isinstance(entry, slice):
+            if entry.step not in {None, 1}:
+                raise ValueError("fixed_region slices do not support a step")
+            region = entry
+        else:
+            raise ValueError("fixed_region entries must be integers or slices")
+
+        if isinstance(region, int):
+            position = region + length if region < 0 else region
+            if not 0 <= position < length:
+                raise ValueError(
+                    f"fixed_region position {region} is outside length {length}"
+                )
+            current = (position,)
+        else:
+            start, stop, _ = region.indices(length)
+            current = tuple(range(start, stop))
+            if not current:
+                raise ValueError(
+                    f"fixed_region slice {region.start}:{region.stop} is empty "
+                    f"for length {length}"
+                )
+        positions.update(current)
+    return tuple(sorted(positions))
+
+
+class FixedRegionSequenceSpace:
+    """Restrict a sequence space to one shared template at selected positions."""
+
+    def __init__(self, base: SequenceSpace, template: str, positions: Sequence[int]):
+        self.base = base
+        self.length = base.length
+        self.alphabet = base.alphabet
+        self.alphabet_size = base.alphabet_size
+        self.template = str(base.validate([template])[0])
+        self.fixed_positions = tuple(int(position) for position in positions)
+        fixed = set(self.fixed_positions)
+        self.mutable_positions = tuple(
+            position for position in range(self.length) if position not in fixed
+        )
+        self.max_hamming_distance = len(self.mutable_positions)
+        self._template_encoded = base.encode([self.template])[0]
+        if hasattr(base, "choices"):
+            self.capacity = int(getattr(base, "capacity"))
+        else:
+            self.capacity = self.alphabet_size**len(self.mutable_positions)
+
+    def __getattr__(self, name):
+        return getattr(self.base, name)
+
+    def _matches(self, sequence: str) -> bool:
+        return all(
+            sequence[position] == self.template[position]
+            for position in self.fixed_positions
+        )
+
+    def validate(self, sequences: Sequence[str] | np.ndarray) -> np.ndarray:
+        values = self.base.validate(sequences)
+        if any(not self._matches(str(value)) for value in values):
+            raise ValueError(
+                "all initial sequences must agree at fixed_region positions"
+            )
+        return values
+
+    def encode(self, sequences: Sequence[str] | np.ndarray) -> np.ndarray:
+        return self.base.encode(self.validate(sequences))
+
+    def constrain_encoded(self, encoded):
+        values = (
+            encoded.clone()
+            if hasattr(encoded, "clone")
+            else np.array(encoded, copy=True)
+        )
+        if not self.fixed_positions:
+            return values
+        if hasattr(values, "device"):
+            import torch
+
+            positions = torch.as_tensor(
+                self.fixed_positions, dtype=torch.long, device=values.device
+            )
+            template = torch.as_tensor(
+                self._template_encoded[list(self.fixed_positions)],
+                dtype=values.dtype,
+                device=values.device,
+            )
+            values[..., positions] = template
+        else:
+            values[..., list(self.fixed_positions)] = self._template_encoded[
+                list(self.fixed_positions)
+            ]
+        return values
+
+    def constrain_probabilities(self, probabilities):
+        if not self.fixed_positions:
+            return probabilities
+        import torch
+        from torch.nn import functional as functional
+
+        template = torch.as_tensor(
+            self._template_encoded,
+            dtype=torch.long,
+            device=probabilities.device,
+        )
+        fixed_values = functional.one_hot(
+            template, num_classes=self.alphabet_size
+        ).to(probabilities.dtype)
+        mask = torch.zeros(
+            self.length, dtype=torch.bool, device=probabilities.device
+        )
+        mask[list(self.fixed_positions)] = True
+        return torch.where(mask[None, :, None], fixed_values[None, :, :], probabilities)
+
+    def decode(self, encoded: np.ndarray) -> np.ndarray:
+        return self.validate(self.base.decode(self.constrain_encoded(encoded)))
+
+    def random(self, count: int, rng: np.random.Generator) -> np.ndarray:
+        if hasattr(self.base, "choices"):
+            return self.validate(self.base.random(count, rng))
+        encoded = rng.integers(
+            self.alphabet_size, size=(count, self.length), dtype=np.int16
+        )
+        return self.decode(encoded)
+
+    def single_mutants(self, sequences: Sequence[str] | np.ndarray) -> np.ndarray:
+        encoded = self.encode(sequences)
+        candidates = []
+        for sequence in encoded:
+            for position in self.mutable_positions:
+                for value in range(self.alphabet_size):
+                    if value != sequence[position]:
+                        candidate = sequence.copy()
+                        candidate[position] = value
+                        candidates.append(candidate)
+        if not candidates:
+            return np.empty(0, dtype=str)
+        return self.decode(np.asarray(candidates, dtype=np.int16))
+
+    def mutate_one(
+        self, sequences: Sequence[str] | np.ndarray, rng: np.random.Generator
+    ) -> np.ndarray:
+        encoded = self.encode(sequences).copy()
+        if not self.mutable_positions:
+            return self.decode(encoded)
+        rows = np.arange(len(encoded))
+        positions = rng.choice(self.mutable_positions, size=len(encoded))
+        offsets = rng.integers(1, self.alphabet_size, size=len(encoded))
+        encoded[rows, positions] = (
+            encoded[rows, positions] + offsets
+        ) % self.alphabet_size
+        return self.decode(encoded)
+
+    def offspring(self, elite, count, mutation_rate, rng):
+        if hasattr(self.base, "offspring"):
+            return self.validate(
+                self.base.offspring(elite, count, mutation_rate, rng)
+            )
+        a = self.encode(elite[rng.integers(len(elite), size=count)])
+        b = self.encode(elite[rng.integers(len(elite), size=count)])
+        child = np.where(rng.random(a.shape) < 0.5, a, b)
+        mask = rng.random(child.shape) < mutation_rate
+        if self.fixed_positions:
+            mask[:, list(self.fixed_positions)] = False
+        child = np.where(
+            mask, rng.integers(self.alphabet_size, size=child.shape), child
+        )
+        return self.decode(child)
+
+
 def _sequence_space(length, alphabet="ACGT") -> SequenceSpace:
     """Construct internal sequence operations; retain positional legacy objects."""
     if isinstance(length, SequenceSpace):
@@ -635,8 +850,15 @@ class OptimizationConfig:
     basesearch_max_stalled: int = 1024
     reference_cds: str | None = None
     synonymous_codons: dict[str, Sequence[str]] | None = None
+    fixed_region: Sequence[FixedRegionSpec] | None = None
 
     def __post_init__(self) -> None:
+        if self.fixed_region is not None:
+            if isinstance(self.fixed_region, (str, bytes)) or not isinstance(
+                self.fixed_region, Sequence
+            ):
+                raise ValueError("fixed_region must be a list of positions or slices")
+            object.__setattr__(self, "fixed_region", tuple(self.fixed_region))
         if (
             isinstance(self.diversity, bool)
             or not isinstance(self.diversity, (int, np.integer))

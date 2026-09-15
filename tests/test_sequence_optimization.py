@@ -22,6 +22,7 @@ from sequence_optimization import (
     random_seed_sequences,
     run,
 )
+from sequence_optimization.api import resolve_fixed_positions
 
 
 def test_sequence_space_and_seed_sources(tmp_path):
@@ -321,11 +322,12 @@ def test_differentiable_algorithms_share_the_result_contract():
         device="cpu",
         task_names=("g_activity", "c_activity"),
     )
-    initial = ["AAAA", "CCCC", "GGGG", "TTTT"]
+    initial = ["AAAA", "ACCC", "AGGG", "ATTT"]
     config = OptimizationConfig(
         budget=12,
         num_candidates=4,
         diversity=0,
+        fixed_region=["0:1"],
         learning_rate=0.2,
         den_seed_pretrain_epochs=2,
     )
@@ -346,6 +348,7 @@ def test_differentiable_algorithms_share_the_result_contract():
             seed=5,
         )
         assert result.query_count == 12
+        assert all(sequence[0] == "A" for sequence in result.sequences)
         assert all("T" not in sequence for sequence in result.sequences)
         assert result.activities.shape == (4, 2)
         assert result.metadata["objective"]["target_name"] == "g_activity"
@@ -434,8 +437,148 @@ def test_default_diversity_applies_to_saturation_selections():
 
 def test_diversity_cannot_exceed_sequence_length_for_multiple_results():
     scorer = CallableScorer(lambda values: np.zeros(len(values)))
-    with pytest.raises(ValueError, match="exceeds sequence length"):
+    with pytest.raises(ValueError, match="mutable positions"):
         random_optimize(scorer, length=4, num_candidates=2, budget=10)
+
+
+def test_fixed_region_resolves_requested_positive_and_negative_slices():
+    positions = resolve_fixed_positions(
+        ["1:3", "-3:-1", "-35:-20", slice(30, 32), -1], 50
+    )
+    assert positions == tuple(
+        sorted(
+            set(range(1, 3))
+            | set(range(47, 49))
+            | set(range(15, 30))
+            | set(range(30, 32))
+            | {49}
+        )
+    )
+
+
+def test_fixed_region_is_preserved_by_every_black_box_optimizer():
+    initial = np.asarray(
+        ["AAAACCTT", "AACCAATT", "AAGGGGTT", "AATTTGTT"]
+    )
+    scorer = CallableScorer(lambda values: [value.count("G") for value in values])
+    config = OptimizationConfig(
+        budget=40,
+        num_candidates=4,
+        diversity=0,
+        fixed_region=["0:2", "-2:"],
+        generator_pretrain_epochs=1,
+        generator_update_epochs=1,
+        cbas_batch_size=8,
+    )
+    names = (
+        "basesearch",
+        "random",
+        "ism_greedy",
+        "simulated_annealing",
+        "genetic_algorithm",
+        "adalead",
+        "beam_search",
+        "cross_entropy_method",
+        "cbas",
+    )
+    for name in names:
+        result = run(
+            name,
+            scorer,
+            SequenceSpace(8),
+            config,
+            initial=initial,
+            seed=7,
+        )
+        assert all(sequence[:2] == "AA" for sequence in result.sequences)
+        assert all(sequence[-2:] == "TT" for sequence in result.sequences)
+        assert result.metadata["fixed_positions"] == [0, 1, 6, 7]
+
+
+def test_fixed_region_uses_one_seeded_template_without_initial():
+    result = random_optimize(
+        CallableScorer(lambda values: [value.count("G") for value in values]),
+        length=10,
+        fixed_region=["0:2", "-2:"],
+        num_candidates=4,
+        diversity=0,
+        budget=20,
+        seed=7,
+    )
+    fixed_values = {(sequence[:2], sequence[-2:]) for sequence in result.sequences}
+    assert len(fixed_values) == 1
+    assert result.metadata["fixed_positions"] == [0, 1, 8, 9]
+
+
+def test_fixed_region_is_preserved_in_saturation_selections():
+    saturated = random_optimize(
+        CallableScorer(lambda values: [value.count("G") for value in values]),
+        length=10,
+        fixed_region=["0:2", "-2:"],
+        num_candidates=4,
+        diversity=0,
+        saturation=SaturationConfig(
+            fractions=(0.8,),
+            minimum_queries=4,
+            plateau_patience_queries=4,
+            maximum_queries=12,
+            material_improvement=100,
+        ),
+        seed=7,
+    )
+    selected = saturated[0.8]
+    fixed_values = {(sequence[:2], sequence[-2:]) for sequence in selected.sequences}
+    assert len(fixed_values) == 1
+    assert selected.metadata["fixed_positions"] == [0, 1, 8, 9]
+
+
+def test_fixed_region_limits_possible_diversity():
+    scorer = CallableScorer(lambda values: np.zeros(len(values)))
+    with pytest.raises(ValueError, match="2 mutable positions"):
+        random_optimize(
+            scorer,
+            length=8,
+            fixed_region=["0:6"],
+            num_candidates=2,
+            diversity=3,
+            budget=4,
+        )
+
+
+@pytest.mark.parametrize(
+    "fixed_region,match",
+    [
+        ("1:3", "must be a list"),
+        ([slice(1, 3, 2)], "do not support a step"),
+        (["3:3"], "is empty"),
+        ([10], "outside length"),
+        ([[1, 2]], "integers or slices"),
+    ],
+)
+def test_invalid_fixed_region_entries(fixed_region, match):
+    scorer = CallableScorer(lambda values: np.zeros(len(values)))
+    with pytest.raises(ValueError, match=match):
+        random_optimize(
+            scorer,
+            length=8,
+            fixed_region=fixed_region,
+            num_candidates=1,
+            budget=1,
+        )
+
+
+def test_fixed_region_requires_initial_sequences_to_agree():
+    scorer = CallableScorer(lambda values: np.zeros(len(values)))
+    with pytest.raises(ValueError, match="must agree"):
+        random_optimize(
+            scorer,
+            length=6,
+            fixed_region=["0:2"],
+            initial=["AAAAAA", "CAAAAA"],
+            num_candidates=2,
+            diversity=0,
+            budget=2,
+        )
 
 
 @pytest.mark.parametrize("diversity", [-1, 1.5, True])
@@ -469,3 +612,4 @@ def test_public_optimizers_expose_saturation_parameter():
         assert signature.parameters["budget"].default is None
         assert signature.parameters["model_weights"].default is None
         assert signature.parameters["diversity"].default == 5
+        assert signature.parameters["fixed_region"].default is None

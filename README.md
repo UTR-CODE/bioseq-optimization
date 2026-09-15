@@ -324,6 +324,11 @@ starting sequences with `random_seed_sequences`. `budget` defaults to 10,000
 counted candidate evaluations, including the initial population; it is not the
 number of epochs or the result size. A run may stop before exhausting the budget.
 
+Use `fixed_region=["1:3", "-3:-1", "-35:-20"]` to keep selected positions
+unchanged during optimization. Slice endpoints follow zero-based Python rules:
+the start is included, the stop is excluded, and negative indices count from
+the end. See [fixed regions and starting sequences](docs/search_workflow.md#fixed-regions).
+
 With the default counting mode, the nine discrete optimizers except CbAS count
 uncached sequences. CbAS and the four gradient optimizers count repeated
 proposals too. `count_repeated=True` selects proposal counting for other methods.

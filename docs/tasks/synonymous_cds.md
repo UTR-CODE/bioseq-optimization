@@ -37,6 +37,11 @@ amino acids use all synonymous codons from the
 [standard genetic code](https://www.ncbi.nlm.nih.gov/Taxonomy/Utils/wprintgc.cgi#SG1).
 Alternative genetic codes are not supported.
 
+Pass `fixed_region` with zero-based positions or `"start:stop"` slices to keep
+selected CDS bases unchanged. The allowed synonymous codons are restricted at
+those positions while every candidate continues to encode the reference
+protein.
+
 Every initial and proposed candidate starts with `ATG`, ends with one of the
 three stop codons, and translates to the reference protein. Crossover and
 mutation act on codons, with `mutation_rate` applied per codon. Explicit initial

@@ -11,11 +11,13 @@ import numpy as np
 from .api import (
     _sequence_space,
     CachedScorer,
+    FixedRegionSequenceSpace,
     OptimizationConfig,
     OptimizationResult,
     ScoreBatch,
     SequenceScorer,
     SequenceSpace,
+    resolve_fixed_positions,
 )
 from .constraints import ConstraintSpec
 from .objectives import MultiTaskObjective, ObjectiveScorer, TargetObjective
@@ -161,9 +163,11 @@ def _finalize(
 def _initial(
     initial, space: SequenceSpace, config: OptimizationConfig, rng: np.random.Generator
 ) -> np.ndarray:
-    if config.num_candidates > 1 and config.diversity > space.length:
+    maximum_distance = int(getattr(space, "max_hamming_distance", space.length))
+    if config.num_candidates > 1 and config.diversity > maximum_distance:
         raise ValueError(
-            f"diversity={config.diversity} exceeds sequence length {space.length}; "
+            f"diversity={config.diversity} exceeds the {maximum_distance} mutable "
+            "positions available for pairwise differences; "
             "lower diversity or request one candidate"
         )
     if initial is None:
@@ -279,7 +283,19 @@ def ism_greedy(initial, scorer, space, config, rng):
             "mean_score": float(current_scores.mean()),
         }
     ]
-    block = space.length * (space.alphabet_size - 1)
+    mutable_count = len(
+        getattr(space, "mutable_positions", tuple(range(space.length)))
+    )
+    block = mutable_count * (space.alphabet_size - 1)
+    if block == 0:
+        return _finalize(
+            "ism_greedy",
+            archive,
+            config,
+            scorer,
+            {"sweeps": 0, "stop_reason": "fixed_region_exhausted"},
+            trajectory,
+        )
     while scorer.remaining is None or scorer.remaining >= block:
         before = scorer.query_count
         order = rng.permutation(len(current))
@@ -485,6 +501,23 @@ def _configured_space(length, alphabet, config, algorithm):
     return space
 
 
+def _apply_fixed_region(space, fixed_region, initial, rng):
+    positions = resolve_fixed_positions(fixed_region, space.length)
+    if not positions:
+        return space
+    if initial is None:
+        template = str(space.random(1, rng)[0])
+    else:
+        values = space.validate(initial)
+        if not len(values):
+            raise ValueError("initial must contain at least one sequence")
+        template = str(values[0])
+    restrict = getattr(space, "with_fixed_positions", None)
+    if restrict is not None:
+        space = restrict(template, positions)
+    return FixedRegionSequenceSpace(space, template, positions)
+
+
 def run(
     name: str,
     scorer: SequenceScorer,
@@ -520,6 +553,7 @@ def run(
         np.random.SeedSequence([int(seed), 0xC0DEC0DE])
     )
     random.seed(seed)
+    space = _apply_fixed_region(space, config.fixed_region, initial, rng)
     prepared = _initial(initial, space, config, rng)
     objective_scorer: ObjectiveScorer | None
     if isinstance(scorer, CachedScorer):
@@ -555,6 +589,9 @@ def run(
         budgeted.budget = config.budget
     prepared = _constraint_initial(prepared, budgeted, space, config, rng)
     result = _REGISTRY[key](prepared, budgeted, space, config, rng)
+    fixed_positions = tuple(getattr(space, "fixed_positions", ()))
+    if fixed_positions:
+        result.metadata["fixed_positions"] = list(fixed_positions)
     if objective_scorer is not None:
         activities = objective_scorer.activities_for(result.sequences)
         result.attach_activities(
@@ -628,6 +665,7 @@ def optimize(
     saturation: SaturationConfig | None = None,
     num_candidates: int = 100,
     diversity: int = 5,
+    fixed_region: Sequence[int | str | slice] | None = None,
     alphabet: str = "ACGT",
     initial: Sequence[str] | np.ndarray | None = None,
     objective: TargetObjective
@@ -661,11 +699,14 @@ def optimize(
     """Optimize with a fixed budget or saturation and optional model weights.
 
     ``diversity`` is the minimum pairwise Hamming distance among returned
-    sequences. Numeric objective entries are raw-output lower targets.
+    sequences. ``fixed_region`` holds zero-based positions or Python-style
+    slices to one shared sequence template. Numeric objective entries are
+    raw-output lower targets.
     """
     parameters = dict(
         num_candidates=num_candidates,
         diversity=diversity,
+        fixed_region=fixed_region,
         mutation_rate=mutation_rate,
         elite_fraction=elite_fraction,
         learning_rate=learning_rate,
@@ -733,6 +774,7 @@ def basesearch_optimize(
     constraint: ConstraintSpec | None = None,
     model_weights: Sequence[float] | None = None,
     diversity: int = 5,
+    fixed_region: Sequence[int | str | slice] | None = None,
     **kwargs,
 ) -> OptimizationResult | SaturationResult:
     """Priority-decayed black-box search with unique mutation proposals."""
@@ -745,6 +787,7 @@ def basesearch_optimize(
         constraint=constraint,
         model_weights=model_weights,
         diversity=diversity,
+        fixed_region=fixed_region,
         **kwargs,
     )
 
@@ -758,6 +801,7 @@ def random_optimize(
     constraint: ConstraintSpec | None = None,
     model_weights: Sequence[float] | None = None,
     diversity: int = 5,
+    fixed_region: Sequence[int | str | slice] | None = None,
     **kwargs,
 ) -> OptimizationResult | SaturationResult:
     return optimize(
@@ -769,6 +813,7 @@ def random_optimize(
         constraint=constraint,
         model_weights=model_weights,
         diversity=diversity,
+        fixed_region=fixed_region,
         **kwargs,
     )
 
@@ -782,6 +827,7 @@ def ism_optimize(
     constraint: ConstraintSpec | None = None,
     model_weights: Sequence[float] | None = None,
     diversity: int = 5,
+    fixed_region: Sequence[int | str | slice] | None = None,
     **kwargs,
 ) -> OptimizationResult | SaturationResult:
     return optimize(
@@ -793,6 +839,7 @@ def ism_optimize(
         constraint=constraint,
         model_weights=model_weights,
         diversity=diversity,
+        fixed_region=fixed_region,
         **kwargs,
     )
 
@@ -806,6 +853,7 @@ def simulated_annealing_optimize(
     constraint: ConstraintSpec | None = None,
     model_weights: Sequence[float] | None = None,
     diversity: int = 5,
+    fixed_region: Sequence[int | str | slice] | None = None,
     **kwargs,
 ) -> OptimizationResult | SaturationResult:
     return optimize(
@@ -817,6 +865,7 @@ def simulated_annealing_optimize(
         constraint=constraint,
         model_weights=model_weights,
         diversity=diversity,
+        fixed_region=fixed_region,
         **kwargs,
     )
 
@@ -830,6 +879,7 @@ def genetic_algorithm_optimize(
     constraint: ConstraintSpec | None = None,
     model_weights: Sequence[float] | None = None,
     diversity: int = 5,
+    fixed_region: Sequence[int | str | slice] | None = None,
     **kwargs,
 ) -> OptimizationResult | SaturationResult:
     return optimize(
@@ -841,6 +891,7 @@ def genetic_algorithm_optimize(
         constraint=constraint,
         model_weights=model_weights,
         diversity=diversity,
+        fixed_region=fixed_region,
         **kwargs,
     )
 
@@ -854,6 +905,7 @@ def adalead_optimize(
     constraint: ConstraintSpec | None = None,
     model_weights: Sequence[float] | None = None,
     diversity: int = 5,
+    fixed_region: Sequence[int | str | slice] | None = None,
     **kwargs,
 ) -> OptimizationResult | SaturationResult:
     return optimize(
@@ -865,6 +917,7 @@ def adalead_optimize(
         constraint=constraint,
         model_weights=model_weights,
         diversity=diversity,
+        fixed_region=fixed_region,
         **kwargs,
     )
 
@@ -878,6 +931,7 @@ def beam_search_optimize(
     constraint: ConstraintSpec | None = None,
     model_weights: Sequence[float] | None = None,
     diversity: int = 5,
+    fixed_region: Sequence[int | str | slice] | None = None,
     **kwargs,
 ) -> OptimizationResult | SaturationResult:
     return optimize(
@@ -889,6 +943,7 @@ def beam_search_optimize(
         constraint=constraint,
         model_weights=model_weights,
         diversity=diversity,
+        fixed_region=fixed_region,
         **kwargs,
     )
 
@@ -902,6 +957,7 @@ def cross_entropy_optimize(
     constraint: ConstraintSpec | None = None,
     model_weights: Sequence[float] | None = None,
     diversity: int = 5,
+    fixed_region: Sequence[int | str | slice] | None = None,
     **kwargs,
 ) -> OptimizationResult | SaturationResult:
     return optimize(
@@ -913,6 +969,7 @@ def cross_entropy_optimize(
         constraint=constraint,
         model_weights=model_weights,
         diversity=diversity,
+        fixed_region=fixed_region,
         **kwargs,
     )
 
@@ -926,6 +983,7 @@ def cbas_optimize(
     constraint: ConstraintSpec | None = None,
     model_weights: Sequence[float] | None = None,
     diversity: int = 5,
+    fixed_region: Sequence[int | str | slice] | None = None,
     **kwargs,
 ) -> OptimizationResult | SaturationResult:
     return optimize(
@@ -937,6 +995,7 @@ def cbas_optimize(
         constraint=constraint,
         model_weights=model_weights,
         diversity=diversity,
+        fixed_region=fixed_region,
         **kwargs,
     )
 
@@ -950,6 +1009,7 @@ def vanilla_activation_maximization_optimize(
     constraint: ConstraintSpec | None = None,
     model_weights: Sequence[float] | None = None,
     diversity: int = 5,
+    fixed_region: Sequence[int | str | slice] | None = None,
     **kwargs,
 ) -> OptimizationResult | SaturationResult:
     return optimize(
@@ -961,6 +1021,7 @@ def vanilla_activation_maximization_optimize(
         constraint=constraint,
         model_weights=model_weights,
         diversity=diversity,
+        fixed_region=fixed_region,
         **kwargs,
     )
 
@@ -974,6 +1035,7 @@ def fast_seqprop_optimize(
     constraint: ConstraintSpec | None = None,
     model_weights: Sequence[float] | None = None,
     diversity: int = 5,
+    fixed_region: Sequence[int | str | slice] | None = None,
     **kwargs,
 ) -> OptimizationResult | SaturationResult:
     return optimize(
@@ -985,6 +1047,7 @@ def fast_seqprop_optimize(
         constraint=constraint,
         model_weights=model_weights,
         diversity=diversity,
+        fixed_region=fixed_region,
         **kwargs,
     )
 
@@ -998,6 +1061,7 @@ def ledidi_optimize(
     constraint: ConstraintSpec | None = None,
     model_weights: Sequence[float] | None = None,
     diversity: int = 5,
+    fixed_region: Sequence[int | str | slice] | None = None,
     **kwargs,
 ) -> OptimizationResult | SaturationResult:
     """Ledidi-style single-output maximization with an edit penalty."""
@@ -1010,6 +1074,7 @@ def ledidi_optimize(
         constraint=constraint,
         model_weights=model_weights,
         diversity=diversity,
+        fixed_region=fixed_region,
         **kwargs,
     )
 
@@ -1023,6 +1088,7 @@ def den_optimize(
     constraint: ConstraintSpec | None = None,
     model_weights: Sequence[float] | None = None,
     diversity: int = 5,
+    fixed_region: Sequence[int | str | slice] | None = None,
     **kwargs,
 ) -> OptimizationResult | SaturationResult:
     return optimize(
@@ -1034,6 +1100,7 @@ def den_optimize(
         constraint=constraint,
         model_weights=model_weights,
         diversity=diversity,
+        fixed_region=fixed_region,
         **kwargs,
     )
 

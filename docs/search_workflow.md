@@ -67,6 +67,43 @@ For a constrained CDS search, use complete, explicitly prepared CDSs as
 `genetic_algorithm_optimize`. Every initial sequence must encode the same
 protein as the reference. See [synonymous CDS constraints](tasks/synonymous_cds.md).
 
+## Fixed regions
+
+Pass a list through `fixed_region` to prevent selected positions from changing.
+Entries may be integer positions, Python `slice` objects, or `"start:stop"`
+strings. Coordinates are zero-based, the start is included, the stop is
+excluded, and negative values count from the end.
+
+```python
+result = genetic_algorithm_optimize(
+    model,
+    length=50,
+    initial=initial,
+    fixed_region=["1:3", "-3:-1", "-35:-20"],
+    objective=["maximize"],
+    num_candidates=4,
+    budget=1000,
+    seed=7,
+)
+```
+
+For a 50-base sequence, this fixes positions 1–2, 47–48, and 15–29. The
+equivalent Python form is
+`fixed_region=[slice(1, 3), slice(-3, -1), slice(-35, -20)]`. Use `[0]` or
+`["0:1"]` for the first base and `[-1]` or `["-1:"]` for the final base.
+Overlapping entries are combined.
+
+With explicit `initial` sequences, the fixed bases come from the first sequence
+and every other initial sequence must agree at those positions. When `initial`
+is omitted, one shared fixed template is drawn reproducibly from `seed`. Fixed
+positions apply to random proposals, mutations, crossover, generated sequences,
+and differentiable optimization. In synonymous CDS optimization, codon choices
+are restricted to preserve both the fixed bases and the encoded protein.
+
+The maximum possible pairwise Hamming distance is the number of mutable
+positions. If `diversity` exceeds that number while multiple results are
+requested, the optimizer raises `ValueError`.
+
 ## Candidate constraints
 
 Use the `constraint` parameter to screen candidates by GC content, motifs, or
