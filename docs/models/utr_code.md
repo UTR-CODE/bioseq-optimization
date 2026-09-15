@@ -176,15 +176,23 @@ result_cbas = cbas_optimize(
 
 ## CDS design with synonymous constraints
 
-For a CDS design that preserves the encoded protein, use the synonymous-CDS
-constraint. Only `genetic_algorithm_optimize` is compatible with this
-constraint; `random_optimize`, `ism_optimize`, `simulated_annealing_optimize`,
-`adalead_optimize`, `beam_search_optimize`, `cross_entropy_optimize`,
-`basesearch_optimize`, and `cbas_optimize` reject constrained CDS spaces.
+For a CDS design that preserves the encoded protein, set
+`is_CDS_optimized=True`. The nine black-box optimizers operate within the
+synonymous codon space.
 
 ```python
 from bioseq_models import load_model
-from sequence_optimization import genetic_algorithm_optimize
+from sequence_optimization import (
+    adalead_optimize,
+    basesearch_optimize,
+    beam_search_optimize,
+    cbas_optimize,
+    cross_entropy_optimize,
+    genetic_algorithm_optimize,
+    ism_optimize,
+    random_optimize,
+    simulated_annealing_optimize,
+)
 
 fixed_utr5 = "ACGT" * 10                 # replace with the transcript 5′UTR
 fixed_utr3 = "ACGT" * 10                 # replace with the transcript 3′UTR
@@ -204,7 +212,11 @@ initial_cds = [
     "ATG" + "GCT" * 16 + "GCC" * 2 + "TAA",
     "ATG" + "GCT" * 15 + "GCC" * 3 + "TAA",
 ]
-results = genetic_algorithm_optimize(
+results_random = random_optimize(
+    model_cds, length=60, initial=initial_cds, objective=["maximize"],
+    num_candidates=4, is_CDS_optimized=True,
+)
+results_genetic = genetic_algorithm_optimize(
     model_cds,
     length=60,
     initial=initial_cds,
@@ -212,12 +224,42 @@ results = genetic_algorithm_optimize(
     num_candidates=4,
     is_CDS_optimized=True,
 )
-for result in results:
-    print(result.to_frame())
+results_ism = ism_optimize(
+    model_cds, length=60, initial=initial_cds, objective=["maximize"],
+    num_candidates=4, is_CDS_optimized=True,
+)
+results_annealing = simulated_annealing_optimize(
+    model_cds, length=60, initial=initial_cds, objective=["maximize"],
+    num_candidates=4, is_CDS_optimized=True,
+)
+results_adalead = adalead_optimize(
+    model_cds, length=60, initial=initial_cds, objective=["maximize"],
+    num_candidates=4, is_CDS_optimized=True,
+)
+results_beam = beam_search_optimize(
+    model_cds, length=60, initial=initial_cds, objective=["maximize"],
+    num_candidates=4, is_CDS_optimized=True,
+)
+results_cross_entropy = cross_entropy_optimize(
+    model_cds, length=60, initial=initial_cds, objective=["maximize"],
+    num_candidates=4, is_CDS_optimized=True,
+)
+results_basesearch = basesearch_optimize(
+    model_cds, length=60, initial=initial_cds, objective=["maximize"],
+    num_candidates=4, is_CDS_optimized=True,
+)
+results_cbas = cbas_optimize(
+    model_cds, length=60, initial=initial_cds, objective=["maximize"],
+    num_candidates=4, is_CDS_optimized=True,
+)
+
+print(results_genetic[0].to_frame())
 ```
 
-The four gradient optimizers also require a differentiable UTR-CODE adapter
-and do not accept the synonymous-codon constraint.
+Each variable is a list with one result per initial CDS, in input order. Every
+candidate in a result translates to the same amino-acid sequence as that
+result's initial CDS. The four gradient optimizers require a differentiable
+UTR-CODE adapter with `score_soft()` and accept the same synonymous-CDS mode.
 
 For fixed reference centers, scales, or bounds in a multi-output extension, see
 [objectives](../objectives.md). The [search workflow](../search_workflow.md)

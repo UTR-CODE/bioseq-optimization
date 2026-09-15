@@ -17,6 +17,7 @@ Explore substitution neighborhoods of a beam. Width is max(1, round(num_candidat
 | `alphabet` | "ACGT" | Candidate alphabet |
 | `seed` | 0 | Random seed |
 | `count_repeated` | False | Charge repeated proposals even when cached |
+| `is_CDS_optimized` | False | Independently optimize each initial sequence as a protein-preserving CDS |
 | `elite_fraction` | 0.2 | Elite proportion (0 < value <= 1) |
 
 ```python

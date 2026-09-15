@@ -13,27 +13,96 @@ constraints are supplied, each runs independently and only candidates passing
 every constraint—the intersection—are sent to the model and admitted to the
 next optimization round.
 
-## Hard GC and motif constraints
+## Copyable hard constraints
+
+Each factory below returns a batch constraint that can be passed to any
+optimizer. Copy the functions needed for a design and adjust their arguments.
 
 ```python
 import numpy as np
+
+
+def gc_between(minimum=0.40, maximum=0.60):
+    def constraint(sequences):
+        fractions = np.asarray([
+            (sequence.count("G") + sequence.count("C")) / len(sequence)
+            for sequence in sequences
+        ])
+        return ((minimum <= fractions) & (fractions <= maximum)).astype(float)
+
+    constraint.__name__ = "gc_between"
+    return constraint
+
+
+def excludes_motifs(*motifs):
+    motifs = tuple(motif.upper().replace("U", "T") for motif in motifs)
+
+    def constraint(sequences):
+        return np.asarray([
+            all(motif not in sequence for motif in motifs)
+            for sequence in sequences
+        ], dtype=float)
+
+    constraint.__name__ = "excludes_motifs"
+    return constraint
+
+
+def requires_all_motifs(*motifs):
+    motifs = tuple(motif.upper().replace("U", "T") for motif in motifs)
+
+    def constraint(sequences):
+        return np.asarray([
+            all(motif in sequence for motif in motifs)
+            for sequence in sequences
+        ], dtype=float)
+
+    constraint.__name__ = "requires_all_motifs"
+    return constraint
+
+
+def homopolymer_at_most(maximum_run=4):
+    forbidden = tuple(base * (maximum_run + 1) for base in "ACGT")
+    constraint = excludes_motifs(*forbidden)
+    constraint.__name__ = "homopolymer_at_most"
+    return constraint
+
+
+def reverse_complement(sequence):
+    return sequence.translate(str.maketrans("ACGT", "TGCA"))[::-1]
+
+
+def avoids_restriction_sites(*sites):
+    patterns = {
+        pattern
+        for site in sites
+        for normalized in (site.upper().replace("U", "T"),)
+        for pattern in (normalized, reverse_complement(normalized))
+    }
+    constraint = excludes_motifs(*sorted(patterns))
+    constraint.__name__ = "avoids_restriction_sites"
+    return constraint
+
+
+def has_flanks(prefix="", suffix=""):
+    prefix = prefix.upper().replace("U", "T")
+    suffix = suffix.upper().replace("U", "T")
+
+    def constraint(sequences):
+        return np.asarray([
+            sequence.startswith(prefix) and sequence.endswith(suffix)
+            for sequence in sequences
+        ], dtype=float)
+
+    constraint.__name__ = "has_flanks"
+    return constraint
+```
+
+For example, these constraints retain 40–60% GC sequences, reject five-base
+homopolymers, and exclude EcoRI, BsaI, and BsmBI sites on either strand:
+
+```python
 from bioseq_models import load_model
 from sequence_optimization import genetic_algorithm_optimize, random_seed_sequences
-
-
-def gc_at_most_60(sequences):
-    return np.asarray(
-        [
-            (sequence.count("G") + sequence.count("C")) / len(sequence) <= 0.60
-            for sequence in sequences
-        ],
-        dtype=float,
-    )
-
-
-def excludes_motifs(sequence):
-    unwanted = ("AAAA", "GGGG", "GAATTC")
-    return float(all(motif not in sequence for motif in unwanted))
 
 
 predictor = load_model("optimus5prime", device="cpu")
@@ -44,39 +113,47 @@ result = genetic_algorithm_optimize(
     initial=initial,
     objective=["maximize"],
     num_candidates=4,
-    constraint=[gc_at_most_60, excludes_motifs],
+    constraint=[
+        gc_between(0.40, 0.60),
+        homopolymer_at_most(4),
+        avoids_restriction_sites("GAATTC", "GGTCTC", "CGTCTC"),
+    ],
 )
 print(result.to_frame())
 print(result.metadata["constraint"])
 ```
 
-`gc_at_most_60` handles a batch. `excludes_motifs` handles one string; the
-optimizer calls a single-sequence function once per candidate. Boolean values
-are accepted because they convert to zero and one.
+The optimizer also accepts a function that handles one sequence at a time. For
+example, `lambda sequence: float("TATAAA" not in sequence)` excludes one motif.
+Boolean values are accepted because they convert to zero and one.
 
 For example, if the GC constraint passes 800 of 1,000 screened candidates and
 the motif constraint passes 600, only candidates present in both passing sets
 reach the predictor. The exact intersection size is reported separately; it
 need not be 480 because the two constraints can be correlated.
 
-## Soft GC constraint
+## Copyable soft GC constraint
 
 This function always passes sequences in the 40–60% interval. Outside that
 interval, the pass probability decreases linearly with distance:
 
 ```python
-def gc_between_40_and_60(sequences):
-    probabilities = []
-    for sequence in sequences:
-        gc = (sequence.count("G") + sequence.count("C")) / len(sequence)
-        if 0.40 <= gc <= 0.60:
-            probability = 1.0
-        elif gc < 0.40:
-            probability = max(0.0, gc / 0.40)
-        else:
-            probability = max(0.0, (1.0 - gc) / 0.40)
-        probabilities.append(probability)
-    return probabilities
+def soft_gc_between(minimum=0.40, maximum=0.60):
+    def constraint(sequences):
+        probabilities = []
+        for sequence in sequences:
+            gc = (sequence.count("G") + sequence.count("C")) / len(sequence)
+            if minimum <= gc <= maximum:
+                probability = 1.0
+            elif gc < minimum:
+                probability = max(0.0, gc / minimum)
+            else:
+                probability = max(0.0, (1.0 - gc) / (1.0 - maximum))
+            probabilities.append(probability)
+        return probabilities
+
+    constraint.__name__ = "soft_gc_between"
+    return constraint
 
 
 result = genetic_algorithm_optimize(
@@ -85,7 +162,7 @@ result = genetic_algorithm_optimize(
     initial=initial,
     objective=["maximize"],
     num_candidates=4,
-    constraint=gc_between_40_and_60,
+    constraint=soft_gc_between(0.40, 0.60),
 )
 ```
 
@@ -98,7 +175,7 @@ with `seed`. A repeated sequence keeps its first screening outcome.
 `result.constraint_scores` has shape `[num_candidates, num_constraints]` and
 contains the probabilities returned for the retained sequences.
 `result.constraint_names` identifies the columns. `result.to_frame()` adds one
-column per callable, such as `constraint_gc_at_most_60`.
+column per callable, using a numeric suffix when callable names repeat.
 
 `result.metadata["constraint"]` contains each constraint's evaluated count,
 passed count and pass rate, plus the intersection count and rate. Its

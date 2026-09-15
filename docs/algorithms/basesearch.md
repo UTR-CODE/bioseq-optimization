@@ -17,6 +17,7 @@ Priority-decayed parent selection alternates broad and single-base mutation. Dup
 | `alphabet` | "ACGT" | Candidate alphabet |
 | `seed` | 0 | Random seed |
 | `count_repeated` | False | Charge repeated proposals even when cached |
+| `is_CDS_optimized` | False | Independently optimize each initial sequence as a protein-preserving CDS |
 | `mutation_rate` | 0.02 | Mutation probability per position (0 < value <= 1); per codon for constrained CDS |
 | `basesearch_decay` | 0.995 | Parent priority decay, strictly between 0 and 1 |
 | `basesearch_queue_size` | 1024 | Positive queue pruning target; prune when size exceeds twice this |

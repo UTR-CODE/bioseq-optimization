@@ -462,7 +462,7 @@ def _one_hot(initial, space: SequenceSpace, device):
     )
 
 
-def _straight_through(probabilities):
+def _straight_through(probabilities, space):
     import torch
     from torch.nn import functional as functional
 
@@ -470,6 +470,9 @@ def _straight_through(probabilities):
     sampled = torch.multinomial(probabilities.reshape(-1, shape[-1]), 1).reshape(
         shape[:-1]
     )
+    constrain = getattr(space, "constrain_encoded", None)
+    if constrain is not None:
+        sampled = constrain(sampled)
     hard = functional.one_hot(sampled, num_classes=shape[-1]).to(probabilities.dtype)
     return hard + probabilities - probabilities.detach(), sampled
 
@@ -589,7 +592,7 @@ def fast_seqprop(initial, scorer, space, config, rng):
                 normalized * gamma[:, None, :] + beta[:, None, :], dim=-1
             ),
         )
-        straight_through, sampled = _straight_through(probabilities)
+        straight_through, sampled = _straight_through(probabilities, space)
         sequences = space.decode(sampled.detach().cpu().numpy())
         passed = scorer.constraints_passed(sequences)
         if passed.any():
@@ -650,6 +653,9 @@ def ledidi(initial, scorer, space, config, rng):
             ),
         )
         sampled = probabilities.argmax(dim=-1)
+        constrain = getattr(space, "constrain_encoded", None)
+        if constrain is not None:
+            sampled = constrain(sampled)
         hard = functional.one_hot(sampled, num_classes=space.alphabet_size).to(
             probabilities.dtype
         )
@@ -759,7 +765,7 @@ def den(initial, scorer, space, config, rng):
         probabilities = _constrain_probabilities(
             space, torch.softmax(logits, dim=-1)
         )
-        straight_through, sampled = _straight_through(probabilities)
+        straight_through, sampled = _straight_through(probabilities, space)
         sequences = space.decode(sampled.detach().cpu().numpy())
         passed = scorer.constraints_passed(sequences)
         if passed.any():

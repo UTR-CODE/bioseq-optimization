@@ -40,8 +40,9 @@ is optimized independently and must provide enough synonymous variants for
 list in input order, with `num_candidates` candidates in each result. `budget`
 and saturation stopping apply separately to each initial.
 
-CDS mode is supported by `genetic_algorithm_optimize`, including its
-`saturation` parameter. Other algorithms reject CDS mode.
+Every optimizer accepts `is_CDS_optimized=True`. Each one applies its search
+operations within the synonymous codon space and supports fixed-budget or
+saturation stopping.
 
 ## Select candidates at saturation
 

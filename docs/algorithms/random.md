@@ -17,6 +17,7 @@ Uniform random candidate sampling.
 | `alphabet` | "ACGT" | Candidate alphabet |
 | `seed` | 0 | Random seed |
 | `count_repeated` | False | Charge repeated proposals even when cached |
+| `is_CDS_optimized` | False | Independently optimize each initial sequence as a protein-preserving CDS |
 
 
 ```python

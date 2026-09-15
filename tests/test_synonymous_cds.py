@@ -4,6 +4,8 @@ import pytest
 from sequence_optimization import (
     CallableScorer,
     SaturationConfig,
+    SequencePredictor,
+    available_algorithms,
     basesearch_optimize,
     genetic_algorithm_optimize,
 )
@@ -127,7 +129,7 @@ def test_invalid_initial_cds(initial):
         SynonymousCodonSpace(initial)
 
 
-def test_cds_optimizer_validation_and_supported_algorithm():
+def test_cds_optimizer_validation():
     model = CallableScorer(lambda values: np.zeros(len(values)))
     common = dict(objective=["maximize"], num_candidates=2, budget=4)
     with pytest.raises(ValueError, match="initial is required"):
@@ -142,14 +144,15 @@ def test_cds_optimizer_validation_and_supported_algorithm():
             is_CDS_optimized=True,
             **common,
         )
-    with pytest.raises(ValueError, match="genetic_algorithm"):
-        basesearch_optimize(
-            model,
-            length=9,
-            initial=["ATGGCTTAA"],
-            is_CDS_optimized=True,
-            **common,
-        )
+    result = basesearch_optimize(
+        model,
+        length=9,
+        initial=["ATGGCTTAA"],
+        is_CDS_optimized=True,
+        diversity=0,
+        **common,
+    )
+    assert all(_protein(value) == _protein("ATGGCTTAA") for value in result.sequences)
     with pytest.raises(ValueError, match="complete ACGT CDS in frame"):
         genetic_algorithm_optimize(
             model,
@@ -158,6 +161,43 @@ def test_cds_optimizer_validation_and_supported_algorithm():
             is_CDS_optimized=True,
             **common,
         )
+
+
+@pytest.mark.parametrize("algorithm", available_algorithms())
+def test_every_optimizer_preserves_the_initial_cds_translation(algorithm):
+    import torch
+
+    class GCount(torch.nn.Module):
+        def forward(self, values):
+            return values[:, 2].sum(dim=1)
+
+    reference = "ATG" + "GCT" * 4 + "TAA"
+    function_name = {
+        "ism_greedy": "ism_optimize",
+        "cross_entropy_method": "cross_entropy_optimize",
+    }.get(algorithm, algorithm + "_optimize")
+    import sequence_optimization as so
+
+    result = getattr(so, function_name)(
+        SequencePredictor(GCount()),
+        length=len(reference),
+        initial=[reference],
+        objective=["maximize"],
+        num_candidates=2,
+        is_CDS_optimized=True,
+        fixed_region=[5],
+        diversity=0,
+        budget=32,
+        generator_pretrain_epochs=1,
+        generator_update_epochs=1,
+        den_seed_pretrain_epochs=1,
+        cbas_batch_size=4,
+        seed=7,
+    )
+    assert all(_protein(value) == _protein(reference) for value in result.sequences)
+    assert all(value.startswith("ATG") for value in result.sequences)
+    assert all(value[-3:] in STOP_CODONS for value in result.sequences)
+    assert all(value[5] == reference[5] for value in result.sequences)
 
 
 def test_every_cds_is_validated_before_independent_searches_start():

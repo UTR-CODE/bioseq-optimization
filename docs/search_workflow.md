@@ -61,9 +61,9 @@ The loader normalizes lowercase DNA and RNA notation, validates sequence length
 and alphabet, rejects duplicates, and checks `count` when it is provided.
 
 For a protein-preserving CDS search, pass complete CDSs through `initial` and
-set `is_CDS_optimized=True` on `genetic_algorithm_optimize`. Each input is
-validated and optimized independently. One input returns one result; multiple
-inputs return a result list in the same order. See
+set `is_CDS_optimized=True` on any optimizer. Each input is validated and
+optimized independently. One input returns one result; multiple inputs return
+a result list in the same order. See
 [synonymous CDS optimization](tasks/synonymous_cds.md).
 
 ## Fixed regions
@@ -97,9 +97,30 @@ positions apply to random proposals, mutations, crossover, generated sequences,
 and differentiable optimization. In synonymous CDS optimization, codon choices
 are restricted to preserve both the fixed bases and the encoded protein.
 
+## Candidate diversity
+
+`diversity` is the minimum pairwise Hamming distance among the returned
+sequences. The default is five; set it to zero to select candidates by score
+alone. A larger value trades some objective score for candidates that differ at
+more positions.
+
+```python
+initial = random_seed_sequences(length=50, count=4, seed=7)
+result = genetic_algorithm_optimize(
+    model,
+    length=50,
+    initial=initial,
+    objective=["maximize"],
+    num_candidates=4,
+    diversity=10,
+)
+```
+
 The maximum possible pairwise Hamming distance is the number of mutable
 positions. If `diversity` exceeds that number while multiple results are
-requested, the optimizer raises `ValueError`.
+requested, the optimizer raises `ValueError`. If the scored archive does not
+contain enough candidates at the requested distance, increase the budget or
+lower `diversity`.
 
 ## Candidate constraints
 

@@ -17,6 +17,7 @@ Maximize the selected objective with an edit penalty, using seed-prior logits an
 | `alphabet` | "ACGT" | Candidate alphabet |
 | `seed` | 0 | Random seed |
 | `count_repeated` | False | Charge repeated proposals even when cached |
+| `is_CDS_optimized` | False | Independently optimize each initial sequence as a protein-preserving CDS |
 | `learning_rate` | 0.1 | Positive optimization step size |
 | `ledidi_edit_penalty` | 0.1 | Nonnegative edit penalty per substitution |
 | `ledidi_temperature` | 1.0 | Positive Gumbel-softmax temperature |

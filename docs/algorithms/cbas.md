@@ -17,6 +17,7 @@ Fit an autoregressive proposal generator using discrete predictor scores. Repeat
 | `alphabet` | "ACGT" | Candidate alphabet |
 | `seed` | 0 | Random seed |
 | `count_repeated` | False | Charge repeated proposals even when cached |
+| `is_CDS_optimized` | False | Independently optimize each initial sequence as a protein-preserving CDS |
 | `generator_learning_rate` | 0.003 | Positive proposal-generator Adam learning rate |
 | `generator_pretrain_epochs` | 20 | Nonnegative generator pretraining epochs |
 | `generator_update_epochs` | 5 | Nonnegative generator update epochs |

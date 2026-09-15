@@ -17,6 +17,7 @@ Greedy single-base substitution sweeps. One complete neighborhood needs 3 × len
 | `alphabet` | "ACGT" | Candidate alphabet |
 | `seed` | 0 | Random seed |
 | `count_repeated` | False | Charge repeated proposals even when cached |
+| `is_CDS_optimized` | False | Independently optimize each initial sequence as a protein-preserving CDS |
 
 
 ```python

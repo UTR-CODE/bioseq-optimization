@@ -676,6 +676,9 @@ class FixedRegionSequenceSpace:
         return self.base.encode(self.validate(sequences))
 
     def constrain_encoded(self, encoded):
+        constrain = getattr(self.base, "constrain_encoded", None)
+        if constrain is not None:
+            encoded = constrain(encoded)
         values = (
             encoded.clone()
             if hasattr(encoded, "clone")
@@ -702,6 +705,9 @@ class FixedRegionSequenceSpace:
         return values
 
     def constrain_probabilities(self, probabilities):
+        constrain = getattr(self.base, "constrain_probabilities", None)
+        if constrain is not None:
+            probabilities = constrain(probabilities)
         if not self.fixed_positions:
             return probabilities
         import torch
@@ -731,6 +737,8 @@ class FixedRegionSequenceSpace:
         return self.decode(encoded)
 
     def single_mutants(self, sequences: Sequence[str] | np.ndarray) -> np.ndarray:
+        if hasattr(self.base, "choices"):
+            return self.validate(self.base.single_mutants(sequences))
         encoded = self.encode(sequences)
         candidates = []
         for sequence in encoded:
@@ -747,6 +755,8 @@ class FixedRegionSequenceSpace:
     def mutate_one(
         self, sequences: Sequence[str] | np.ndarray, rng: np.random.Generator
     ) -> np.ndarray:
+        if hasattr(self.base, "choices"):
+            return self.validate(self.base.mutate_one(sequences, rng))
         encoded = self.encode(sequences).copy()
         if not self.mutable_positions:
             return self.decode(encoded)

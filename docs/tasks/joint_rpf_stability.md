@@ -5,10 +5,10 @@ This task designs a coding sequence that raises both UTR-CODE's
 `stability_score`. Both models score the same complete CDS, while the search
 changes codons without changing the encoded protein.
 
-Only `genetic_algorithm_optimize` supports the synonymous-CDS search space.
-Every initial sequence must begin with `ATG`, end with `TAA`, `TAG`, or `TGA`,
-have a length divisible by three, and contain no internal stop codon. Each is
-optimized in its own protein-preserving search.
+Every optimizer accepts the synonymous-CDS search space. Every initial sequence
+must begin with `ATG`, end with `TAA`, `TAG`, or `TGA`, have a length divisible
+by three, and contain no internal stop codon. Each is optimized in its own
+protein-preserving search.
 
 ## Models, transcript context, and initial CDSs
 
@@ -61,9 +61,24 @@ order used by `objective`. Active outputs use an equal-weight mean.
 ## Default search
 
 ```python
-from sequence_optimization import genetic_algorithm_optimize
+from sequence_optimization import (
+    adalead_optimize,
+    basesearch_optimize,
+    beam_search_optimize,
+    cbas_optimize,
+    cross_entropy_optimize,
+    genetic_algorithm_optimize,
+    ism_optimize,
+    random_optimize,
+    simulated_annealing_optimize,
+)
 
-results = genetic_algorithm_optimize(
+results_random = random_optimize(
+    joint_model, length=len(initial_cds[0]), initial=initial_cds,
+    objective=["maximize", "maximize"], num_candidates=4,
+    is_CDS_optimized=True,
+)
+results_genetic = genetic_algorithm_optimize(
     joint_model,
     length=len(initial_cds[0]),
     initial=initial_cds,
@@ -71,13 +86,50 @@ results = genetic_algorithm_optimize(
     num_candidates=4,
     is_CDS_optimized=True,
 )
-for result in results:
-    print(result.to_frame())
+results_ism = ism_optimize(
+    joint_model, length=len(initial_cds[0]), initial=initial_cds,
+    objective=["maximize", "maximize"], num_candidates=4,
+    is_CDS_optimized=True,
+)
+results_annealing = simulated_annealing_optimize(
+    joint_model, length=len(initial_cds[0]), initial=initial_cds,
+    objective=["maximize", "maximize"], num_candidates=4,
+    is_CDS_optimized=True,
+)
+results_adalead = adalead_optimize(
+    joint_model, length=len(initial_cds[0]), initial=initial_cds,
+    objective=["maximize", "maximize"], num_candidates=4,
+    is_CDS_optimized=True,
+)
+results_beam = beam_search_optimize(
+    joint_model, length=len(initial_cds[0]), initial=initial_cds,
+    objective=["maximize", "maximize"], num_candidates=4,
+    is_CDS_optimized=True,
+)
+results_cross_entropy = cross_entropy_optimize(
+    joint_model, length=len(initial_cds[0]), initial=initial_cds,
+    objective=["maximize", "maximize"], num_candidates=4,
+    is_CDS_optimized=True,
+)
+results_basesearch = basesearch_optimize(
+    joint_model, length=len(initial_cds[0]), initial=initial_cds,
+    objective=["maximize", "maximize"], num_candidates=4,
+    is_CDS_optimized=True,
+)
+results_cbas = cbas_optimize(
+    joint_model, length=len(initial_cds[0]), initial=initial_cds,
+    objective=["maximize", "maximize"], num_candidates=4,
+    is_CDS_optimized=True,
+)
+
+print(results_genetic[0].to_frame())
 ```
 
 `activity_rpf` and `activity_mrna_stability` contain the two raw model
 predictions. Each uncached candidate is evaluated once by each child model.
-Plateau tracking is applied separately to each initial CDS.
+Each result variable is a list in initial-CDS order. Plateau tracking is applied
+separately to each initial CDS. The four gradient optimizers require
+differentiable adapters for both child models.
 
 ## Saturation screening
 

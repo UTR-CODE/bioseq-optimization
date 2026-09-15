@@ -294,7 +294,9 @@ def ism_greedy(initial, scorer, space, config, rng):
         }
     ]
     mutable_count = len(getattr(space, "mutable_positions", tuple(range(space.length))))
-    block = mutable_count * (space.alphabet_size - 1)
+    block = int(
+        getattr(space, "single_mutant_count", mutable_count * (space.alphabet_size - 1))
+    )
     if block == 0:
         return _finalize(
             "ism_greedy",
@@ -500,8 +502,6 @@ def adalead(initial, scorer, space, config, rng):
 def _configured_space(length, alphabet, config, algorithm, initial=None):
     if not config.is_CDS_optimized:
         return _sequence_space(length, alphabet)
-    if algorithm != "genetic_algorithm":
-        raise ValueError("is_CDS_optimized=True requires genetic_algorithm")
     if initial is None:
         raise ValueError("initial is required when is_CDS_optimized=True")
     from .codons import SynonymousCodonSpace
@@ -780,8 +780,6 @@ def optimize(
 
     if not is_CDS_optimized:
         return execute(initial, seed)
-    if algorithm != "genetic_algorithm":
-        raise ValueError("is_CDS_optimized=True requires genetic_algorithm")
     if initial is None:
         raise ValueError("initial is required when is_CDS_optimized=True")
     cds_values = normalize_nucleotide_sequences(initial)

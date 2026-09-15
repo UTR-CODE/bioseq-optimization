@@ -65,6 +65,97 @@ class SynonymousCodonSpace(SequenceSpace):
         columns = [rng.choice(choices, size=count) for choices in self.choices]
         return np.asarray(["".join(row) for row in zip(*columns)])
 
+    @property
+    def single_mutant_count(self):
+        return sum(len(choices) - 1 for choices in self.choices)
+
+    def single_mutants(self, sequences):
+        values = self.validate(sequences)
+        candidates = []
+        for sequence in values:
+            codons = [sequence[index : index + 3] for index in range(0, self.length, 3)]
+            for index, choices in enumerate(self.choices):
+                for choice in choices:
+                    if choice != codons[index]:
+                        mutant = codons.copy()
+                        mutant[index] = choice
+                        candidates.append("".join(mutant))
+        return np.asarray(candidates, dtype=str)
+
+    def mutate_one(self, sequences, rng):
+        values = self.validate(sequences)
+        mutable = [index for index, choices in enumerate(self.choices) if len(choices) > 1]
+        if not mutable:
+            return values.copy()
+        result = []
+        for sequence in values:
+            codons = [sequence[index : index + 3] for index in range(0, self.length, 3)]
+            index = int(rng.choice(mutable))
+            alternatives = [choice for choice in self.choices[index] if choice != codons[index]]
+            codons[index] = str(rng.choice(alternatives))
+            result.append("".join(codons))
+        return np.asarray(result, dtype=str)
+
+    def _project_sequences(self, sequences):
+        projected = []
+        for sequence in sequences:
+            codons = [sequence[index : index + 3] for index in range(0, self.length, 3)]
+            for index, choices in enumerate(self.choices):
+                if codons[index] not in choices:
+                    codons[index] = min(
+                        choices,
+                        key=lambda choice: (
+                            sum(left != right for left, right in zip(codons[index], choice)),
+                            choice,
+                        ),
+                    )
+            projected.append("".join(codons))
+        return np.asarray(projected, dtype=str)
+
+    def decode(self, encoded):
+        raw = SequenceSpace.decode(self, np.asarray(encoded))
+        return self.validate(self._project_sequences(raw))
+
+    def constrain_encoded(self, encoded):
+        is_tensor = hasattr(encoded, "detach")
+        array = encoded.detach().cpu().numpy() if is_tensor else np.asarray(encoded)
+        projected = self.encode(self.decode(array))
+        if not is_tensor:
+            return projected.astype(array.dtype, copy=False)
+        import torch
+
+        return torch.as_tensor(projected, dtype=encoded.dtype, device=encoded.device)
+
+    def constrain_probabilities(self, probabilities):
+        import torch
+        from torch.nn import functional as functional
+
+        constrained = probabilities.clone()
+        lookup = {base: index for index, base in enumerate(self.alphabet)}
+        for codon_index, choices in enumerate(self.choices):
+            positions = slice(3 * codon_index, 3 * codon_index + 3)
+            allowed = torch.as_tensor(
+                [[lookup[base] for base in codon] for codon in choices],
+                dtype=torch.long,
+                device=probabilities.device,
+            )
+            local = probabilities[:, positions, :]
+            weights = torch.ones(
+                (len(probabilities), len(choices)),
+                dtype=probabilities.dtype,
+                device=probabilities.device,
+            )
+            for offset in range(3):
+                weights = weights * local[:, offset, allowed[:, offset]]
+            weights = weights / weights.sum(dim=1, keepdim=True).clamp_min(1e-12)
+            allowed_onehot = functional.one_hot(
+                allowed, num_classes=self.alphabet_size
+            ).to(probabilities.dtype)
+            constrained[:, positions, :] = torch.einsum(
+                "bk,kpa->bpa", weights, allowed_onehot
+            )
+        return constrained
+
     def offspring(self, elite, count, mutation_rate, rng):
         parents = np.asarray(
             [[s[i : i + 3] for i in range(0, self.length, 3)] for s in elite]

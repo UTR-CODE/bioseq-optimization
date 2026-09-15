@@ -22,14 +22,24 @@ that branch.
 
 ## CDS stability alone
 
-For a protein-preserving CDS design, use synonymous codon constraints. Only
-`genetic_algorithm_optimize` is compatible with this constraint; the other
-eight black-box optimizers and the four gradient optimizers reject constrained
-CDS spaces because their proposal representations do not preserve codons.
+For a protein-preserving CDS design, set `is_CDS_optimized=True`. The nine
+black-box optimizers operate within the synonymous codon space. The four
+gradient optimizers require a differentiable CDS Stability adapter with
+`score_soft()`.
 
 ```python
 from bioseq_models import load_model
-from sequence_optimization import genetic_algorithm_optimize
+from sequence_optimization import (
+    adalead_optimize,
+    basesearch_optimize,
+    beam_search_optimize,
+    cbas_optimize,
+    cross_entropy_optimize,
+    genetic_algorithm_optimize,
+    ism_optimize,
+    random_optimize,
+    simulated_annealing_optimize,
+)
 
 model = load_model(
     "cds_stability",
@@ -45,7 +55,11 @@ initial_cds = [
     "ATG" + "GCT" * 15 + "GCC" * 3 + "TAA",
 ]
 
-results = genetic_algorithm_optimize(
+results_random = random_optimize(
+    model, length=60, initial=initial_cds, objective=["maximize"],
+    num_candidates=4, is_CDS_optimized=True,
+)
+results_genetic = genetic_algorithm_optimize(
     model,
     length=60,
     initial=initial_cds,
@@ -53,9 +67,41 @@ results = genetic_algorithm_optimize(
     num_candidates=4,
     is_CDS_optimized=True,
 )
-for result in results:
-    print(result.to_frame())
+results_ism = ism_optimize(
+    model, length=60, initial=initial_cds, objective=["maximize"],
+    num_candidates=4, is_CDS_optimized=True,
+)
+results_annealing = simulated_annealing_optimize(
+    model, length=60, initial=initial_cds, objective=["maximize"],
+    num_candidates=4, is_CDS_optimized=True,
+)
+results_adalead = adalead_optimize(
+    model, length=60, initial=initial_cds, objective=["maximize"],
+    num_candidates=4, is_CDS_optimized=True,
+)
+results_beam = beam_search_optimize(
+    model, length=60, initial=initial_cds, objective=["maximize"],
+    num_candidates=4, is_CDS_optimized=True,
+)
+results_cross_entropy = cross_entropy_optimize(
+    model, length=60, initial=initial_cds, objective=["maximize"],
+    num_candidates=4, is_CDS_optimized=True,
+)
+results_basesearch = basesearch_optimize(
+    model, length=60, initial=initial_cds, objective=["maximize"],
+    num_candidates=4, is_CDS_optimized=True,
+)
+results_cbas = cbas_optimize(
+    model, length=60, initial=initial_cds, objective=["maximize"],
+    num_candidates=4, is_CDS_optimized=True,
+)
+
+print(results_genetic[0].to_frame())
 ```
+
+Each variable is a list with one result per initial CDS, in input order. Every
+candidate in a result translates to the same amino-acid sequence as that
+result's initial CDS.
 
 ## Joint stability and translation
 

@@ -234,11 +234,6 @@ Use `objective=["maximize", "maximize", "maximize"]` for an all-high search,
 or `ignore` to exclude a model's output from the objective. An ignored model is
 still evaluated.
 
-## Use your own model
-
-For default `[batch, 4, length]` inputs and custom `[batch, N, length]`
-subclasses, see [use a custom PyTorch model](docs/custom_models.md).
-
 ## Model tasks
 
 - [Optimize MRL by Optimus 5-Prime](docs/models/optimus.md)
@@ -254,49 +249,91 @@ subclasses, see [use a custom PyTorch model](docs/custom_models.md).
 - [Jointly optimize RPF and mRNA stability with synonymous codons](docs/tasks/joint_rpf_stability.md)
 - [Optimize protein-preserving CDS stability with synonymous codons](docs/tasks/synonymous_cds.md)
 
-## Budget and results
+## Advanced features
 
-`num_candidates=4` sets the starting population and the number of unique
-candidates retained in the result. Each example constructs exactly four unique
-starting sequences with `random_seed_sequences`. With `budget` omitted, the
-optimizer has no fixed query limit, stops when the retained-candidate mean
-reaches a plateau, and returns the earliest candidate set at 99% of the observed
-baseline-to-plateau gain. Set a positive `budget` for a fixed-budget run.
+### Results
 
-Use `fixed_region=["1:3", "-3:-1", "-35:-20"]` to keep selected positions
-unchanged during optimization. Slice endpoints follow zero-based Python rules:
-the start is included, the stop is excluded, and negative indices count from
-the end. See [fixed regions and starting sequences](docs/search_workflow.md#fixed-regions).
+An optimization result contains the designed sequences, scalarized objective
+scores, raw predictions for every model output, query counts, and run metadata.
 
-Default plateau searches count repeated proposals so a duplicate round advances
-the patience window without another model call. In fixed-budget runs, the nine
-discrete optimizers except CbAS count uncached sequences; CbAS and the four
-gradient optimizers count repeated proposals. `count_repeated=True` selects
-proposal counting for the other methods. Gradient evaluations are additional
-work outside this discrete accounting.
+```python
+print(single_result.to_frame())
+print(single_result.sequences)
+print(single_result.activities)
+print(single_result.query_count, single_result.metadata["stop_reason"])
+```
 
-`result.sequences` contains the designed strings, `result.scores` the objective,
-and `result.activities` all raw predictions, including ignored outputs.
+[Result fields and query accounting](docs/search_workflow.md#objectives-and-returned-data).
 
-## Sequence constraints
+### Saturation screening
 
-Pass one function or a list of functions through `constraint`. Each function
-returns an independent pass probability in `[0, 1]`; only the intersection of
-all passing candidates is scored by the model and retained for optimization.
+With `budget` omitted, the optimizer detects an observed plateau and returns
+the earliest candidate set that reaches 99% of the gain from the initial
+archive to that plateau. To select other points, pass their gain fractions in
+`SaturationConfig`; `budget` and `saturation` cannot be used together.
+
+```python
+from bioseq_models import load_model
+
+from sequence_optimization import (
+    SaturationConfig,
+    genetic_algorithm_optimize,
+    random_seed_sequences,
+)
+
+model = load_model("optimus5prime", device="cpu")
+initial = random_seed_sequences(length=50, count=100, seed=7)
+saturated = genetic_algorithm_optimize(
+    model,
+    length=50,
+    initial=initial,
+    objective=["maximize"],
+    num_candidates=100,
+    saturation=SaturationConfig(
+        fractions=(0.8, 0.9, 0.99),
+        minimum_queries=1_000,
+        plateau_patience_queries=2_000,
+        maximum_queries=20_000,
+        material_improvement=0.01,
+    ),
+    mutation_rate=0.02,
+    elite_fraction=0.2,
+    seed=7,
+)
+q80 = saturated[0.8]
+q90 = saturated[0.9]
+q99 = saturated[0.99]
+print(q99.to_frame())
+```
+
+![Optimus 5-Prime saturation curve showing the initial, q80, q90, q99, and plateau points](docs/assets/optimus-saturation.png)
+
+The selection fractions describe observed objective gain, not score
+percentiles or guarantees of a global optimum. In this run, the top-100 mean
+MRL rises from 6.44 initially to 9.66 at the observed plateau; q99 is the first
+retained set reaching 99% of that gain.
+
+[Saturation parameters and selection metadata](docs/search_workflow.md#stop-at-saturation).
+
+### Sequence constraints
+
+Pass one constraint function or a list through `constraint`. Each function
+returns a pass probability in `[0, 1]`; only candidates passing every function
+are sent to the model and admitted to the next round.
 
 ```python
 import numpy as np
 
 
-def gc_at_most_60(sequences):
+def gc_between_40_and_60(sequences):
     return np.asarray([
-        (sequence.count("G") + sequence.count("C")) / len(sequence) <= 0.60
+        0.40 <= (sequence.count("G") + sequence.count("C")) / len(sequence) <= 0.60
         for sequence in sequences
     ], dtype=float)
 
 
-def excludes_motifs(sequence):
-    return float(all(motif not in sequence for motif in ("AAAA", "GGGG")))
+def excludes_homopolymers(sequence):
+    return float(all(base * 5 not in sequence for base in "ACGT"))
 
 
 initial = random_seed_sequences(length=20, count=4, seed=7)
@@ -306,44 +343,126 @@ constrained_result = genetic_algorithm_optimize(
     initial=initial,
     objective=["maximize"],
     num_candidates=4,
-    constraint=[gc_at_most_60, excludes_motifs],
+    constraint=[gc_between_40_and_60, excludes_homopolymers],
 )
 print(constrained_result.to_frame())
 ```
 
-[Hard, soft and multiple sequence constraints](docs/constraints.md).
+[Copyable GC, motif, homopolymer, restriction-site, and soft constraints](docs/constraints.md).
 
-## Saturation screening
+### Protein-preserving CDS optimization
 
-The default search stops after the mean MRL of the best 100 unique sequences
-levels off and returns the q99 candidate set.
+Set `is_CDS_optimized=True` with any optimizer to search synonymous codons.
+Each initial CDS is optimized independently, and every returned candidate
+translates to exactly the same amino-acid sequence as its corresponding
+initial CDS.
 
 ```python
 from bioseq_models import load_model
+from sequence_optimization import genetic_algorithm_optimize
 
-from sequence_optimization import (
-    genetic_algorithm_optimize,
-    random_seed_sequences,
-)
-
-model = load_model("optimus5prime", device="cpu")
-initial = random_seed_sequences(length=50, count=100, seed=7)
-q99 = genetic_algorithm_optimize(
+initial_cds = [
+    "ATG" + "GCT" * 18 + "TAA",
+    "ATG" + "GCT" * 17 + "GCC" + "TAA",
+    "ATG" + "GCT" * 16 + "GCC" * 2 + "TAA",
+    "ATG" + "GCT" * 15 + "GCC" * 3 + "TAA",
+]
+model = load_model("cds_stability", species="human", device="cpu")
+cds_results = genetic_algorithm_optimize(
     model,
-    length=50,
-    initial=initial,
+    length=len(initial_cds[0]),
+    initial=initial_cds,
     objective=["maximize"],
-    num_candidates=100,
+    num_candidates=4,
+    is_CDS_optimized=True,
 )
-print(q99.to_frame())
-print(q99.metadata["stop_reason"])
-print(q99.metadata["total_convergence_queries"])
+for result in cds_results:
+    print(result.to_frame())
 ```
 
-q99 is the earliest retained candidate set reaching 99% of the improvement
-from the first complete archive to the final observed archive. It is not a
-score percentile or a guarantee of reaching the global optimum. Set
-`saturation=SaturationConfig(...)` to customize plateau detection or request
-additional gain fractions; do not pass `budget` together with `saturation`.
+Initial CDSs must start with `ATG`, end with `TAA`, `TAG`, or `TGA`, be in
+frame, and contain no internal stop codon.
 
-[Initial sequences, budget accounting and saturation parameters](docs/search_workflow.md).
+[Synonymous CDS requirements and independent results](docs/tasks/synonymous_cds.md).
+
+### Fixed regions
+
+Use `fixed_region` to prevent selected zero-based positions or Python-style
+`start:stop` slices from changing.
+
+```python
+variable_regions = random_seed_sequences(length=15, count=4, seed=7)
+initial = ["AAG" + sequence + "TT" for sequence in variable_regions]
+fixed_result = genetic_algorithm_optimize(
+    single_model,
+    length=20,
+    initial=initial,
+    objective=["maximize"],
+    num_candidates=4,
+    fixed_region=["0:3", "-2:"],
+)
+```
+
+[Fixed-region coordinates and validation](docs/search_workflow.md#fixed-regions).
+
+### Fixed query budget
+
+Set a positive `budget` to use fixed query accounting instead of plateau
+stopping. It must be at least `num_candidates`.
+
+```python
+initial = random_seed_sequences(length=20, count=4, seed=7)
+budgeted_result = genetic_algorithm_optimize(
+    single_model,
+    length=20,
+    initial=initial,
+    objective=["maximize"],
+    num_candidates=4,
+    budget=1_000,
+)
+```
+
+[Budgets, caching, and model query counts](docs/search_workflow.md#candidate-count-and-budgets).
+
+### Diversity threshold
+
+`diversity` sets the minimum pairwise Hamming distance among returned
+sequences. Set it to zero to disable diversity filtering.
+
+```python
+initial = random_seed_sequences(length=20, count=4, seed=7)
+diverse_result = genetic_algorithm_optimize(
+    single_model,
+    length=20,
+    initial=initial,
+    objective=["maximize"],
+    num_candidates=4,
+    diversity=8,
+)
+```
+
+[Candidate diversity behavior](docs/search_workflow.md#candidate-diversity).
+
+### Custom model inputs
+
+`SequencePredictor` supplies `[batch, 4, length]` A/C/G/T one-hot input by
+default. For `[batch, N, length]` or another differentiable representation,
+subclass it and override `prepare_input`.
+
+```python
+import torch
+
+from sequence_optimization import SequencePredictor
+
+
+class FiveChannelPredictor(SequencePredictor):
+    def prepare_input(self, values):
+        nucleotide_channels = values.transpose(1, 2)
+        gc_channel = values[:, :, 1:3].sum(dim=2).unsqueeze(1)
+        return torch.cat((nucleotide_channels, gc_channel), dim=1)
+
+
+predictor = FiveChannelPredictor(five_channel_model, device="cuda")
+```
+
+[Default and custom PyTorch model inputs](docs/custom_models.md).

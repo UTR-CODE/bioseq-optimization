@@ -17,6 +17,7 @@ Train a sequence generator through a differentiable predictor. Requires score_so
 | `alphabet` | "ACGT" | Candidate alphabet |
 | `seed` | 0 | Random seed |
 | `count_repeated` | False | Charge repeated proposals even when cached |
+| `is_CDS_optimized` | False | Independently optimize each initial sequence as a protein-preserving CDS |
 | `generator_learning_rate` | 0.003 | Positive proposal-generator Adam learning rate |
 | `den_seed_pretrain_epochs` | 100 | Nonnegative generator seed-fitting epochs |
 | `den_diversity_weight` | 0.1 | Nonnegative similarity penalty |

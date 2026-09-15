@@ -17,6 +17,7 @@ Differentiate through soft positional probabilities. Requires score_soft; repeat
 | `alphabet` | "ACGT" | Candidate alphabet |
 | `seed` | 0 | Random seed |
 | `count_repeated` | False | Charge repeated proposals even when cached |
+| `is_CDS_optimized` | False | Independently optimize each initial sequence as a protein-preserving CDS |
 | `learning_rate` | 0.1 | Positive optimization step size |
 
 ```python
