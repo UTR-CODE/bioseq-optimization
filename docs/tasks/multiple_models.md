@@ -15,7 +15,7 @@ from torch import nn
 
 from sequence_optimization import (
     CombinedScorer,
-    DifferentiableSequencePredictor,
+    SequencePredictor,
     adalead_optimize,
     basesearch_optimize,
     beam_search_optimize,
@@ -48,13 +48,13 @@ class SingleOutputCNN(nn.Module):
         return self.conv(values).mean(dim=2)
 
 
-predictor_g = DifferentiableSequencePredictor(
+predictor_g = SequencePredictor(
     SingleOutputCNN("G"), task_names=["G_fraction"], device="cpu"
 )
-predictor_c = DifferentiableSequencePredictor(
+predictor_c = SequencePredictor(
     SingleOutputCNN("C"), task_names=["C_fraction"], device="cpu"
 )
-predictor_t = DifferentiableSequencePredictor(
+predictor_t = SequencePredictor(
     SingleOutputCNN("T"), task_names=["T_fraction"], device="cpu"
 )
 
@@ -64,7 +64,7 @@ predictor = CombinedScorer(
 )
 ```
 
-`DifferentiableSequencePredictor` is used for every child, so the combined
+`SequencePredictor` is used for every child, so the combined
 scorer supports both the discrete `score` interface and the gradient
 `score_soft` interface. A candidate is sent to the G, C and T models in that
 order. The objective list uses the same order.

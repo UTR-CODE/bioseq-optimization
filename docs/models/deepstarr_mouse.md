@@ -112,47 +112,41 @@ Algorithm details: [random](../algorithms/random.md),
 ## Gradient optimization
 
 The tissue adapters use channels-first `[batch, 4, 1001]` tensors. Wrap each
-underlying PyTorch module in a `DifferentiableSequencePredictor`, then combine
+underlying PyTorch module in a `SequencePredictor`, then combine
 the differentiable scorers in the same output order.
 
 ```python
 from sequence_optimization import (
-    DifferentiableSequencePredictor,
+    SequencePredictor,
     den_optimize,
     fast_seqprop_optimize,
     ledidi_optimize,
     vanilla_activation_maximization_optimize,
 )
 
-heart_gradient = DifferentiableSequencePredictor(
-    heart.model, onehot=heart.encoder, device="cpu",
+heart_gradient = SequencePredictor(
+    heart.model, device="cpu",
     task_names=heart.task_names,
-    soft_input_transform=lambda values: values.transpose(1, 2),
 )
-limb_gradient = DifferentiableSequencePredictor(
-    limb.model, onehot=limb.encoder, device="cpu",
+limb_gradient = SequencePredictor(
+    limb.model, device="cpu",
     task_names=limb.task_names,
-    soft_input_transform=lambda values: values.transpose(1, 2),
 )
-midbrain_gradient = DifferentiableSequencePredictor(
-    midbrain.model, onehot=midbrain.encoder, device="cpu",
+midbrain_gradient = SequencePredictor(
+    midbrain.model, device="cpu",
     task_names=midbrain.task_names,
-    soft_input_transform=lambda values: values.transpose(1, 2),
 )
-forebrain_gradient = DifferentiableSequencePredictor(
-    forebrain.model, onehot=forebrain.encoder, device="cpu",
+forebrain_gradient = SequencePredictor(
+    forebrain.model, device="cpu",
     task_names=forebrain.task_names,
-    soft_input_transform=lambda values: values.transpose(1, 2),
 )
-hindbrain_gradient = DifferentiableSequencePredictor(
-    hindbrain.model, onehot=hindbrain.encoder, device="cpu",
+hindbrain_gradient = SequencePredictor(
+    hindbrain.model, device="cpu",
     task_names=hindbrain.task_names,
-    soft_input_transform=lambda values: values.transpose(1, 2),
 )
-neural_tube_gradient = DifferentiableSequencePredictor(
-    neural_tube.model, onehot=neural_tube.encoder, device="cpu",
+neural_tube_gradient = SequencePredictor(
+    neural_tube.model, device="cpu",
     task_names=neural_tube.task_names,
-    soft_input_transform=lambda values: values.transpose(1, 2),
 )
 gradient_model = CombinedScorer(
     [
@@ -180,7 +174,7 @@ den_result = den_optimize(
 )
 ```
 
-See [gradient model adapters](../custom_models.md#gradient-optimization) and the
+See [gradient model adapters](../custom_models.md#custom-input) and the
 [vanilla](../algorithms/vanilla_activation_maximization.md),
 [Fast SeqProp](../algorithms/fast_seqprop.md), [Ledidi](../algorithms/ledidi.md),
 and [DEN](../algorithms/den.md) references.

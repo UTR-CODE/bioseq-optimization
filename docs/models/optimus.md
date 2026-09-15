@@ -171,25 +171,17 @@ print(cbas_result.to_frame())
 
 ## Gradient optimizers
 
-The four gradient optimizers below use the configured
-`DifferentiableSequencePredictor`, not the string-only model object.
+Wrap the loaded PyTorch module once for both discrete and gradient scoring.
 
 ```python
-from sequence_optimization import DifferentiableSequencePredictor
+from sequence_optimization import SequencePredictor
 
-gradient_predictor = DifferentiableSequencePredictor(
+gradient_predictor = SequencePredictor(
     model.model,
-    onehot=model.encoder,
     device="cpu",
     task_names=model.task_names,
-    soft_input_transform=lambda values: values.transpose(1, 2),
 )
 ```
-
-`gradient_predictor` keeps the model's encoder for discrete scoring and uses a
-channels-first `[batch, 4, length]` tensor for soft scoring. The transpose is
-needed because the differentiable predictor's canonical soft input is
-`[batch, length, 4]`, while Optimus expects channels first.
 
 ### Vanilla activation maximization
 

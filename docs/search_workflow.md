@@ -132,8 +132,8 @@ scorer with `score_soft`. Their additional soft forward and backward passes do
 not appear in the discrete `query_count`. These optimizers count repeated
 discrete proposals. CbAS also counts repeated proposals because it trains an
 internal proposal generator, even though it uses discrete scoring. Use a
-`DifferentiableSequencePredictor` with the model's encoder and input layout for
-the gradient methods; see the [Optimus example](models/optimus.md).
+`SequencePredictor` for a channels-first A/C/G/T PyTorch model. Subclass it for
+another input representation; see [custom PyTorch models](custom_models.md).
 
 When several independent models are combined with `CombinedScorer`, the
 optimizer budget remains the candidate/proposal budget for that run. Each

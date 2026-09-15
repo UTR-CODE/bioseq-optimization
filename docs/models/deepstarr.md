@@ -96,25 +96,22 @@ Algorithm details: [random](../algorithms/random.md),
 
 ## Gradient optimization
 
-The bundled PyTorch model uses channels-first `[batch, 4, length]` tensors.
-`DifferentiableSequencePredictor` supplies the differentiable `score_soft`
-adapter while retaining `model.score` for the final discrete candidates.
+The bundled PyTorch model uses channels-first `[batch, 4, length]` tensors, so
+the default `SequencePredictor` input applies to both scoring paths.
 
 ```python
 from sequence_optimization import (
-    DifferentiableSequencePredictor,
+    SequencePredictor,
     den_optimize,
     fast_seqprop_optimize,
     ledidi_optimize,
     vanilla_activation_maximization_optimize,
 )
 
-gradient_model = DifferentiableSequencePredictor(
+gradient_model = SequencePredictor(
     model.model,
-    onehot=model.encoder,
     device="cpu",
     task_names=model.task_names,
-    soft_input_transform=lambda values: values.transpose(1, 2),
 )
 
 vanilla_result = vanilla_activation_maximization_optimize(
@@ -135,7 +132,7 @@ den_result = den_optimize(
 )
 ```
 
-See [gradient model adapters](../custom_models.md#gradient-optimization) and the
+See [gradient model adapters](../custom_models.md#custom-input) and the
 [vanilla](../algorithms/vanilla_activation_maximization.md),
 [Fast SeqProp](../algorithms/fast_seqprop.md), [Ledidi](../algorithms/ledidi.md),
 and [DEN](../algorithms/den.md) references.

@@ -7,7 +7,7 @@ from sequence_optimization import (
     BudgetExceeded,
     CachedScorer,
     CallableScorer,
-    DifferentiableTorchSequenceScorer,
+    SequencePredictor,
     ISM_optimize,
     OptimizationConfig,
     SaturationConfig,
@@ -295,9 +295,12 @@ def test_soft_sequences_use_zero_vector_n_padding():
             assert inputs.shape == (1, 6, 4)
             return inputs.sum(dim=(1, 2))
 
-    scorer = DifferentiableTorchSequenceScorer(
+    class ChannelsLastPredictor(SequencePredictor):
+        def prepare_input(self, values):
+            return values
+
+    scorer = ChannelsLastPredictor(
         SumModel(),
-        lambda values: values,
         pad_to_length=6,
         padding_side="left",
     )
@@ -318,14 +321,12 @@ def test_differentiable_algorithms_share_the_result_contract():
                 [inputs[:, :, 2].sum(dim=1), inputs[:, :, 1].sum(dim=1)], dim=1
             )
 
-    def encode(values):
-        lookup = {base: index for index, base in enumerate("ACGT")}
-        encoded = torch.tensor([[lookup[base] for base in value] for value in values])
-        return torch.nn.functional.one_hot(encoded, num_classes=4).float()
+    class ChannelsLastPredictor(SequencePredictor):
+        def prepare_input(self, values):
+            return values
 
-    scorer = DifferentiableTorchSequenceScorer(
+    scorer = ChannelsLastPredictor(
         TwoTaskModel(),
-        encode,
         device="cpu",
         task_names=("g_activity", "c_activity"),
     )

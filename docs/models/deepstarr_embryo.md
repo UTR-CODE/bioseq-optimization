@@ -112,37 +112,33 @@ Algorithm details: [random](../algorithms/random.md),
 ## Gradient optimization
 
 The tissue adapters use channels-first `[batch, 4, 1001]` tensors. Wrap each
-underlying PyTorch module in a `DifferentiableSequencePredictor`, then combine
+underlying PyTorch module in a `SequencePredictor`, then combine
 the differentiable scorers in the same output order.
 
 ```python
 from sequence_optimization import (
-    DifferentiableSequencePredictor,
+    SequencePredictor,
     den_optimize,
     fast_seqprop_optimize,
     ledidi_optimize,
     vanilla_activation_maximization_optimize,
 )
 
-brain_vnc_gradient = DifferentiableSequencePredictor(
-    brain_vnc.model, onehot=brain_vnc.encoder, device="cpu",
+brain_vnc_gradient = SequencePredictor(
+    brain_vnc.model, device="cpu",
     task_names=brain_vnc.task_names,
-    soft_input_transform=lambda values: values.transpose(1, 2),
 )
-muscle_gradient = DifferentiableSequencePredictor(
-    muscle.model, onehot=muscle.encoder, device="cpu",
+muscle_gradient = SequencePredictor(
+    muscle.model, device="cpu",
     task_names=muscle.task_names,
-    soft_input_transform=lambda values: values.transpose(1, 2),
 )
-epidermis_gradient = DifferentiableSequencePredictor(
-    epidermis.model, onehot=epidermis.encoder, device="cpu",
+epidermis_gradient = SequencePredictor(
+    epidermis.model, device="cpu",
     task_names=epidermis.task_names,
-    soft_input_transform=lambda values: values.transpose(1, 2),
 )
-gut_gradient = DifferentiableSequencePredictor(
-    gut.model, onehot=gut.encoder, device="cpu",
+gut_gradient = SequencePredictor(
+    gut.model, device="cpu",
     task_names=gut.task_names,
-    soft_input_transform=lambda values: values.transpose(1, 2),
 )
 gradient_model = CombinedScorer(
     [brain_vnc_gradient, muscle_gradient, epidermis_gradient, gut_gradient],
@@ -167,7 +163,7 @@ den_result = den_optimize(
 )
 ```
 
-See [gradient model adapters](../custom_models.md#gradient-optimization) and the
+See [gradient model adapters](../custom_models.md#custom-input) and the
 [vanilla](../algorithms/vanilla_activation_maximization.md),
 [Fast SeqProp](../algorithms/fast_seqprop.md), [Ledidi](../algorithms/ledidi.md),
 and [DEN](../algorithms/den.md) references.

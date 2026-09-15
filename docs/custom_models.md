@@ -1,125 +1,98 @@
-# Wrap your own model
+# Use a custom PyTorch model
 
-An optimizer calls `predictor.score(sequences)` with a batch of nucleotide
-strings. `SequencePredictor` wraps an existing PyTorch model and handles input
-conversion, device placement, evaluation mode, and batched inference. It does
-not initialize new model weights or train the model.
+`SequencePredictor` accepts a PyTorch model whose weights have already been
+loaded. The default input is a float32 A/C/G/T one-hot tensor with shape
+`[batch, 4, sequence_length]`. The same predictor works with every discrete and
+gradient optimizer.
 
-## Default CNN input
-
-For a model accepting float32 `[N, 4, L]` tensors in A/C/G/T channel order:
+## Default input
 
 ```python
-from sequence_optimization import (
-    SequencePredictor,
-    basesearch_optimize,
-    random_seed_sequences,
-)
-
-predictor = SequencePredictor(model, device="cpu")  # your existing nn.Module
-predictions = predictor.score(["ACGT" * 5]).scores
-initial = random_seed_sequences(length=20, count=4, seed=7)
-result = basesearch_optimize(
-    predictor, length=20, initial=initial, objective=["maximize"],
-    num_candidates=4,
-)
-```
-
-[Complete minimal CNN example](../sequence_optimization/examples/custom_cnn.py).
-Load trained weights into your model before constructing the predictor.
-
-## Custom channel order and layout
-
-This model expects `[N, L, 4]` in A/G/C/T order:
-
-```python
-from functools import partial
 import torch
+
 from sequence_optimization import (
     SequencePredictor,
-    basesearch_optimize,
-    onehot,
+    genetic_algorithm_optimize,
     random_seed_sequences,
 )
 
 
-class MyModel(torch.nn.Module):
+class ActivityModel(torch.nn.Module):
     def __init__(self):
         super().__init__()
-        self.readout = torch.nn.Linear(4, 1, bias=False)
-        with torch.no_grad():
-            self.readout.weight.copy_(torch.tensor([[0., 1., 0., 0.]]))
+        self.network = torch.nn.Sequential(
+            torch.nn.Conv1d(4, 32, kernel_size=7, padding=3),
+            torch.nn.ReLU(),
+            torch.nn.AdaptiveAvgPool1d(1),
+            torch.nn.Flatten(),
+            torch.nn.Linear(32, 1),
+        )
 
     def forward(self, values):
-        return self.readout(values.mean(dim=1))
+        return self.network(values)
 
 
-model = MyModel()  # example weights reward G; use trained weights in applications
-predictor = SequencePredictor(
-    model,
-    onehot=partial(onehot, alphabet="AGCT", channels_first=False),
-    task_names=["activity"],
-    device="cpu",
-    batch_size=256,
-)
-print(predictor.score(["AGGT", "AAAA"]).scores)
+model = ActivityModel()
+model.load_state_dict(torch.load("activity_model.pt", weights_only=True))
+predictor = SequencePredictor(model, device="cpu")
 
-initial = random_seed_sequences(length=20, count=4, seed=7)
-result = basesearch_optimize(
-    predictor, length=20, initial=initial, objective=["maximize"],
+initial = random_seed_sequences(length=200, count=4, seed=7)
+result = genetic_algorithm_optimize(
+    predictor,
+    length=200,
+    initial=initial,
+    objective=["maximize"],
     num_candidates=4,
 )
 print(result.to_frame())
 ```
 
-`onehot=` accepts a callable taking a batch of strings and returning a NumPy
-array or PyTorch tensor. Its channel order, layout, dtype, and handling of
-unknown bases must match model training. The model returns `[N]` or `[N, tasks]`.
-`predictor.score()` returns a `ScoreBatch`; `.scores` contains the predictions.
+The model may return `[batch]` or `[batch, tasks]`. It may instead return
+`(activities, uncertainties)` with matching shapes. Supply `task_names` to
+`SequencePredictor` when named output columns are useful.
 
-## Gradient optimization
+## Custom input
 
-Use `DifferentiableSequencePredictor` when optimizing through the model's
-gradients. For the A/G/C/T, channels-last model above:
+Subclass `SequencePredictor` and override `prepare_input`. This method receives
+canonical A/C/G/T values with shape `[batch, sequence_length, 4]` for both
+discrete and gradient optimization. Return the tensor layout expected by the
+model, including an input shaped `[batch, N, sequence_length]`.
 
-```python
-from sequence_optimization import (
-    DifferentiableSequencePredictor,
-    ledidi_optimize,
-    random_seed_sequences,
-)
-
-predictor = DifferentiableSequencePredictor(
-    model,
-    onehot=partial(onehot, alphabet="AGCT", channels_first=False),
-    soft_input_transform=lambda values: values[:, :, [0, 2, 1, 3]],
-    task_names=["activity"],
-    device="cpu",
-)
-initial = random_seed_sequences(length=20, count=4, seed=7)
-result = ledidi_optimize(
-    predictor, length=20, initial=initial, objective=["maximize"],
-    num_candidates=4,
-)
-```
-
-The optimizer supplies soft `[N, L, A/C/G/T]` tensors. `soft_input_transform`
-must match the string conversion while preserving gradients; do not convert
-these tensors to NumPy or discretize them. Model parameters are frozen while
-gradients flow to sequence inputs.
-
-[Custom model example functions](../sequence_optimization/examples/custom_model.py).
-
-## Models loaded from bioseq-models
-
-`load_model` returns a predictor that already accepts strings:
+The following model expects five channels: the four nucleotide channels plus a
+GC indicator channel.
 
 ```python
-from bioseq_models import load_model
+import torch
 
-model = load_model("optimus5prime", device="cpu")
-predictions = model.score(["ACGT" * 12 + "AC"])  # NumPy [1, 1]
+from sequence_optimization import SequencePredictor
+
+
+class FiveChannelPredictor(SequencePredictor):
+    def prepare_input(self, values):
+        nucleotide_channels = values.transpose(1, 2)
+        gc_channel = values[:, :, 1:3].sum(dim=2).unsqueeze(1)
+        return torch.cat((nucleotide_channels, gc_channel), dim=1)
+
+
+model = FiveChannelModel()
+model.load_state_dict(torch.load("five_channel_model.pt", weights_only=True))
+predictor = FiveChannelPredictor(model, device="cuda")
 ```
 
-`.score()` performs the model's input conversion. `model.model` is the underlying
-PyTorch network and expects the model-specific tensor input.
+Use PyTorch tensor operations in `prepare_input`. Converting `values` to NumPy,
+detaching it, or taking a hard argmax prevents gradient optimizers from
+differentiating through the sequence. Discrete optimizers call `score`, while
+gradient optimizers call `score_soft`; both paths use `prepare_input`.
+
+For a channels-last model, return `values` directly. To change channel order,
+index the final dimension before transposing:
+
+```python
+class AGCTPredictor(SequencePredictor):
+    def prepare_input(self, values):
+        return values[:, :, [0, 2, 1, 3]].transpose(1, 2)
+```
+
+`batch_size` controls discrete inference batches. `pad_to_length` and
+`padding_side` can pad shorter strings with `N`; the equivalent soft input uses
+all-zero vectors at padded positions.

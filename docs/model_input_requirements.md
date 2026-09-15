@@ -1,9 +1,8 @@
 # Model input requirements
 
-Black-box optimizers accept a scorer with `score(sequences)` returning one or
-more predictions per sequence. Gradient optimizers also require
-`score_soft(probabilities)`, preserving gradients from predictions to the
-shared `[batch, length, A/C/G/T]` input.
+`SequencePredictor` supplies both `score(sequences)` and
+`score_soft(probabilities)`. Its default model input is channels-first A/C/G/T
+with shape `[batch, 4, length]`.
 
 | Models | Gradient input requirements |
 |---|---|
@@ -17,9 +16,9 @@ shared `[batch, length, A/C/G/T]` input.
 | UTR-CODE | Transcript and fixed-context adapter |
 | CDS Stability | Codon tokenization and auxiliary-input adapter |
 
-Use `DifferentiableSequencePredictor` with the model's input conversion
-and a suitable `soft_input_transform`. Both paths must represent the same
-sequence, including padding, channel order and fixed context.
+For another layout, channel order, or fixed context, subclass
+`SequencePredictor` and override `prepare_input` with differentiable PyTorch
+operations. See [custom PyTorch models](custom_models.md).
 
 Sequence length must match the scorer's accepted input. For transcript models,
 configure the designed region and fixed flanking regions in the scorer.

@@ -446,8 +446,8 @@ def _differentiable_objective(scorer: CachedScorer) -> ObjectiveScorer:
         objective.scorer, "score_soft"
     ):
         raise TypeError(
-            "this algorithm requires DifferentiableTorchSequenceScorer or an equivalent "
-            "scorer implementing score_soft(probabilities)"
+            "this algorithm requires SequencePredictor or an equivalent scorer "
+            "implementing score_soft(probabilities)"
         )
     return objective
 

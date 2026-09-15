@@ -1,14 +1,10 @@
 """Wrap a channels-last model using A/G/C/T channel order."""
 
-from functools import partial
-
 import torch
 
 from sequence_optimization import (
-    DifferentiableSequencePredictor,
     SequencePredictor,
     basesearch_optimize,
-    onehot,
     random_seed_sequences,
 )
 
@@ -25,18 +21,16 @@ class MyModel(torch.nn.Module):
         return self.readout(values.mean(dim=1))
 
 
-def make_predictor(model, *, differentiable=False):
-    cls = DifferentiableSequencePredictor if differentiable else SequencePredictor
-    options = {}
-    if differentiable:
-        # Optimizers supply [N, L, A/C/G/T]; adapt without detaching gradients.
-        options["soft_input_transform"] = lambda values: values[:, :, [0, 2, 1, 3]]
-    return cls(
+class AGCTChannelsLastPredictor(SequencePredictor):
+    def prepare_input(self, values):
+        return values[:, :, [0, 2, 1, 3]]
+
+
+def make_predictor(model):
+    return AGCTChannelsLastPredictor(
         model,
-        onehot=partial(onehot, alphabet="AGCT", channels_first=False),
         task_names=["activity"],
         device="cpu",
-        **options,
     )
 
 

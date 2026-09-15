@@ -236,8 +236,8 @@ still evaluated.
 
 ## Use your own model
 
-[Wrap your own model](docs/custom_models.md) ·
-[Model input requirements](docs/model_input_requirements.md).
+For default `[batch, 4, length]` inputs and custom `[batch, N, length]`
+subclasses, see [use a custom PyTorch model](docs/custom_models.md).
 
 ## Model tasks
 

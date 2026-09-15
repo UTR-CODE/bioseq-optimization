@@ -171,17 +171,17 @@ class CallableScorer:
 
 
 class SequencePredictor:
-    """Wrap a PyTorch model; default inputs are float32 onehot [N, 4, L].
+    """Wrap a PyTorch model for discrete and gradient sequence optimization.
 
-    Supply an optional custom input converter for other model conventions.
+    The default model input is float32 one-hot ``[batch, 4, length]`` in A/C/G/T
+    order. Subclasses can override :meth:`prepare_input` for another layout or
+    feature representation while retaining both scoring paths.
     """
 
     def __init__(
         self,
         model: Any,
-        encoder: Callable[[np.ndarray], Any] | None = None,
         *,
-        onehot: Callable[[np.ndarray], Any] | None = None,
         device: Any = None,
         batch_size: int = 4096,
         task_names: Sequence[str] | None = None,
@@ -190,25 +190,12 @@ class SequencePredictor:
     ) -> None:
         if batch_size < 1:
             raise ValueError("batch_size must be positive")
-        if onehot is not None:
-            if encoder is not None:
-                raise ValueError("supply only one input conversion function")
-            encoder = onehot
-        if encoder is None:
-            from .onehot import onehot as default_onehot
-            import torch
-
-            def encoder(values):
-                return torch.from_numpy(default_onehot(values, channels_first=True))
-
-        self.model, self.encoder, self.device, self.batch_size = (
+        self.model, self.device, self.batch_size = (
             model,
-            encoder,
             device,
             batch_size,
         )
         self.task_names = _validate_task_names(task_names)
-        self.onehot = self.encoder
         self.pad_to_length, self.padding_side = _validate_padding(
             pad_to_length, padding_side
         )
@@ -216,6 +203,21 @@ class SequencePredictor:
             model.to(device)
         if hasattr(model, "eval"):
             model.eval()
+        if hasattr(model, "parameters"):
+            for parameter in model.parameters():
+                parameter.requires_grad_(False)
+
+    def encode_sequences(self, sequences: Sequence[str] | np.ndarray) -> Any:
+        """Encode strings as canonical float32 ``[batch, length, 4]`` tensors."""
+        import torch
+
+        from .onehot import onehot
+
+        return torch.from_numpy(onehot(sequences))
+
+    def prepare_input(self, probabilities: Any) -> Any:
+        """Convert canonical ``[batch, length, 4]`` values for the model."""
+        return probabilities.transpose(1, 2)
 
     def score(self, sequences: Sequence[str] | np.ndarray) -> ScoreBatch:
         import torch
@@ -227,7 +229,7 @@ class SequencePredictor:
         with torch.no_grad():
             for start in range(0, len(values), self.batch_size):
                 batch = values[start : start + self.batch_size]
-                inputs = self.onehot(batch)
+                inputs = self.prepare_input(self.encode_sequences(batch))
                 if isinstance(inputs, np.ndarray):
                     inputs = torch.from_numpy(inputs)
                 if self.device is not None and hasattr(inputs, "to"):
@@ -252,42 +254,12 @@ class SequencePredictor:
         )
         return ScoreBatch(combined, combined_uncertainty)
 
-
-class DifferentiableSequencePredictor(SequencePredictor):
-    """PyTorch scorer that also accepts differentiable soft one-hot sequences.
-
-    Discrete optimizers use :meth:`score`. Gradient-based optimizers call
-    :meth:`score_soft` with tensors shaped ``[batch, length, alphabet]``. The
-    optional transform adapts that canonical representation to the wrapped
-    model's expected tensor layout.
-    """
-
-    def __init__(
-        self,
-        model: Any,
-        encoder: Callable[[np.ndarray], Any] | None = None,
-        *,
-        onehot: Callable[[np.ndarray], Any] | None = None,
-        soft_input_transform: Callable[[Any], Any] | None = None,
-        **kwargs: Any,
-    ) -> None:
-        default_onehot = encoder is None and onehot is None
-        super().__init__(model, encoder, onehot=onehot, **kwargs)
-        self.soft_input_transform = soft_input_transform or (
-            (lambda values: values.transpose(1, 2))
-            if default_onehot
-            else (lambda values: values)
-        )
-        if hasattr(model, "parameters"):
-            for parameter in model.parameters():
-                parameter.requires_grad_(False)
-
     def score_soft(self, probabilities: Any) -> tuple[Any, Any | None]:
         """Return differentiable activities and optional uncertainties."""
         probabilities = _pad_soft_nucleotide_tensor(
             probabilities, self.pad_to_length, self.padding_side
         )
-        inputs = self.soft_input_transform(probabilities)
+        inputs = self.prepare_input(probabilities)
         if self.device is not None and hasattr(inputs, "to"):
             inputs = inputs.to(self.device)
         output = self.model(inputs)
@@ -307,10 +279,6 @@ class DifferentiableSequencePredictor(SequencePredictor):
             if uncertainties.shape != activities.shape:
                 raise ValueError("differentiable uncertainties must match activities")
         return activities, uncertainties
-
-
-TorchSequenceScorer = SequencePredictor
-DifferentiableTorchSequenceScorer = DifferentiableSequencePredictor
 
 
 def _validate_task_names(task_names: Sequence[str] | None) -> tuple[str, ...] | None:

@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 from sequence_optimization import (
-    DifferentiableTorchSequenceScorer,
+    SequencePredictor,
     MultiTaskObjective,
     OptimizationConfig,
     available_algorithms,
@@ -30,12 +30,10 @@ def test_deepstarr_multitask_all_algorithms(deepstarr, algorithm, direction):
     }[direction]
     scorer = deepstarr
     if algorithm in DIFFERENTIABLE_ALGORITHMS:
-        scorer = DifferentiableTorchSequenceScorer(
+        scorer = SequencePredictor(
             deepstarr.model,
-            deepstarr.encoder,
             device=deepstarr.device,
             task_names=deepstarr.task_names,
-            soft_input_transform=lambda values: values.transpose(1, 2),
         )
     config = OptimizationConfig(
         budget=751 if algorithm == "ism_greedy" else 12,
@@ -93,12 +91,10 @@ def optimus():
 
 @pytest.fixture(scope="module")
 def differentiable_optimus(optimus):
-    return DifferentiableTorchSequenceScorer(
+    return SequencePredictor(
         optimus.model,
-        optimus.encoder,
         device=optimus.device,
         task_names=optimus.task_names,
-        soft_input_transform=lambda probabilities: probabilities.transpose(1, 2),
     )
 
 

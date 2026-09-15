@@ -33,7 +33,7 @@ result = cross_entropy_optimize(
 )
 ```
 
-For gradient algorithms, use a [differentiable predictor](../custom_models.md#gradient-optimization).
+For gradient algorithms, use a [differentiable predictor](../custom_models.md#custom-input).
 The model itself is not trained. Each run returns unique sequences, objective scores,
 raw predictions, query counts and a trajectory. Budgets exclude additional soft
 forward/backward evaluations. [Objective parameters](../objectives.md).

@@ -103,43 +103,38 @@ Algorithm details: [random](../algorithms/random.md),
 
 ## Gradient optimization
 
-The Agarwal adapter's hard-path encoder changes canonical `A/C/G/T` channels to
-the model's `A/G/C/T` order and uses channels-first tensors. The same permutation
-must be part of the differentiable soft-input transform. Each ensemble's
-`.model` is the differentiable ten-fold, forward/reverse averaging module.
+The Agarwal modules use channels-first tensors in `A/G/C/T` order. Subclass
+`SequencePredictor` to apply that channel order to both scoring paths. Each
+ensemble's `.model` is the differentiable ten-fold, forward/reverse averaging
+module.
 
 ```python
 from sequence_optimization import (
-    DifferentiableSequencePredictor,
+    SequencePredictor,
     den_optimize,
     fast_seqprop_optimize,
     ledidi_optimize,
     vanilla_activation_maximization_optimize,
 )
 
-def agarwal_soft_input(values):
-    return values[..., [0, 2, 1, 3]].transpose(1, 2)
+class AgarwalPredictor(SequencePredictor):
+    def prepare_input(self, values):
+        return values[..., [0, 2, 1, 3]].transpose(1, 2)
 
-k562_gradient = DifferentiableSequencePredictor(
+k562_gradient = AgarwalPredictor(
     k562.model,
-    onehot=k562.encoder,
     device="cpu",
     task_names=k562.task_names,
-    soft_input_transform=agarwal_soft_input,
 )
-hepg2_gradient = DifferentiableSequencePredictor(
+hepg2_gradient = AgarwalPredictor(
     hepg2.model,
-    onehot=hepg2.encoder,
     device="cpu",
     task_names=hepg2.task_names,
-    soft_input_transform=agarwal_soft_input,
 )
-wtc11_gradient = DifferentiableSequencePredictor(
+wtc11_gradient = AgarwalPredictor(
     wtc11.model,
-    onehot=wtc11.encoder,
     device="cpu",
     task_names=wtc11.task_names,
-    soft_input_transform=agarwal_soft_input,
 )
 gradient_model = CombinedScorer(
     [k562_gradient, hepg2_gradient, wtc11_gradient],
@@ -164,7 +159,7 @@ den_result = den_optimize(
 )
 ```
 
-See [gradient model adapters](../custom_models.md#gradient-optimization) and the
+See [gradient model adapters](../custom_models.md#custom-input) and the
 [vanilla](../algorithms/vanilla_activation_maximization.md),
 [Fast SeqProp](../algorithms/fast_seqprop.md), [Ledidi](../algorithms/ledidi.md),
 and [DEN](../algorithms/den.md) references.

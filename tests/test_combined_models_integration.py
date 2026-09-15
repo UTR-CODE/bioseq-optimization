@@ -5,7 +5,7 @@ import pytest
 
 from sequence_optimization import (
     CombinedScorer,
-    DifferentiableTorchSequenceScorer,
+    SequencePredictor,
     OptimizationConfig,
     available_algorithms,
     run,
@@ -37,14 +37,16 @@ def family(request):
     models = [
         bioseq_models.load_model(name, device="cpu", batch_size=8) for name in names
     ]
+    class InputPredictor(SequencePredictor):
+        def prepare_input(self, values):
+            return transform(values)
+
     soft = [
-        DifferentiableTorchSequenceScorer(
+        InputPredictor(
             model.model,
-            model.encoder,
             device="cpu",
             batch_size=8,
             task_names=model.task_names,
-            soft_input_transform=transform,
         )
         for model in models
     ]

@@ -8,9 +8,9 @@ before creating the predictor.
 
 ## Model and predictor
 
-The default `DifferentiableSequencePredictor` conversion produces A/C/G/T
+The default `SequencePredictor` conversion produces A/C/G/T
 one-hot tensors with shape `[batch, 4, length]`, which matches this CNN.
-`DifferentiableSequencePredictor` can be passed to both discrete and gradient
+`SequencePredictor` can be passed to both discrete and gradient
 optimizers because it provides `score` and `score_soft`.
 
 ```python
@@ -18,7 +18,7 @@ import torch
 from torch import nn
 
 from sequence_optimization import (
-    DifferentiableSequencePredictor,
+    SequencePredictor,
     adalead_optimize,
     basesearch_optimize,
     beam_search_optimize,
@@ -53,7 +53,7 @@ class ThreeOutputCNN(nn.Module):
         return self.conv(values).mean(dim=2)
 
 
-predictor = DifferentiableSequencePredictor(
+predictor = SequencePredictor(
     ThreeOutputCNN(),
     task_names=["G_fraction", "C_fraction", "T_fraction"],
     device="cpu",

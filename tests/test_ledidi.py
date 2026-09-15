@@ -4,7 +4,7 @@ import torch
 
 from sequence_optimization import (
     CallableScorer,
-    DifferentiableTorchSequenceScorer,
+    SequencePredictor,
     OptimizationConfig,
     SequenceSpace,
     ledidi_optimize,
@@ -18,12 +18,11 @@ def make_scorer():
             assert torch.all((inputs.detach() == 0) | (inputs.detach() == 1))
             return inputs[:, :, 2].sum(dim=1)
 
-    def encode(values):
-        return torch.nn.functional.one_hot(
-            torch.as_tensor(SequenceSpace(8).encode(values), dtype=torch.long), 4
-        ).float()
+    class ChannelsLastPredictor(SequencePredictor):
+        def prepare_input(self, values):
+            return values
 
-    return DifferentiableTorchSequenceScorer(GCount(), encode, task_names=("g",))
+    return ChannelsLastPredictor(GCount(), task_names=("g",))
 
 
 @pytest.mark.parametrize("budget", [4, 13, 84])

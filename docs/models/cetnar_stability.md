@@ -86,14 +86,12 @@ result_cbas = cbas_optimize(
 )
 ```
 
-The bundled Cetnar adapter has a PyTorch model and channel-last encoder, so a
-faithful `score_soft()` scorer can be constructed for gradient optimizers. Keep
-the adapter's `_RestoredDecay` model (`model.model`) and its original encoder
-(`model.encoder`) for hard sequence scoring:
+The bundled Cetnar PyTorch model uses channels-last input. A
+`SequencePredictor` subclass applies that layout to discrete and soft scoring:
 
 ```python
 from sequence_optimization import (
-    DifferentiableSequencePredictor,
+    SequencePredictor,
     den_optimize,
     fast_seqprop_optimize,
     ledidi_optimize,
@@ -101,10 +99,13 @@ from sequence_optimization import (
     vanilla_activation_maximization_optimize,
 )
 
-gradient_model = DifferentiableSequencePredictor(
+class ChannelsLastPredictor(SequencePredictor):
+    def prepare_input(self, values):
+        return values
+
+
+gradient_model = ChannelsLastPredictor(
     model.model,
-    onehot=model.encoder,
-    soft_input_transform=lambda values: values,
     device="cpu",
     batch_size=4096,
     task_names=model.task_names,

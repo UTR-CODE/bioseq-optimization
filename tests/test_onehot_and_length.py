@@ -31,7 +31,7 @@ def test_default_torch_onehot_preserves_predictions_and_gradients():
         def forward(self, values):
             return values[:, 2].sum(dim=1)
 
-    scorer = so.DifferentiableTorchSequenceScorer(Model())
+    scorer = so.SequencePredictor(Model())
     np.testing.assert_array_equal(scorer.score(["AGGT", "AAAA"]).scores, [2, 0])
     inputs = torch.from_numpy(so.onehot(["AGGT", "AAAA"])).requires_grad_()
     scores, _ = scorer.score_soft(inputs)
@@ -45,7 +45,7 @@ def test_every_convenience_function_accepts_length(algorithm):
         def forward(self, values):
             return values[:, 2].sum(dim=1)
 
-    scorer = so.DifferentiableTorchSequenceScorer(Model())
+    scorer = so.SequencePredictor(Model())
     function_name = {
         "ism_greedy": "ism_optimize",
         "cross_entropy_method": "cross_entropy_optimize",

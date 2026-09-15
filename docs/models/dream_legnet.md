@@ -106,7 +106,7 @@ import torch
 from bioseq_models import load_model
 from bioseq_models.adapters.dream_legnet import CONTEXT_PREFIX
 from sequence_optimization import (
-    DifferentiableSequencePredictor,
+    SequencePredictor,
     den_optimize,
     fast_seqprop_optimize,
     ledidi_optimize,
@@ -123,17 +123,16 @@ model = load_model(
 )
 context = torch.from_numpy(onehot([CONTEXT_PREFIX], channels_first=False))
 
-def dream_input(values):
-    context_batch = context.to(values.device).expand(values.shape[0], -1, -1)
-    dna = torch.cat([context_batch, values], dim=1)
-    dna = dna[:, :, [0, 2, 1, 3]].transpose(1, 2)
-    singleton = values.new_ones((values.shape[0], 1, 150))
-    return torch.cat([dna, singleton], dim=1)
+class DreamPredictor(SequencePredictor):
+    def prepare_input(self, values):
+        context_batch = context.to(values).expand(values.shape[0], -1, -1)
+        dna = torch.cat([context_batch, values], dim=1)
+        dna = dna[:, :, [0, 2, 1, 3]].transpose(1, 2)
+        singleton = values.new_ones((values.shape[0], 1, 150))
+        return torch.cat([dna, singleton], dim=1)
 
-gradient_model = DifferentiableSequencePredictor(
+gradient_model = DreamPredictor(
     model.model,
-    onehot=model.encoder,
-    soft_input_transform=dream_input,
     device="cpu",
     batch_size=4096,
     task_names=model.task_names,

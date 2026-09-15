@@ -98,17 +98,16 @@ Algorithm details: [random](../algorithms/random.md),
 
 ## Gradient optimization
 
-Gradient methods need a differentiable adapter that preserves Malinois's fixed
-contexts. The hard-path encoder remains `model.encoder`; the soft path below
-concatenates the same contexts to canonical `[batch, 200, A/C/G/T]` tensors and
-then converts them to the model's channels-first `[batch, 4, 600]` layout.
+Malinois requires its fixed assay contexts around each candidate. A
+`SequencePredictor` subclass concatenates those contexts and converts both
+scoring paths to the model's channels-first `[batch, 4, 600]` layout.
 
 ```python
 import torch
 
 from bioseq_models.adapters.malinois import LEFT_CONTEXT, RIGHT_CONTEXT
 from sequence_optimization import (
-    DifferentiableSequencePredictor,
+    SequencePredictor,
     den_optimize,
     fast_seqprop_optimize,
     ledidi_optimize,
@@ -119,18 +118,17 @@ from sequence_optimization import (
 left = torch.from_numpy(onehot([LEFT_CONTEXT], channels_first=False))
 right = torch.from_numpy(onehot([RIGHT_CONTEXT], channels_first=False))
 
-def add_malinois_context(values):
-    count = values.shape[0]
-    left_batch = left.to(values).expand(count, -1, -1)
-    right_batch = right.to(values).expand(count, -1, -1)
-    return torch.cat((left_batch, values, right_batch), dim=1).transpose(1, 2)
+class MalinoisPredictor(SequencePredictor):
+    def prepare_input(self, values):
+        count = values.shape[0]
+        left_batch = left.to(values).expand(count, -1, -1)
+        right_batch = right.to(values).expand(count, -1, -1)
+        return torch.cat((left_batch, values, right_batch), dim=1).transpose(1, 2)
 
-gradient_model = DifferentiableSequencePredictor(
+gradient_model = MalinoisPredictor(
     model.model,
-    onehot=model.encoder,
     device="cpu",
     task_names=model.task_names,
-    soft_input_transform=add_malinois_context,
 )
 
 vanilla_result = vanilla_activation_maximization_optimize(
@@ -151,7 +149,7 @@ den_result = den_optimize(
 )
 ```
 
-See [gradient model adapters](../custom_models.md#gradient-optimization) and the
+See [gradient model adapters](../custom_models.md#custom-input) and the
 [vanilla](../algorithms/vanilla_activation_maximization.md),
 [Fast SeqProp](../algorithms/fast_seqprop.md), [Ledidi](../algorithms/ledidi.md),
 and [DEN](../algorithms/den.md) references.

@@ -1,14 +1,8 @@
-from functools import partial
-
 import numpy as np
-import pytest
 import torch
 
 from sequence_optimization import (
-    DifferentiableSequencePredictor,
-    DifferentiableTorchSequenceScorer,
     SequencePredictor,
-    TorchSequenceScorer,
     onehot,
 )
 from sequence_optimization.examples.custom_model import MyModel, example, make_predictor
@@ -26,7 +20,7 @@ def test_custom_numpy_onehot_layout_and_model_identity():
 
 
 def test_custom_onehot_matches_differentiable_predictions():
-    predictor = make_predictor(MyModel(), differentiable=True)
+    predictor = make_predictor(MyModel())
     inputs = torch.from_numpy(onehot(["AGGT", "AAAA"])).requires_grad_()
     scores, _ = predictor.score_soft(inputs)
     np.testing.assert_allclose(
@@ -37,8 +31,29 @@ def test_custom_onehot_matches_differentiable_predictions():
     assert inputs.grad[:, :, [0, 1, 3]].eq(0).all()
 
 
-def test_predictor_names_and_conflicting_converters():
-    assert TorchSequenceScorer is SequencePredictor
-    assert DifferentiableTorchSequenceScorer is DifferentiableSequencePredictor
-    with pytest.raises(ValueError, match="one input"):
-        SequencePredictor(MyModel(), onehot, onehot=partial(onehot, alphabet="AGCT"))
+def test_sequence_predictor_exposes_both_scoring_paths():
+    predictor = SequencePredictor(MyModel())
+    assert callable(predictor.score)
+    assert callable(predictor.score_soft)
+
+
+def test_subclass_prepares_extra_channels_for_both_paths():
+    class FiveChannelModel(torch.nn.Module):
+        def forward(self, values):
+            assert values.shape[1] == 5
+            return values[:, 4].sum(dim=1)
+
+    class FiveChannelPredictor(SequencePredictor):
+        def prepare_input(self, values):
+            nucleotide_channels = values.transpose(1, 2)
+            gc_channel = values[:, :, 1:3].sum(dim=2).unsqueeze(1)
+            return torch.cat((nucleotide_channels, gc_channel), dim=1)
+
+    predictor = FiveChannelPredictor(FiveChannelModel())
+    discrete = predictor.score(["ACGT", "AAAA"]).scores
+    probabilities = torch.from_numpy(onehot(["ACGT", "AAAA"])).requires_grad_()
+    soft, _ = predictor.score_soft(probabilities)
+    np.testing.assert_array_equal(discrete, [2, 0])
+    np.testing.assert_array_equal(soft.detach().squeeze(1), discrete)
+    soft.sum().backward()
+    assert probabilities.grad is not None
