@@ -82,7 +82,7 @@ def test_length_seed_and_saturation_interfaces(tmp_path):
         alphabet="AC",
     )
     assert all(set("".join(result.sequences)) <= set("AC") for result in many.values())
-    result = so.random_optimize(
+    result = so.genetic_algorithm_optimize(
         scorer,
         length=4,
         initial=None,

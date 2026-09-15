@@ -134,11 +134,17 @@ result columns, and screening counts.
 ## Candidate count and budgets
 
 `num_candidates` controls both the number of starting sequences and the number
-of sequences retained in the result. The default `budget=None` places no fixed
-limit on candidate queries. The optimizer stops from observed plateau progress
-and returns the q99 selection. Set `budget` to a positive integer for a
-fixed-budget run; it must be at least `num_candidates`. A fixed budget limits
-candidate query or proposal accounting, not training epochs or result size.
+of sequences retained in the result. For every optimizer except random search,
+the default `budget=None` places no fixed limit on candidate queries: the
+optimizer stops from observed plateau progress and returns the q99 selection.
+Set `budget` to a positive integer for a fixed-budget run; it must be at least
+`num_candidates`. A fixed budget limits candidate query or proposal accounting,
+not training epochs or result size.
+
+`random_optimize` always uses a fixed proposal budget and does not accept
+`saturation`. Its default `budget=10_000` counts the initial candidates followed
+by uniformly sampled random candidates. Repeated proposals consume this budget,
+although the score cache prevents another model call for the same sequence.
 
 Discrete optimizers use a cache. Default plateau searches count repeated
 proposals so duplicate rounds advance the patience window without another model
@@ -170,14 +176,15 @@ optimizer-budget candidates.
 
 ## Stop at saturation
 
-With `budget` and `saturation` omitted, an optimizer continues until the
-retained-candidate mean score stops making material progress and returns the
-earliest candidate set at 99% of the observed gain. This default q99 value is
-an `OptimizationResult`.
+With `budget` and `saturation` omitted, every optimizer except random search
+continues until the retained-candidate mean score stops making material progress
+and returns the earliest candidate set at 99% of the observed gain. This default
+q99 value is an `OptimizationResult`.
 
 Pass `saturation=SaturationConfig(...)` to customize the plateau rules or
 request multiple gain fractions. This form returns a `SaturationResult`. Omit
 `budget` whenever `saturation` is supplied; using both raises `ValueError`.
+Random search does not accept `SaturationConfig`; use its fixed `budget`.
 Saturation parameters are:
 
 | Parameter | Default | Meaning |

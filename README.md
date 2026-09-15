@@ -267,10 +267,12 @@ print(single_result.query_count, single_result.metadata["stop_reason"])
 
 ### Saturation screening
 
-With `budget` omitted, the optimizer detects an observed plateau and returns
-the earliest candidate set that reaches 99% of the gain from the initial
-archive to that plateau. To select other points, pass their gain fractions in
-`SaturationConfig`; `budget` and `saturation` cannot be used together.
+With `budget` omitted, every optimizer except random search detects an observed
+plateau and returns the earliest candidate set that reaches 99% of the gain
+from the initial archive to that plateau. To select other points, pass their
+gain fractions in `SaturationConfig`; `budget` and `saturation` cannot be used
+together. Random search uses `budget=10_000` by default and does not accept
+`saturation`.
 
 ```python
 from bioseq_models import load_model
@@ -408,7 +410,9 @@ fixed_result = genetic_algorithm_optimize(
 ### Fixed query budget
 
 Set a positive `budget` to use fixed query accounting instead of plateau
-stopping. It must be at least `num_candidates`.
+stopping. It must be at least `num_candidates`. Random search always uses a
+fixed proposal budget; its default 10,000 includes the initial candidates and
+all subsequent random proposals.
 
 ```python
 initial = random_seed_sequences(length=20, count=4, seed=7)

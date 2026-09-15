@@ -13,6 +13,8 @@ from .objectives import TargetObjective
 from .saturation import SaturationConfig
 from .seeds import load_seed_sequences, random_seed_sequences
 
+_BUDGET_OMITTED = object()
+
 
 def _load_callable(specification: str, option: str):
     module_name, separator, function_name = specification.partition(":")
@@ -70,10 +72,10 @@ def main() -> None:
     parser.add_argument(
         "--budget",
         type=_budget,
-        default=None,
+        default=_BUDGET_OMITTED,
         help=(
             "A positive query count, or 'ulimit' to stop at a plateau "
-            "(default: ulimit)"
+            "(default: 10000 for random, ulimit for other algorithms)"
         ),
     )
     parser.add_argument("--num-candidates", type=int, default=100)
@@ -116,6 +118,11 @@ def main() -> None:
     parser.add_argument("--maximum-queries", type=int)
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
+
+    if args.budget is _BUDGET_OMITTED:
+        args.budget = 10_000 if args.algorithm == "random" else None
+    elif args.algorithm == "random" and args.budget is None:
+        parser.error("random search does not support --budget ulimit; use a number")
 
     if args.seed_file:
         initial = load_seed_sequences(

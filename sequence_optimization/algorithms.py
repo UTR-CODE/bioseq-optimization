@@ -579,6 +579,8 @@ def run(
         budgeted = scorer
         if constraint is not None:
             budgeted.set_constraint(constraint, constraint_rng)
+        if key == "random":
+            budgeted.count_repeated = True
         objective_scorer = None
     else:
         objective_scorer = ObjectiveScorer(
@@ -586,6 +588,7 @@ def run(
             TargetObjective() if objective is None else objective,
         )
         proposal_count_algorithms = {
+            "random",
             "ledidi",
             "cbas",
             "vanilla_activation_maximization",
@@ -737,6 +740,15 @@ def optimize(
         basesearch_max_stalled=basesearch_max_stalled,
         is_CDS_optimized=is_CDS_optimized,
     )
+    algorithm_key = str(algorithm).strip().lower()
+    if algorithm_key == "random":
+        if saturation is not None:
+            raise ValueError(
+                "saturation is not supported by random search; set budget instead"
+            )
+        if budget is None:
+            budget = _DEFAULT_BUDGET
+        count_repeated = True
     automatic_saturation = budget is None and saturation is None
     if automatic_saturation:
         saturation = SaturationConfig()
@@ -824,7 +836,7 @@ def optimize(
     return results[0] if len(results) == 1 else results
 
 
-def _named_optimizer(name, public_name=None, doc=None):
+def _named_optimizer(name, public_name=None, doc=None, *, default_budget=None):
     def function(model, length, initial, objective, num_candidates, **kwargs):
         if "algorithm" in kwargs:
             raise TypeError(f"{function.__name__}() does not accept algorithm")
@@ -842,13 +854,19 @@ def _named_optimizer(name, public_name=None, doc=None):
     function.__qualname__ = function.__name__
     function.__module__ = __name__
     function.__doc__ = doc or f"Optimize sequences with {name}."
-    function.__signature__ = inspect.signature(optimize).replace(
-        parameters=[
-            parameter
-            for parameter in inspect.signature(optimize).parameters.values()
-            if parameter.name != "algorithm"
+    parameters = [
+        parameter
+        for parameter in inspect.signature(optimize).parameters.values()
+        if parameter.name != "algorithm"
+    ]
+    if default_budget is not None:
+        parameters = [
+            parameter.replace(default=default_budget)
+            if parameter.name == "budget"
+            else parameter
+            for parameter in parameters
         ]
-    )
+    function.__signature__ = inspect.signature(optimize).replace(parameters=parameters)
     return function
 
 
@@ -857,7 +875,12 @@ basesearch_optimize = _named_optimizer(
     "basesearch_optimize",
     "Priority-decayed black-box search with unique mutation proposals.",
 )
-random_optimize = _named_optimizer("random", "random_optimize")
+random_optimize = _named_optimizer(
+    "random",
+    "random_optimize",
+    "Uniform random candidate sampling with a fixed proposal budget.",
+    default_budget=_DEFAULT_BUDGET,
+)
 ism_optimize = _named_optimizer("ism_greedy", "ism_optimize")
 simulated_annealing_optimize = _named_optimizer(
     "simulated_annealing", "simulated_annealing_optimize"

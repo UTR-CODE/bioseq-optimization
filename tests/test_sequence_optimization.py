@@ -23,6 +23,7 @@ from sequence_optimization import (
     run,
 )
 from sequence_optimization.api import resolve_fixed_positions
+from sequence_optimization.cli import main as cli_main
 
 
 def test_sequence_space_and_seed_sources(tmp_path):
@@ -397,20 +398,71 @@ def test_saturation_and_budget_are_mutually_exclusive():
         )
 
 
-def test_omitted_budget_returns_default_q99_plateau_selection():
+def test_random_search_omitted_budget_counts_10000_proposals():
     scorer = CallableScorer(lambda values: [value.count("G") for value in values])
     result = random_optimize(
         scorer,
         length=1,
         initial=None,
         objective=["maximize"],
-        num_candidates=4,
+        num_candidates=1,
         diversity=0,
         seed=4,
     )
-    assert result.query_count == 4
-    assert result.metadata["saturation_fraction"] == 0.99
-    assert result.metadata["stop_reason"] == "plateau"
+    assert result.query_count == 10_000
+    assert result.metadata["stop_reason"] == "budget"
+
+
+def test_random_search_rejects_saturation():
+    scorer = CallableScorer(lambda values: [value.count("G") for value in values])
+    with pytest.raises(ValueError, match="not supported by random search"):
+        random_optimize(
+            scorer,
+            length=5,
+            initial=None,
+            objective=["maximize"],
+            num_candidates=4,
+            saturation=SaturationConfig(maximum_queries=40),
+        )
+
+
+def test_random_cli_rejects_unlimited_budget(monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "sequence-optimization",
+            "--scorer",
+            "unused:score",
+            "--algorithm",
+            "random",
+            "--length",
+            "5",
+            "--budget",
+            "ulimit",
+            "--output",
+            str(tmp_path / "result.csv"),
+        ],
+    )
+    with pytest.raises(SystemExit, match="2"):
+        cli_main()
+    assert "random search does not support --budget ulimit" in capsys.readouterr().err
+
+
+def test_random_search_counts_repeated_proposals_with_cached_scorer():
+    scorer = CachedScorer(
+        CallableScorer(lambda values: [value.count("G") for value in values]),
+        budget=12,
+    )
+    result = run(
+        "random",
+        scorer,
+        length=1,
+        config=OptimizationConfig(budget=12, num_candidates=1, diversity=0),
+        initial=["A"],
+        seed=4,
+    )
+    assert result.query_count == 12
+    assert scorer.model_query_count <= 4
 
 
 def test_default_diversity_applies_to_returned_sequences():
@@ -432,7 +484,7 @@ def test_default_diversity_applies_to_returned_sequences():
 
 def test_default_diversity_applies_to_saturation_selections():
     scorer = CallableScorer(lambda values: [value.count("G") for value in values])
-    saturated = random_optimize(
+    saturated = genetic_algorithm_optimize(
         scorer,
         length=12,
         initial=None,
@@ -537,7 +589,7 @@ def test_fixed_region_uses_one_seeded_template_without_initial():
 
 
 def test_fixed_region_is_preserved_in_saturation_selections():
-    saturated = random_optimize(
+    saturated = genetic_algorithm_optimize(
         CallableScorer(lambda values: [value.count("G") for value in values]),
         length=10,
         initial=None,
@@ -654,7 +706,8 @@ def test_public_optimizers_expose_saturation_parameter():
             "num_candidates",
         ]
         assert signature.parameters["saturation"].default is None
-        assert signature.parameters["budget"].default is None
+        expected_budget = 10_000 if function is so.random_optimize else None
+        assert signature.parameters["budget"].default == expected_budget
         assert "model_weights" not in signature.parameters
         assert signature.parameters["is_CDS_optimized"].default is False
         assert signature.parameters["diversity"].default == 5
