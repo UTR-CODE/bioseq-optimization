@@ -27,18 +27,17 @@ class _SaturationReached(RuntimeError):
 class SaturationConfig:
     """Rules for stopping after the top-candidate archive reaches a plateau.
 
-    Query limits default to multiples of ``num_candidates`` so a user can run
-    without choosing an arbitrary optimization budget. ``maximum_queries`` is
-    still retained as a safety ceiling.
+    Query limits default to plateau-based stopping without a maximum query
+    ceiling. ``maximum_queries`` can be set as an optional safety limit.
     """
 
-    fractions: tuple[float, ...] = (0.8, 0.9)
+    fractions: tuple[float, ...] = (0.99,)
     minimum_queries: int | None = None
     plateau_patience_queries: int | None = None
     maximum_queries: int | None = None
     material_improvement: float = 1e-4
 
-    def resolve(self, num_candidates: int) -> tuple[int, int, int]:
+    def resolve(self, num_candidates: int) -> tuple[int, int, int | None]:
         fractions = tuple(float(value) for value in self.fractions)
         if not fractions or any(not 0 < value <= 1 for value in fractions):
             raise ValueError("saturation fractions must lie in (0, 1]")
@@ -48,10 +47,12 @@ class SaturationConfig:
             raise ValueError("material_improvement must be finite and positive")
         minimum = self.minimum_queries or 10 * num_candidates
         patience = self.plateau_patience_queries or 20 * num_candidates
-        maximum = self.maximum_queries or 1000 * num_candidates
-        if minimum < num_candidates or patience < 1 or maximum < minimum:
+        maximum = self.maximum_queries
+        if minimum < num_candidates or patience < 1 or (
+            maximum is not None and maximum < minimum
+        ):
             raise ValueError("invalid saturation query limits")
-        return int(minimum), int(patience), int(maximum)
+        return int(minimum), int(patience), None if maximum is None else int(maximum)
 
 
 @dataclass
@@ -94,6 +95,13 @@ class _SaturationMonitor:
         self.snapshots: list[tuple[int, np.ndarray, np.ndarray, np.ndarray]] = []
         self.material_level = -np.inf
         self.last_material_query = 0
+
+    def reset(self, query_count: int) -> None:
+        """Restart plateau tracking after a numeric target changes the objective."""
+        self.archive.clear()
+        self.snapshots.clear()
+        self.material_level = -np.inf
+        self.last_material_query = query_count
 
     def observe(
         self, sequences: np.ndarray, batch: ScoreBatch, query_count: int
@@ -148,19 +156,26 @@ class _TrackingScorer(CachedScorer):
     def __init__(self, *args, monitor: _SaturationMonitor, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.monitor = monitor
+        self._monitor_objective_version = self.objective_version
 
     def score(self, sequences) -> ScoreBatch:
         values = np.asarray(sequences, dtype=str).reshape(-1)
         batch = super().score(values)
-        passed = self.constraints_passed(values)
+        objective_changed = self.objective_version != self._monitor_objective_version
+        if objective_changed:
+            self.monitor.reset(self.query_count)
+            self._monitor_objective_version = self.objective_version
+        tracked = (
+            np.asarray(list(self._cache), dtype=str) if objective_changed else values
+        )
+        passed = self.hard_constraints_passed(tracked)
         if passed.any():
+            accepted = tracked[passed]
             self.monitor.observe(
-                values[passed],
+                accepted,
                 ScoreBatch(
-                    batch.scores[passed],
-                    None
-                    if batch.uncertainties is None
-                    else batch.uncertainties[passed],
+                    self.current_scores(accepted),
+                    self.current_uncertainties(accepted),
                 ),
                 self.query_count,
             )
@@ -248,8 +263,8 @@ def _optimize_with_saturation(
 ) -> SaturationResult:
     """Run until a plateau and return q-fraction candidate sets.
 
-    A q80 result is the earliest archive whose top-candidate mean reaches 80%
-    of the gain between the first valid archive and the final observed plateau.
+    A q-fraction result is the earliest archive whose top-candidate mean reaches
+    that fraction of the gain from the first valid archive to the observed plateau.
     """
     from .algorithms import (
         _REGISTRY,
@@ -268,7 +283,7 @@ def _optimize_with_saturation(
     options = saturation
     minimum, patience, maximum = options.resolve(num_candidates)
     config = OptimizationConfig(
-        budget=maximum,
+        budget=maximum or max(1000 * num_candidates, minimum + patience),
         num_candidates=num_candidates,
         **optimizer_parameters,
     )
@@ -282,14 +297,6 @@ def _optimize_with_saturation(
         scorer,
         TargetObjective() if objective is None else objective,
     )
-    if (
-        isinstance(objective_scorer.objective, MultiTaskObjective)
-        and objective_scorer.objective.target_thresholds()
-    ):
-        raise ValueError(
-            "numeric objective targets cannot be combined with saturation; "
-            "use the target stopping rule with a fixed safety budget"
-        )
     space = _apply_fixed_region(space, config.fixed_region, initial, rng)
     prepared = _initial(initial, space, config, rng)
     monitor = _SaturationMonitor(
@@ -318,7 +325,9 @@ def _optimize_with_saturation(
     stop_reason = "algorithm_stopped"
     try:
         _REGISTRY[key](prepared, budgeted, space, config, rng)
-        if budgeted.query_count >= maximum:
+        if objective_scorer.target_stop_reached:
+            stop_reason = "target_reached"
+        elif maximum is not None and budgeted.query_count >= maximum:
             stop_reason = "maximum_queries"
     except _SaturationReached:
         stop_reason = "plateau"

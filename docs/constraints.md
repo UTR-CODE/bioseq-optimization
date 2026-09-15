@@ -45,10 +45,6 @@ result = genetic_algorithm_optimize(
     objective=["maximize"],
     num_candidates=4,
     constraint=[gc_at_most_60, excludes_motifs],
-    budget=1000,
-    mutation_rate=0.1,
-    elite_fraction=0.5,
-    seed=7,
 )
 print(result.to_frame())
 print(result.metadata["constraint"])
@@ -90,8 +86,6 @@ result = genetic_algorithm_optimize(
     objective=["maximize"],
     num_candidates=4,
     constraint=gc_between_40_and_60,
-    budget=1000,
-    seed=7,
 )
 ```
 

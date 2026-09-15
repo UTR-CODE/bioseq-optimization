@@ -52,10 +52,6 @@ results = genetic_algorithm_optimize(
     objective=["maximize"],
     num_candidates=4,
     is_CDS_optimized=True,
-    budget=4000,
-    mutation_rate=0.1,
-    elite_fraction=0.5,
-    seed=7,
 )
 for result in results:
     print(result.to_frame())

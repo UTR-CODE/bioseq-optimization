@@ -26,8 +26,6 @@ result = genetic_algorithm_optimize(
     initial=initial,
     objective=["maximize"],
     num_candidates=4,
-    budget=1000,
-    seed=7,
 )
 ```
 
@@ -83,8 +81,6 @@ result = genetic_algorithm_optimize(
     objective=["maximize"],
     num_candidates=4,
     fixed_region=["1:3", "-3:-1", "-35:-20"],
-    budget=1000,
-    seed=7,
 )
 ```
 
@@ -117,15 +113,17 @@ result columns, and screening counts.
 ## Candidate count and budgets
 
 `num_candidates` controls both the number of starting sequences and the number
-of sequences retained in the result. In fixed-budget mode, `budget` defaults to
-10,000 and must be at least `num_candidates`. It limits candidate query or
-proposal accounting; it is not a training epoch count and does not mean that
-the final result contains that many sequences.
+of sequences retained in the result. The default `budget=None` places no fixed
+limit on candidate queries. The optimizer stops from observed plateau progress
+and returns the q99 selection. Set `budget` to a positive integer for a
+fixed-budget run; it must be at least `num_candidates`. A fixed budget limits
+candidate query or proposal accounting, not training epochs or result size.
 
-Discrete optimizers use a cache. With the default `count_repeated=False`, a
-sequence already scored by the wrapped scorer is a cache hit and does not
-consume another counted query. Set `count_repeated=True` when every proposal,
-including repeated sequences, should consume budget. The result's
+Discrete optimizers use a cache. Default plateau searches count repeated
+proposals so duplicate rounds advance the patience window without another model
+call. In a fixed-budget or custom-saturation run with
+`count_repeated=False`, a cached sequence does not consume another counted
+query. Set `count_repeated=True` to count every proposal. The result's
 `query_count` reports the counted amount.
 
 The gradient optimizers (`vanilla_activation_maximization_optimize`,
@@ -151,20 +149,22 @@ optimizer-budget candidates.
 
 ## Stop at saturation
 
-Pass `saturation=SaturationConfig(...)` to an optimizer to continue until the
-retained-candidate mean score stops making material progress, then return
-candidate sets at selected fractions of the observed gain. `maximum_queries`
-is a safety ceiling.
+With `budget` and `saturation` omitted, an optimizer continues until the
+retained-candidate mean score stops making material progress and returns the
+earliest candidate set at 99% of the observed gain. This default q99 value is
+an `OptimizationResult`.
 
-When `saturation` is set, omit `budget`; supplying both raises `ValueError`.
-When `saturation=None`, omitting `budget` uses 10,000. Saturation query limits are:
+Pass `saturation=SaturationConfig(...)` to customize the plateau rules or
+request multiple gain fractions. This form returns a `SaturationResult`. Omit
+`budget` whenever `saturation` is supplied; using both raises `ValueError`.
+Saturation parameters are:
 
 | Parameter | Default | Meaning |
 |---|---|---|
-| `fractions` | `(0.8, 0.9)` | Fractions of observed baseline-to-plateau gain to return |
+| `fractions` | `(0.99,)` | Fractions of observed baseline-to-plateau gain to return |
 | `minimum_queries` | `10 * num_candidates` | Minimum counted queries before plateau stopping is allowed |
 | `plateau_patience_queries` | `20 * num_candidates` | Counted queries without material improvement before plateau stopping |
-| `maximum_queries` | `1000 * num_candidates` | Safety ceiling on counted queries |
+| `maximum_queries` | `None` | Optional safety ceiling on counted queries |
 | `material_improvement` | `1e-4` | Minimum top-candidate-mean improvement considered material |
 
 ```python
@@ -187,7 +187,6 @@ saturated = genetic_algorithm_optimize(
         plateau_patience_queries=80,
         maximum_queries=400,
     ),
-    seed=7,
 )
 
 q80 = saturated[0.8]
@@ -215,9 +214,9 @@ the baseline and plateau means in `metadata`.
 A stop reason of `"plateau"` indicates that the configured patience window
 found no material improvement. `"maximum_queries"` indicates that the safety
 ceiling was reached, and `"algorithm_stopped"` indicates that the selected
-algorithm ended before either condition. Saturation stopping is an observed
-progress rule with a safety ceiling; it does not guarantee that a biological
-or model-specific optimum has been reached.
+algorithm ended before either condition. `"target_reached"` indicates that a
+target-only numeric objective was satisfied. Saturation stopping describes
+observed progress; it does not guarantee a biological or model-specific optimum.
 
 ## Objectives and returned data
 
@@ -225,8 +224,8 @@ Pass one entry per model output: `"maximize"`, `"minimize"`, `"ignore"`, or
 a finite numeric target. A numeric entry is a raw-output lower target. Once it
 is reached, later selection preserves that threshold while optimizing any
 remaining directions; a target-only search stops when one candidate satisfies
-all numeric entries. Numeric targets use fixed-budget mode and cannot be
-combined with saturation. Active outputs use an equal-weight signed mean. Use
+all numeric entries. Numeric targets also work with the default q99 mode and
+with a custom `SaturationConfig`. Active outputs use an equal-weight signed mean. Use
 [`MultiTaskObjective`](objectives.md) for fixed centers, scales, another
 aggregation, or explicit lower and upper bounds.
 

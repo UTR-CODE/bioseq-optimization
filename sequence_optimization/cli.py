@@ -7,7 +7,7 @@ import importlib
 import json
 from pathlib import Path
 
-from .algorithms import _DEFAULT_BUDGET, available_algorithms, optimize, run
+from .algorithms import available_algorithms, optimize, run
 from .api import CallableScorer, OptimizationConfig
 from .objectives import TargetObjective
 from .saturation import SaturationConfig
@@ -32,7 +32,7 @@ def _target(value: str) -> int | str:
 
 
 def _budget(value: str) -> int | None:
-    if value.strip().lower() in {"unlimited", "unlimit", "none"}:
+    if value.strip().lower() in {"ulimit", "unlimited", "unlimit", "none"}:
         return None
     result = int(value)
     if result < 1:
@@ -70,10 +70,10 @@ def main() -> None:
     parser.add_argument(
         "--budget",
         type=_budget,
-        default=_DEFAULT_BUDGET,
+        default=None,
         help=(
-            f"A positive query count (default: {_DEFAULT_BUDGET}), "
-            "or 'unlimited' to stop at a plateau"
+            "A positive query count, or 'ulimit' to stop at a plateau "
+            "(default: ulimit)"
         ),
     )
     parser.add_argument("--num-candidates", type=int, default=100)
@@ -108,8 +108,8 @@ def main() -> None:
     )
     parser.add_argument(
         "--saturation-fractions",
-        default="0.8,0.9",
-        help="Selections to retain with --budget unlimited (default: 0.8,0.9)",
+        default="0.99",
+        help="Selections to retain with --budget ulimit (default: 0.99)",
     )
     parser.add_argument("--minimum-queries", type=int)
     parser.add_argument("--plateau-patience-queries", type=int)

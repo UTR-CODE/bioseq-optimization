@@ -24,7 +24,7 @@ the published model input.
 ## 93-nt variable-region design
 
 The nine black-box optimizers use the adapter's fixed-context scorer. Every call
-below has four explicit seeds, a 2,000-query budget, and a fixed seed.
+below uses the same four explicit seeds.
 
 ```python
 from bioseq_models import load_model
@@ -51,39 +51,39 @@ initial = random_seed_sequences(length=93, count=4, seed=7)
 
 result_random = random_optimize(
     model, length=93, initial=initial, objective=["maximize"],
-    num_candidates=4, budget=2000, seed=7,
+    num_candidates=4,
 )
 result_genetic = genetic_algorithm_optimize(
     model, length=93, initial=initial, objective=["maximize"],
-    num_candidates=4, budget=2000, seed=7,
+    num_candidates=4,
 )
 result_ism = ism_optimize(
     model, length=93, initial=initial, objective=["maximize"],
-    num_candidates=4, budget=2000, seed=7,
+    num_candidates=4,
 )
 result_annealing = simulated_annealing_optimize(
     model, length=93, initial=initial, objective=["maximize"],
-    num_candidates=4, budget=2000, seed=7,
+    num_candidates=4,
 )
 result_adalead = adalead_optimize(
     model, length=93, initial=initial, objective=["maximize"],
-    num_candidates=4, budget=2000, seed=7,
+    num_candidates=4,
 )
 result_beam = beam_search_optimize(
     model, length=93, initial=initial, objective=["maximize"],
-    num_candidates=4, budget=2000, seed=7,
+    num_candidates=4,
 )
 result_cross_entropy = cross_entropy_optimize(
     model, length=93, initial=initial, objective=["maximize"],
-    num_candidates=4, budget=2000, seed=7,
+    num_candidates=4,
 )
 result_basesearch = basesearch_optimize(
     model, length=93, initial=initial, objective=["maximize"],
-    num_candidates=4, budget=2000, seed=7,
+    num_candidates=4,
 )
 result_cbas = cbas_optimize(
     model, length=93, initial=initial, objective=["maximize"],
-    num_candidates=4, budget=2000, seed=7,
+    num_candidates=4,
 )
 ```
 
@@ -142,19 +142,19 @@ initial = random_seed_sequences(length=93, count=4, seed=7)
 
 result_vanilla = vanilla_activation_maximization_optimize(
     gradient_model, length=93, initial=initial, objective=["maximize"],
-    num_candidates=4, budget=4000, seed=7,
+    num_candidates=4,
 )
 result_fast_seqprop = fast_seqprop_optimize(
     gradient_model, length=93, initial=initial, objective=["maximize"],
-    num_candidates=4, budget=4000, seed=7,
+    num_candidates=4,
 )
 result_den = den_optimize(
     gradient_model, length=93, initial=initial, objective=["maximize"],
-    num_candidates=4, budget=4000, seed=7,
+    num_candidates=4,
 )
 result_ledidi = ledidi_optimize(
     gradient_model, length=93, initial=initial, objective=["maximize"],
-    num_candidates=4, budget=4000, seed=7,
+    num_candidates=4,
 )
 ```
 

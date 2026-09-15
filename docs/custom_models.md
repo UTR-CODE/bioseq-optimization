@@ -21,7 +21,7 @@ predictions = predictor.score(["ACGT" * 5]).scores
 initial = random_seed_sequences(length=20, count=4, seed=7)
 result = basesearch_optimize(
     predictor, length=20, initial=initial, objective=["maximize"],
-    num_candidates=4, budget=1000, seed=7,
+    num_candidates=4,
 )
 ```
 
@@ -67,7 +67,7 @@ print(predictor.score(["AGGT", "AAAA"]).scores)
 initial = random_seed_sequences(length=20, count=4, seed=7)
 result = basesearch_optimize(
     predictor, length=20, initial=initial, objective=["maximize"],
-    num_candidates=4, budget=1000, seed=7,
+    num_candidates=4,
 )
 print(result.to_frame())
 ```
@@ -99,7 +99,7 @@ predictor = DifferentiableSequencePredictor(
 initial = random_seed_sequences(length=20, count=4, seed=7)
 result = ledidi_optimize(
     predictor, length=20, initial=initial, objective=["maximize"],
-    num_candidates=4, budget=1000, seed=7,
+    num_candidates=4,
 )
 ```
 

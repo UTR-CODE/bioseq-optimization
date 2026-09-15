@@ -8,8 +8,8 @@ Before a numeric target is reached, its margin contributes to the objective.
 Once a candidate reaches it, later selection keeps that
 output at or above the target and continues optimizing the other entries. With
 only numeric targets and `ignore` entries, the search stops when one scored
-candidate satisfies every numeric target. A fixed budget remains the safety
-ceiling. Numeric targets cannot be combined with saturation stopping.
+candidate satisfies every numeric target. A positive `budget` can provide a
+fixed query limit; otherwise the default plateau rules apply.
 
 Direction lists use the equal-weight mean of active signed outputs.
 
@@ -23,7 +23,6 @@ targeted = genetic_algorithm_optimize(
     initial=initial,
     objective=[0.8, "maximize", "ignore"],
     num_candidates=100,
-    budget=10_000,
 )
 ```
 

@@ -22,7 +22,7 @@ complete-transcript stability model.
 ## Cetnar decay alone
 
 The nine black-box optimizers can minimize the decay output. Each call below
-uses the same explicit four-sequence 80-nt seed set and a 2,000-query budget.
+uses the same explicit four-sequence 80-nt seed set.
 
 ```python
 from bioseq_models import load_model
@@ -50,39 +50,39 @@ initial = random_seed_sequences(length=80, count=4, seed=7)
 
 result_random = random_optimize(
     model, length=80, initial=initial, objective=["minimize"],
-    num_candidates=4, budget=2000, seed=7,
+    num_candidates=4,
 )
 result_genetic = genetic_algorithm_optimize(
     model, length=80, initial=initial, objective=["minimize"],
-    num_candidates=4, budget=2000, seed=7,
+    num_candidates=4,
 )
 result_ism = ism_optimize(
     model, length=80, initial=initial, objective=["minimize"],
-    num_candidates=4, budget=2000, seed=7,
+    num_candidates=4,
 )
 result_annealing = simulated_annealing_optimize(
     model, length=80, initial=initial, objective=["minimize"],
-    num_candidates=4, budget=2000, seed=7,
+    num_candidates=4,
 )
 result_adalead = adalead_optimize(
     model, length=80, initial=initial, objective=["minimize"],
-    num_candidates=4, budget=2000, seed=7,
+    num_candidates=4,
 )
 result_beam = beam_search_optimize(
     model, length=80, initial=initial, objective=["minimize"],
-    num_candidates=4, budget=2000, seed=7,
+    num_candidates=4,
 )
 result_cross_entropy = cross_entropy_optimize(
     model, length=80, initial=initial, objective=["minimize"],
-    num_candidates=4, budget=2000, seed=7,
+    num_candidates=4,
 )
 result_basesearch = basesearch_optimize(
     model, length=80, initial=initial, objective=["minimize"],
-    num_candidates=4, budget=2000, seed=7,
+    num_candidates=4,
 )
 result_cbas = cbas_optimize(
     model, length=80, initial=initial, objective=["minimize"],
-    num_candidates=4, budget=2000, seed=7,
+    num_candidates=4,
 )
 ```
 
@@ -112,19 +112,19 @@ gradient_model = DifferentiableSequencePredictor(
 initial = random_seed_sequences(length=80, count=4, seed=7)
 result_vanilla = vanilla_activation_maximization_optimize(
     gradient_model, length=80, initial=initial, objective=["minimize"],
-    num_candidates=4, budget=4000, seed=7,
+    num_candidates=4,
 )
 result_fast_seqprop = fast_seqprop_optimize(
     gradient_model, length=80, initial=initial, objective=["minimize"],
-    num_candidates=4, budget=4000, seed=7,
+    num_candidates=4,
 )
 result_den = den_optimize(
     gradient_model, length=80, initial=initial, objective=["minimize"],
-    num_candidates=4, budget=4000, seed=7,
+    num_candidates=4,
 )
 result_ledidi = ledidi_optimize(
     gradient_model, length=80, initial=initial, objective=["minimize"],
-    num_candidates=4, budget=4000, seed=7,
+    num_candidates=4,
 )
 ```
 
@@ -186,47 +186,38 @@ from sequence_optimization import (
 result_random = random_optimize(
     joint_scorer, length=80, initial=initial_joint,
     objective=["minimize", "maximize"], num_candidates=4,
-    budget=2000, seed=7,
 )
 result_genetic = genetic_algorithm_optimize(
     joint_scorer, length=80, initial=initial_joint,
     objective=["minimize", "maximize"], num_candidates=4,
-    budget=2000, seed=7,
 )
 result_ism = ism_optimize(
     joint_scorer, length=80, initial=initial_joint,
     objective=["minimize", "maximize"], num_candidates=4,
-    budget=2000, seed=7,
 )
 result_annealing = simulated_annealing_optimize(
     joint_scorer, length=80, initial=initial_joint,
     objective=["minimize", "maximize"], num_candidates=4,
-    budget=2000, seed=7,
 )
 result_adalead = adalead_optimize(
     joint_scorer, length=80, initial=initial_joint,
     objective=["minimize", "maximize"], num_candidates=4,
-    budget=2000, seed=7,
 )
 result_beam = beam_search_optimize(
     joint_scorer, length=80, initial=initial_joint,
     objective=["minimize", "maximize"], num_candidates=4,
-    budget=2000, seed=7,
 )
 result_cross_entropy = cross_entropy_optimize(
     joint_scorer, length=80, initial=initial_joint,
     objective=["minimize", "maximize"], num_candidates=4,
-    budget=2000, seed=7,
 )
 result_basesearch = basesearch_optimize(
     joint_scorer, length=80, initial=initial_joint,
     objective=["minimize", "maximize"], num_candidates=4,
-    budget=2000, seed=7,
 )
 result_cbas = cbas_optimize(
     joint_scorer, length=80, initial=initial_joint,
     objective=["minimize", "maximize"], num_candidates=4,
-    budget=2000, seed=7,
 )
 ```
 

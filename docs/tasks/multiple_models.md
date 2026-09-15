@@ -105,68 +105,67 @@ the black-box `score` method and the last four also use differentiable
 ```python
 random_result = random_optimize(
     predictor, length=20, initial=initial,
-    objective=["maximize", "minimize", "minimize"], num_candidates=4, budget=1000, seed=7,
+    objective=["maximize", "minimize", "minimize"], num_candidates=4,
 )
 
 genetic_result = genetic_algorithm_optimize(
     predictor, length=20, initial=initial,
-    objective=["maximize", "minimize", "minimize"], num_candidates=4, budget=1000,
-    mutation_rate=0.1, elite_fraction=0.5, seed=7,
+    objective=["maximize", "minimize", "minimize"], num_candidates=4,
 )
 
 ism_result = ism_optimize(
     predictor, length=20, initial=initial,
-    objective=["maximize", "minimize", "minimize"], num_candidates=4, budget=1000, seed=7,
+    objective=["maximize", "minimize", "minimize"], num_candidates=4,
 )
 
 annealing_result = simulated_annealing_optimize(
     predictor, length=20, initial=initial,
-    objective=["maximize", "minimize", "minimize"], num_candidates=4, budget=1000, seed=7,
+    objective=["maximize", "minimize", "minimize"], num_candidates=4,
 )
 
 adalead_result = adalead_optimize(
     predictor, length=20, initial=initial,
-    objective=["maximize", "minimize", "minimize"], num_candidates=4, budget=1000, seed=7,
+    objective=["maximize", "minimize", "minimize"], num_candidates=4,
 )
 
 beam_result = beam_search_optimize(
     predictor, length=20, initial=initial,
-    objective=["maximize", "minimize", "minimize"], num_candidates=4, budget=1000, seed=7,
+    objective=["maximize", "minimize", "minimize"], num_candidates=4,
 )
 
 cross_entropy_result = cross_entropy_optimize(
     predictor, length=20, initial=initial,
-    objective=["maximize", "minimize", "minimize"], num_candidates=4, budget=1000, seed=7,
+    objective=["maximize", "minimize", "minimize"], num_candidates=4,
 )
 
 basesearch_result = basesearch_optimize(
     predictor, length=20, initial=initial,
-    objective=["maximize", "minimize", "minimize"], num_candidates=4, budget=1000, seed=7,
+    objective=["maximize", "minimize", "minimize"], num_candidates=4,
 )
 
 cbas_result = cbas_optimize(
     predictor, length=20, initial=initial,
-    objective=["maximize", "minimize", "minimize"], num_candidates=4, budget=1000, seed=7,
+    objective=["maximize", "minimize", "minimize"], num_candidates=4,
 )
 
 vanilla_result = vanilla_activation_maximization_optimize(
     predictor, length=20, initial=initial,
-    objective=["maximize", "minimize", "minimize"], num_candidates=4, budget=1000, seed=7,
+    objective=["maximize", "minimize", "minimize"], num_candidates=4,
 )
 
 fast_seqprop_result = fast_seqprop_optimize(
     predictor, length=20, initial=initial,
-    objective=["maximize", "minimize", "minimize"], num_candidates=4, budget=1000, seed=7,
+    objective=["maximize", "minimize", "minimize"], num_candidates=4,
 )
 
 den_result = den_optimize(
     predictor, length=20, initial=initial,
-    objective=["maximize", "minimize", "minimize"], num_candidates=4, budget=1000, seed=7,
+    objective=["maximize", "minimize", "minimize"], num_candidates=4,
 )
 
 ledidi_result = ledidi_optimize(
     predictor, length=20, initial=initial,
-    objective=["maximize", "minimize", "minimize"], num_candidates=4, budget=1000, seed=7,
+    objective=["maximize", "minimize", "minimize"], num_candidates=4,
 )
 ```
 
@@ -182,9 +181,7 @@ to `maximize`:
 ```python
 all_high_result = genetic_algorithm_optimize(
     predictor, length=20, initial=initial,
-    objective=["maximize", "maximize", "maximize"], num_candidates=4, budget=1000,
-    mutation_rate=0.1, elite_fraction=0.5,
-    seed=7,
+    objective=["maximize", "maximize", "maximize"], num_candidates=4,
 )
 ```
 

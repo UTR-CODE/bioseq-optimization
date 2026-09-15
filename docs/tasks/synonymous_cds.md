@@ -18,10 +18,6 @@ results = genetic_algorithm_optimize(
     objective=["maximize"],
     num_candidates=4,
     is_CDS_optimized=True,
-    budget=4000,
-    mutation_rate=0.1,
-    elite_fraction=0.5,
-    seed=7,
 )
 for result in results:
     print(result.to_frame())
@@ -61,15 +57,12 @@ saturated_results = genetic_algorithm_optimize(
     objective=["maximize"],
     num_candidates=4,
     is_CDS_optimized=True,
-    mutation_rate=0.1,
-    elite_fraction=0.5,
     saturation=SaturationConfig(
         fractions=(0.8, 0.9),
         minimum_queries=40,
         plateau_patience_queries=80,
         maximum_queries=800,
     ),
-    seed=7,
 )
 for saturated in saturated_results:
     q80 = saturated[0.8]

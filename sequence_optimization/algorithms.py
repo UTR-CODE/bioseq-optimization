@@ -737,6 +737,9 @@ def optimize(
         basesearch_max_stalled=basesearch_max_stalled,
         is_CDS_optimized=is_CDS_optimized,
     )
+    automatic_saturation = budget is None and saturation is None
+    if automatic_saturation:
+        saturation = SaturationConfig()
     if saturation is not None and budget is not None:
         raise ValueError("budget is invalid when saturation is set; omit budget")
     if saturation is not None and not isinstance(saturation, SaturationConfig):
@@ -746,7 +749,7 @@ def optimize(
         if saturation is not None:
             from .saturation import _optimize_with_saturation
 
-            return _optimize_with_saturation(
+            saturated = _optimize_with_saturation(
                 model,
                 length,
                 algorithm=algorithm,
@@ -756,9 +759,10 @@ def optimize(
                 constraint=constraint,
                 saturation=saturation,
                 seed=one_seed,
-                count_repeated=count_repeated,
+                count_repeated=count_repeated or automatic_saturation,
                 **parameters,
             )
+            return saturated[0.99] if automatic_saturation else saturated
         resolved_budget = _DEFAULT_BUDGET if budget is None else budget
         config = OptimizationConfig(budget=resolved_budget, **parameters)
         return run(
@@ -787,7 +791,7 @@ def optimize(
 
     prepared_cds = []
     seed_config = OptimizationConfig(
-        budget=_DEFAULT_BUDGET if budget is None else budget,
+        budget=max(_DEFAULT_BUDGET, num_candidates) if budget is None else budget,
         **parameters,
     )
     for offset, value in enumerate(cds_values):

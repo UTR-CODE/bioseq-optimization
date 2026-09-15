@@ -27,7 +27,7 @@ transcript sequences.
 ## 5′UTR design
 
 The nine black-box optimizers operate on the fixed-context scorer. The examples
-use four explicit 50-nt seeds and a 2,000-query budget.
+use four explicit 50-nt seeds.
 
 ```python
 from bioseq_models import load_model
@@ -60,39 +60,39 @@ initial_5utr = random_seed_sequences(length=50, count=4, seed=7)
 
 result_random = random_optimize(
     model_5utr, length=50, initial=initial_5utr, objective=["maximize"],
-    num_candidates=4, budget=2000, seed=7,
+    num_candidates=4,
 )
 result_genetic = genetic_algorithm_optimize(
     model_5utr, length=50, initial=initial_5utr, objective=["maximize"],
-    num_candidates=4, budget=2000, seed=7,
+    num_candidates=4,
 )
 result_ism = ism_optimize(
     model_5utr, length=50, initial=initial_5utr, objective=["maximize"],
-    num_candidates=4, budget=2000, seed=7,
+    num_candidates=4,
 )
 result_annealing = simulated_annealing_optimize(
     model_5utr, length=50, initial=initial_5utr, objective=["maximize"],
-    num_candidates=4, budget=2000, seed=7,
+    num_candidates=4,
 )
 result_adalead = adalead_optimize(
     model_5utr, length=50, initial=initial_5utr, objective=["maximize"],
-    num_candidates=4, budget=2000, seed=7,
+    num_candidates=4,
 )
 result_beam = beam_search_optimize(
     model_5utr, length=50, initial=initial_5utr, objective=["maximize"],
-    num_candidates=4, budget=2000, seed=7,
+    num_candidates=4,
 )
 result_cross_entropy = cross_entropy_optimize(
     model_5utr, length=50, initial=initial_5utr, objective=["maximize"],
-    num_candidates=4, budget=2000, seed=7,
+    num_candidates=4,
 )
 result_basesearch = basesearch_optimize(
     model_5utr, length=50, initial=initial_5utr, objective=["maximize"],
-    num_candidates=4, budget=2000, seed=7,
+    num_candidates=4,
 )
 result_cbas = cbas_optimize(
     model_5utr, length=50, initial=initial_5utr, objective=["maximize"],
-    num_candidates=4, budget=2000, seed=7,
+    num_candidates=4,
 )
 ```
 
@@ -138,39 +138,39 @@ initial_3utr = random_seed_sequences(length=80, count=4, seed=7)
 
 result_random = random_optimize(
     model_3utr, length=80, initial=initial_3utr, objective=["maximize"],
-    num_candidates=4, budget=2000, seed=7,
+    num_candidates=4,
 )
 result_genetic = genetic_algorithm_optimize(
     model_3utr, length=80, initial=initial_3utr, objective=["maximize"],
-    num_candidates=4, budget=2000, seed=7,
+    num_candidates=4,
 )
 result_ism = ism_optimize(
     model_3utr, length=80, initial=initial_3utr, objective=["maximize"],
-    num_candidates=4, budget=2000, seed=7,
+    num_candidates=4,
 )
 result_annealing = simulated_annealing_optimize(
     model_3utr, length=80, initial=initial_3utr, objective=["maximize"],
-    num_candidates=4, budget=2000, seed=7,
+    num_candidates=4,
 )
 result_adalead = adalead_optimize(
     model_3utr, length=80, initial=initial_3utr, objective=["maximize"],
-    num_candidates=4, budget=2000, seed=7,
+    num_candidates=4,
 )
 result_beam = beam_search_optimize(
     model_3utr, length=80, initial=initial_3utr, objective=["maximize"],
-    num_candidates=4, budget=2000, seed=7,
+    num_candidates=4,
 )
 result_cross_entropy = cross_entropy_optimize(
     model_3utr, length=80, initial=initial_3utr, objective=["maximize"],
-    num_candidates=4, budget=2000, seed=7,
+    num_candidates=4,
 )
 result_basesearch = basesearch_optimize(
     model_3utr, length=80, initial=initial_3utr, objective=["maximize"],
-    num_candidates=4, budget=2000, seed=7,
+    num_candidates=4,
 )
 result_cbas = cbas_optimize(
     model_3utr, length=80, initial=initial_3utr, objective=["maximize"],
-    num_candidates=4, budget=2000, seed=7,
+    num_candidates=4,
 )
 ```
 
@@ -211,10 +211,6 @@ results = genetic_algorithm_optimize(
     objective=["maximize"],
     num_candidates=4,
     is_CDS_optimized=True,
-    budget=4000,
-    mutation_rate=0.1,
-    elite_fraction=0.5,
-    seed=7,
 )
 for result in results:
     print(result.to_frame())

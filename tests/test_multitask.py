@@ -6,7 +6,6 @@ from sequence_optimization import (
     CachedScorer,
     CallableScorer,
     MultiTaskObjective,
-    SaturationConfig,
     SequenceSpace,
     basesearch_optimize,
     genetic_algorithm_optimize,
@@ -180,18 +179,20 @@ def test_numeric_targets_lock_only_a_jointly_feasible_prefix():
     assert not wrapped.target_stop_reached
 
 
-def test_numeric_targets_are_incompatible_with_saturation():
-    scorer = CallableScorer(lambda values: np.zeros(len(values)))
-    with pytest.raises(ValueError, match="cannot be combined with saturation"):
-        genetic_algorithm_optimize(
-            scorer,
-            SequenceSpace(8),
-            initial=None,
-            objective=[1.0],
-            num_candidates=2,
-            diversity=0,
-            saturation=SaturationConfig(maximum_queries=20),
-        )
+def test_numeric_target_can_return_default_q99_selection():
+    scorer = CallableScorer(lambda values: [value.count("G") for value in values])
+    result = genetic_algorithm_optimize(
+        scorer,
+        SequenceSpace(4),
+        initial=["AAAA", "CCCC", "GGGG", "TTTT"],
+        objective=[4.0],
+        num_candidates=4,
+        diversity=0,
+    )
+    assert result.query_count == 4
+    assert result.metadata["saturation_fraction"] == 0.99
+    assert result.metadata["stop_reason"] == "target_reached"
+    assert result.activities[0, 0] == 4
 
 
 @pytest.mark.parametrize(

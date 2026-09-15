@@ -24,9 +24,7 @@ and [objective options](../objectives.md).
 
 All nine black-box optimizers use the model's `score` method through the public
 optimizer API. This shared setup creates four reproducible 249-nt starting
-sequences. Each call states its own budget, initial population, and objective.
-The 1000-query examples leave enough budget for the initial four sequences and
-one complete DNA single-mutant neighborhood in ISM.
+sequences. Each call uses the five required optimizer arguments.
 
 ```python
 from bioseq_models import load_model
@@ -48,45 +46,45 @@ initial = random_seed_sequences(249, count=4, seed=7)
 
 random_result = random_optimize(
     model, length=249, initial=initial,
-    objective=["minimize", "maximize"], num_candidates=4, budget=1000, seed=7,
+    objective=["minimize", "maximize"], num_candidates=4,
 )
 ism_result = ism_optimize(
     model, length=249, initial=initial,
-    objective=["minimize", "maximize"], num_candidates=4, budget=1000, seed=7,
+    objective=["minimize", "maximize"], num_candidates=4,
 )
 annealing_result = simulated_annealing_optimize(
     model, length=249, initial=initial,
-    objective=["minimize", "maximize"], num_candidates=4, budget=1000, seed=7,
+    objective=["minimize", "maximize"], num_candidates=4,
 )
 genetic_result = genetic_algorithm_optimize(
     model, length=249, initial=initial,
-    objective=["minimize", "maximize"], num_candidates=4, budget=1000, seed=7,
+    objective=["minimize", "maximize"], num_candidates=4,
 )
 adalead_result = adalead_optimize(
     model, length=249, initial=initial,
-    objective=["minimize", "maximize"], num_candidates=4, budget=1000, seed=7,
+    objective=["minimize", "maximize"], num_candidates=4,
 )
 basesearch_result = basesearch_optimize(
     model, length=249, initial=initial,
-    objective=["minimize", "maximize"], num_candidates=4, budget=1000, seed=7,
+    objective=["minimize", "maximize"], num_candidates=4,
 )
 beam_result = beam_search_optimize(
     model, length=249, initial=initial,
-    objective=["minimize", "maximize"], num_candidates=4, budget=1000, seed=7,
+    objective=["minimize", "maximize"], num_candidates=4,
 )
 cross_entropy_result = cross_entropy_optimize(
     model, length=249, initial=initial,
-    objective=["minimize", "maximize"], num_candidates=4, budget=1000, seed=7,
+    objective=["minimize", "maximize"], num_candidates=4,
 )
 cbas_result = cbas_optimize(
     model, length=249, initial=initial,
-    objective=["minimize", "maximize"], num_candidates=4, budget=1000, seed=7,
+    objective=["minimize", "maximize"], num_candidates=4,
 )
 
 # To raise both outputs, use an all-maximize direction list:
 all_high_result = genetic_algorithm_optimize(
     model, length=249, initial=initial,
-    objective=["maximize", "maximize"], num_candidates=4, budget=1000, seed=7,
+    objective=["maximize", "maximize"], num_candidates=4,
 )
 ```
 
@@ -121,19 +119,19 @@ gradient_model = DifferentiableSequencePredictor(
 
 vanilla_result = vanilla_activation_maximization_optimize(
     gradient_model, length=249, initial=initial,
-    objective=["minimize", "maximize"], num_candidates=4, budget=1000, seed=7,
+    objective=["minimize", "maximize"], num_candidates=4,
 )
 fast_seqprop_result = fast_seqprop_optimize(
     gradient_model, length=249, initial=initial,
-    objective=["minimize", "maximize"], num_candidates=4, budget=1000, seed=7,
+    objective=["minimize", "maximize"], num_candidates=4,
 )
 ledidi_result = ledidi_optimize(
     gradient_model, length=249, initial=initial,
-    objective=["minimize", "maximize"], num_candidates=4, budget=1000, seed=7,
+    objective=["minimize", "maximize"], num_candidates=4,
 )
 den_result = den_optimize(
     gradient_model, length=249, initial=initial,
-    objective=["minimize", "maximize"], num_candidates=4, budget=1000, seed=7,
+    objective=["minimize", "maximize"], num_candidates=4,
 )
 ```
 

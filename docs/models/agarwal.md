@@ -26,10 +26,8 @@ search objectives, not absolute activity thresholds; see the
 ## Black-box optimization
 
 All nine black-box optimizers use `CombinedScorer.score`, which calls each
-loaded model's `score` method. Each call states its budget, initial population,
-and objective explicitly.
-The 1000-query examples leave enough budget for the initial four sequences and
-one complete DNA single-mutant neighborhood in ISM.
+loaded model's `score` method. Each call uses the five required optimizer
+arguments.
 
 ```python
 from bioseq_models import load_model
@@ -55,45 +53,45 @@ initial = random_seed_sequences(230, count=4, seed=7)
 
 random_result = random_optimize(
     model, length=230, initial=initial,
-    objective=["maximize", "minimize", "minimize"], num_candidates=4, budget=1000, seed=7,
+    objective=["maximize", "minimize", "minimize"], num_candidates=4,
 )
 ism_result = ism_optimize(
     model, length=230, initial=initial,
-    objective=["maximize", "minimize", "minimize"], num_candidates=4, budget=1000, seed=7,
+    objective=["maximize", "minimize", "minimize"], num_candidates=4,
 )
 annealing_result = simulated_annealing_optimize(
     model, length=230, initial=initial,
-    objective=["maximize", "minimize", "minimize"], num_candidates=4, budget=1000, seed=7,
+    objective=["maximize", "minimize", "minimize"], num_candidates=4,
 )
 genetic_result = genetic_algorithm_optimize(
     model, length=230, initial=initial,
-    objective=["maximize", "minimize", "minimize"], num_candidates=4, budget=1000, seed=7,
+    objective=["maximize", "minimize", "minimize"], num_candidates=4,
 )
 adalead_result = adalead_optimize(
     model, length=230, initial=initial,
-    objective=["maximize", "minimize", "minimize"], num_candidates=4, budget=1000, seed=7,
+    objective=["maximize", "minimize", "minimize"], num_candidates=4,
 )
 basesearch_result = basesearch_optimize(
     model, length=230, initial=initial,
-    objective=["maximize", "minimize", "minimize"], num_candidates=4, budget=1000, seed=7,
+    objective=["maximize", "minimize", "minimize"], num_candidates=4,
 )
 beam_result = beam_search_optimize(
     model, length=230, initial=initial,
-    objective=["maximize", "minimize", "minimize"], num_candidates=4, budget=1000, seed=7,
+    objective=["maximize", "minimize", "minimize"], num_candidates=4,
 )
 cross_entropy_result = cross_entropy_optimize(
     model, length=230, initial=initial,
-    objective=["maximize", "minimize", "minimize"], num_candidates=4, budget=1000, seed=7,
+    objective=["maximize", "minimize", "minimize"], num_candidates=4,
 )
 cbas_result = cbas_optimize(
     model, length=230, initial=initial,
-    objective=["maximize", "minimize", "minimize"], num_candidates=4, budget=1000, seed=7,
+    objective=["maximize", "minimize", "minimize"], num_candidates=4,
 )
 
 # To raise K562, HepG2, and WTC11 together:
 all_high_result = genetic_algorithm_optimize(
     model, length=230, initial=initial,
-    objective=["maximize", "maximize", "maximize"], num_candidates=4, budget=1000, seed=7,
+    objective=["maximize", "maximize", "maximize"], num_candidates=4,
 )
 ```
 
@@ -150,19 +148,19 @@ gradient_model = CombinedScorer(
 
 vanilla_result = vanilla_activation_maximization_optimize(
     gradient_model, length=230, initial=initial,
-    objective=["maximize", "minimize", "minimize"], num_candidates=4, budget=1000, seed=7,
+    objective=["maximize", "minimize", "minimize"], num_candidates=4,
 )
 fast_seqprop_result = fast_seqprop_optimize(
     gradient_model, length=230, initial=initial,
-    objective=["maximize", "minimize", "minimize"], num_candidates=4, budget=1000, seed=7,
+    objective=["maximize", "minimize", "minimize"], num_candidates=4,
 )
 ledidi_result = ledidi_optimize(
     gradient_model, length=230, initial=initial,
-    objective=["maximize", "minimize", "minimize"], num_candidates=4, budget=1000, seed=7,
+    objective=["maximize", "minimize", "minimize"], num_candidates=4,
 )
 den_result = den_optimize(
     gradient_model, length=230, initial=initial,
-    objective=["maximize", "minimize", "minimize"], num_candidates=4, budget=1000, seed=7,
+    objective=["maximize", "minimize", "minimize"], num_candidates=4,
 )
 ```
 

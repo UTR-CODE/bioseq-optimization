@@ -58,7 +58,7 @@ joint_model = CombinedScorer(
 `CombinedScorer` orders the outputs as `[rpf, mrna_stability]`; this is also the
 order used by `objective`. Active outputs use an equal-weight mean.
 
-## Fixed-budget search
+## Default search
 
 ```python
 from sequence_optimization import genetic_algorithm_optimize
@@ -70,19 +70,14 @@ results = genetic_algorithm_optimize(
     objective=["maximize", "maximize"],
     num_candidates=4,
     is_CDS_optimized=True,
-    budget=4_000,
-    mutation_rate=0.1,
-    elite_fraction=0.5,
-    seed=7,
 )
 for result in results:
     print(result.to_frame())
 ```
 
 `activity_rpf` and `activity_mrna_stability` contain the two raw model
-predictions. The candidate `budget` counts joint sequence evaluations; each
-uncached candidate is evaluated once by each child model. The budget is applied
-separately to each initial CDS.
+predictions. Each uncached candidate is evaluated once by each child model.
+Plateau tracking is applied separately to each initial CDS.
 
 ## Saturation screening
 
@@ -99,8 +94,6 @@ saturated_results = genetic_algorithm_optimize(
     objective=["maximize", "maximize"],
     num_candidates=4,
     is_CDS_optimized=True,
-    mutation_rate=0.1,
-    elite_fraction=0.5,
     saturation=SaturationConfig(
         fractions=(0.8, 0.9),
         minimum_queries=40,
@@ -108,7 +101,6 @@ saturated_results = genetic_algorithm_optimize(
         maximum_queries=4_000,
         material_improvement=0.01,
     ),
-    seed=7,
 )
 for saturated in saturated_results:
     q80 = saturated[0.8]

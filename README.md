@@ -69,20 +69,16 @@ single_result = genetic_algorithm_optimize(
     initial=initial,
     objective=["maximize"],  # or [0.6] to stop after reaching score 0.6
     num_candidates=4,
-    budget=1000,
-    mutation_rate=0.1,
-    elite_fraction=0.5,
-    seed=7,
 )
 print(single_result.to_frame())
 ```
 
 | sequence | score | activity_task_0 |
 |---|---:|---:|
-| GCGGGGGGGGGGGGGGGGGG | 0.70 | 0.70 |
-| GGAGGCGGCGGGGGGAGGGG | 0.55 | 0.55 |
-| GGGAGGAGGGGGTGGGGTGG | 0.55 | 0.55 |
-| GGGGGGGGAGGCGGGAAGGG | 0.55 | 0.55 |
+| GGGGGGGGGGGGGGATGGGG | 0.65 | 0.65 |
+| AGGGATGCGGGGGGACGGGG | 0.45 | 0.45 |
+| GGGGACGCCGGGGGTAGGGG | 0.45 | 0.45 |
+| GCCGGCGCAGGGGGTAGGCT | 0.30 | 0.30 |
 
 A numeric entry sets a minimum raw-output target. A target-only search stops
 when one scored sequence reaches the target (or one sequence reaches every
@@ -96,10 +92,6 @@ target_result = genetic_algorithm_optimize(
     initial=initial,
     objective=[0.60],
     num_candidates=4,
-    budget=1000,
-    mutation_rate=0.1,
-    elite_fraction=0.5,
-    seed=7,
 )
 print(target_result.to_frame())
 ```
@@ -108,8 +100,6 @@ Numeric targets can share a list with directions, for example
 `objective=[0.60, "maximize", "ignore"]`. After a numeric target is reached,
 later rounds select from candidates at or above that target while continuing
 to optimize the remaining `maximize` or `minimize` outputs.
-
-[Optimus: compare optimization algorithms](docs/models/optimus.md).
 
 ## 2. Multi-task: custom three-output CNN
 
@@ -154,20 +144,16 @@ specific_result = genetic_algorithm_optimize(
     initial=initial,
     objective=["maximize", "minimize", "ignore"],
     num_candidates=4,
-    budget=1000,
-    mutation_rate=0.1,
-    elite_fraction=0.5,
-    seed=7,
 )
 print(specific_result.to_frame())
 ```
 
 | sequence | score | G_activity | C_activity | T_activity |
 |---|---:|---:|---:|---:|
-| AGGGGGGGGGGGGGGGTGGG | 0.45 | 0.65 | -0.25 | -0.20 |
-| GGGCGGGGGGGGGTGAAGGG | 0.375 | 0.55 | -0.20 | -0.20 |
-| GGGGGCGGGGGGAGGTAGGG | 0.375 | 0.55 | -0.20 | -0.20 |
-| GTGGGGGGTGGGGGGGCGAG | 0.375 | 0.55 | -0.20 | -0.15 |
+| GGGGGGGGGGGTGGGAGGGG | 0.45 | 0.65 | -0.25 | -0.20 |
+| GGGGGAGGGAGGTGAAGGGG | 0.375 | 0.50 | -0.25 | -0.20 |
+| GGGGGGTGGAGGGGTATGGG | 0.375 | 0.50 | -0.25 | -0.10 |
+| GGGGAGGAGAGGTGTAAGGG | 0.325 | 0.40 | -0.25 | -0.15 |
 
 Entries follow output order. `maximize` raises an output, `minimize` lowers it,
 and `ignore` excludes it from the objective. Ignored outputs are still reported
@@ -183,27 +169,19 @@ all_high_result = genetic_algorithm_optimize(
     initial=initial,
     objective=["maximize", "maximize", "maximize"],
     num_candidates=4,
-    budget=1000,
-    mutation_rate=0.1,
-    elite_fraction=0.5,
-    seed=7,
 )
 print(all_high_result.to_frame())
 ```
 
 | sequence | score | G_activity | C_activity | T_activity |
 |---|---:|---:|---:|---:|
-| TCGCTCTCCGGGTCTTCTCT | 0.083 | -0.05 | 0.15 | 0.15 |
-| TCCCTCGCCGGGGTTCGGCT | 0.083 | 0.10 | 0.15 | 0.00 |
-| TCCCTCTCCGGGGCCTGTCG | 0.083 | 0.05 | 0.20 | 0.00 |
-| ACCCCCTCCGGGGTTTGGCG | 0.067 | 0.10 | 0.15 | -0.05 |
+| TCCCGCTCCGGGGGTCGGCT | 0.083 | 0.15 | 0.15 | -0.05 |
+| TGGTGTTAACCTTACTATAC | 0.000 | -0.10 | -0.05 | 0.15 |
+| CATATGAACAAGTCTTTGCG | -0.017 | -0.05 | -0.05 | 0.05 |
+| CCCATAAATGTAGCCAGTGA | -0.033 | -0.05 | 0.00 | -0.05 |
 
 The direction-list score is the equal-weight mean of the signed active outputs.
 `ignore` outputs are excluded from that mean.
-
-[Multi-task CNN with every optimizer](docs/tasks/multi_task.md) ·
-[DeepSTARR: housekeeping specificity](docs/models/deepstarr.md) ·
-[Malinois: cell-line specificity](docs/models/malinois.md).
 
 ## 3. Multiple independent models: custom CNNs
 
@@ -229,10 +207,6 @@ combined_result = genetic_algorithm_optimize(
     initial=initial,
     objective=["maximize", "minimize", "minimize"],
     num_candidates=4,
-    budget=1000,
-    mutation_rate=0.1,
-    elite_fraction=0.5,
-    seed=7,
 )
 print(combined_result.to_frame())
 print(combined.model_query_counts)
@@ -240,31 +214,25 @@ print(combined.model_query_counts)
 
 | sequence | score | model_a | model_b | model_c |
 |---|---:|---:|---:|---:|
-| AGGGGGGGGGGGGGGGGGGG | 0.400 | 0.70 | -0.25 | -0.25 |
-| GAGGGGGGAGGGGGGAGGAG | 0.350 | 0.55 | -0.25 | -0.25 |
-| GAGAGGGGGGGGGAGGAAGG | 0.333 | 0.50 | -0.25 | -0.25 |
-| GGGAGGAGGGGGTGGGGTGG | 0.317 | 0.55 | -0.25 | -0.15 |
+| GGTGGGGGGGGGGGAAGGGG | 0.350 | 0.60 | -0.25 | -0.20 |
+| GGGGGATAGGGGGGACGGGG | 0.300 | 0.50 | -0.20 | -0.20 |
+| GGCGGAGAAGGGGGCAGGGG | 0.283 | 0.45 | -0.15 | -0.25 |
+| GTGGAAGAAGTGGGCAGTGA | 0.183 | 0.25 | -0.20 | -0.10 |
 
 The query counters for this run are
-`{'model_a': 262, 'model_b': 262, 'model_c': 262}`.
+`{'model_a': 88, 'model_b': 88, 'model_c': 88}`.
 
 `SingleOutputCNN` is defined in the first example. Each model evaluates the same
 sequence and returns one output; each can use its own input conversion. The
 objective list follows the order in `CombinedScorer`, so this search raises
 model A's prediction and lowers B's and C's.
 
-`budget=1000` applies to combined candidate evaluations, not 1000 split between
-the models. Each uncached candidate is sent to all three models. The counters
-above report cumulative discrete sequence evaluations per model.
+Each uncached candidate is sent to all three models. The counters above report
+cumulative discrete sequence evaluations per model.
 
 Use `objective=["maximize", "maximize", "maximize"]` for an all-high search,
 or `ignore` to exclude a model's output from the objective. An ignored model is
 still evaluated.
-
-[Independent CNNs with every optimizer](docs/tasks/multiple_models.md) ·
-[Agarwal: three cell lines](docs/models/agarwal.md) ·
-[DeepSTARR Mouse](docs/models/deepstarr_mouse.md) ·
-[DeepSTARR-Embryo](docs/models/deepstarr_embryo.md).
 
 ## Use your own model
 
@@ -290,20 +258,22 @@ still evaluated.
 
 `num_candidates=4` sets the starting population and the number of unique
 candidates retained in the result. Each example constructs exactly four unique
-starting sequences with `random_seed_sequences`. `budget` defaults to 10,000
-counted candidate evaluations, including the initial population; it is not the
-number of epochs or the result size. A run may stop before exhausting the budget.
+starting sequences with `random_seed_sequences`. With `budget` omitted, the
+optimizer has no fixed query limit, stops when the retained-candidate mean
+reaches a plateau, and returns the earliest candidate set at 99% of the observed
+baseline-to-plateau gain. Set a positive `budget` for a fixed-budget run.
 
 Use `fixed_region=["1:3", "-3:-1", "-35:-20"]` to keep selected positions
 unchanged during optimization. Slice endpoints follow zero-based Python rules:
 the start is included, the stop is excluded, and negative indices count from
 the end. See [fixed regions and starting sequences](docs/search_workflow.md#fixed-regions).
 
-With the default counting mode, the nine discrete optimizers except CbAS count
-uncached sequences. CbAS and the four gradient optimizers count repeated
-proposals too. `count_repeated=True` selects proposal counting for other methods.
-Cache hits can therefore consume budget without another model call.
-Gradient evaluations are additional work outside this discrete budget.
+Default plateau searches count repeated proposals so a duplicate round advances
+the patience window without another model call. In fixed-budget runs, the nine
+discrete optimizers except CbAS count uncached sequences; CbAS and the four
+gradient optimizers count repeated proposals. `count_repeated=True` selects
+proposal counting for the other methods. Gradient evaluations are additional
+work outside this discrete accounting.
 
 `result.sequences` contains the designed strings, `result.scores` the objective,
 and `result.activities` all raw predictions, including ignored outputs.
@@ -337,8 +307,6 @@ constrained_result = genetic_algorithm_optimize(
     objective=["maximize"],
     num_candidates=4,
     constraint=[gc_at_most_60, excludes_motifs],
-    budget=1000,
-    seed=7,
 )
 print(constrained_result.to_frame())
 ```
@@ -347,57 +315,35 @@ print(constrained_result.to_frame())
 
 ## Saturation screening
 
-Start Optimus 5-Prime from 100 random 50-nt sequences and maximize its MRL
-prediction. `SaturationConfig` stops the search after the mean MRL of the best
-100 unique sequences levels off. Omit `budget` in this mode; passing both
-`budget` and `saturation` raises `ValueError`.
+The default search stops after the mean MRL of the best 100 unique sequences
+levels off and returns the q99 candidate set.
 
 ```python
 from bioseq_models import load_model
 
 from sequence_optimization import (
-    SaturationConfig,
     genetic_algorithm_optimize,
     random_seed_sequences,
 )
 
 model = load_model("optimus5prime", device="cpu")
 initial = random_seed_sequences(length=50, count=100, seed=7)
-saturated = genetic_algorithm_optimize(
+q99 = genetic_algorithm_optimize(
     model,
     length=50,
     initial=initial,
     objective=["maximize"],
     num_candidates=100,
-    saturation=SaturationConfig(
-        fractions=(0.8, 0.9),
-        minimum_queries=1_000,
-        plateau_patience_queries=2_000,
-        maximum_queries=20_000,
-        material_improvement=0.01,
-    ),
-    mutation_rate=0.02,
-    elite_fraction=0.2,
-    seed=7,
 )
-q80 = saturated[0.8]
-q90 = saturated[0.9]
-print(q80.to_frame())
-print(q90.to_frame())
-print(saturated.stop_reason, saturated.total_query_count)
+print(q99.to_frame())
+print(q99.metadata["stop_reason"])
+print(q99.metadata["total_convergence_queries"])
 ```
 
-q80 and q90 are the earliest retained candidate sets reaching 80% and 90% of
-the improvement from the first complete archive to the final observed archive.
-They are not score percentiles or guarantees of reaching the global optimum.
-The run must finish before these fractions can be selected. `maximum_queries`
-is a safety ceiling; an optimizer can also stop on its own before a plateau is
-detected. Check `stop_reason` to distinguish these cases.
-
-![Optimus 5-Prime saturation curve showing the initial, q80, q90, and plateau points](docs/assets/optimus-saturation.png)
-
-In this run, the top-100 mean MRL increases from 6.44 for the initial sequences
-to 9.66 at the observed plateau. q80 and q90 select the earliest retained sets
-that reach their respective fractions of that gain.
+q99 is the earliest retained candidate set reaching 99% of the improvement
+from the first complete archive to the final observed archive. It is not a
+score percentile or a guarantee of reaching the global optimum. Set
+`saturation=SaturationConfig(...)` to customize plateau detection or request
+additional gain fractions; do not pass `budget` together with `saturation`.
 
 [Initial sequences, budget accounting and saturation parameters](docs/search_workflow.md).

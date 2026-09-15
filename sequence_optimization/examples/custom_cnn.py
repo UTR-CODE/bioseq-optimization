@@ -38,9 +38,6 @@ def main() -> None:
         initial=random_seed_sequences(20, 4, seed=7),
         objective=["maximize"],
         num_candidates=4,
-        budget=40,
-        mutation_rate=0.1,
-        seed=7,
     )
     print(result.to_frame().to_string(index=False))
 

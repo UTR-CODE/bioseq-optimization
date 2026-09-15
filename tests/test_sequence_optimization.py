@@ -396,7 +396,7 @@ def test_saturation_and_budget_are_mutually_exclusive():
         )
 
 
-def test_omitted_budget_uses_default():
+def test_omitted_budget_returns_default_q99_plateau_selection():
     scorer = CallableScorer(lambda values: [value.count("G") for value in values])
     result = random_optimize(
         scorer,
@@ -408,16 +408,8 @@ def test_omitted_budget_uses_default():
         seed=4,
     )
     assert result.query_count == 4
-    with pytest.raises(ValueError, match="budget must be at least num_candidates"):
-        random_optimize(
-            scorer,
-            length=1,
-            initial=None,
-            objective=["maximize"],
-            num_candidates=10_001,
-            diversity=0,
-            seed=4,
-        )
+    assert result.metadata["saturation_fraction"] == 0.99
+    assert result.metadata["stop_reason"] == "plateau"
 
 
 def test_default_diversity_applies_to_returned_sequences():

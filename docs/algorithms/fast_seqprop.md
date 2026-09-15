@@ -9,8 +9,8 @@ Optimize normalized logits with straight-through categorical samples. Requires s
 | `initial` | required | Starting sequences, or None for random initialization |
 | `objective` | required | Per-output numeric targets or maximize, minimize, and ignore directions; an objective object is also accepted |
 | `num_candidates` | required | Number of unique retained results |
-| `budget` | 10,000 | Optional fixed candidate budget; invalid when saturation is set |
-| `saturation` | None | SaturationConfig for plateau-based stopping; omit budget when set |
+| `budget` | None (unlimited) | Optional fixed candidate budget; omitted runs to a plateau and returns q99 |
+| `saturation` | None | Optional SaturationConfig for custom plateau rules and gain fractions; omit budget when set |
 | `constraint` | None | One constraint callable or a list of independently intersected constraint callables |
 | `diversity` | 5 | Minimum pairwise Hamming distance among returned sequences; zero disables it |
 | `fixed_region` | None | List of zero-based positions or Python-style start:stop slices held to one shared template |
@@ -29,8 +29,6 @@ result = fast_seqprop_optimize(
     initial=initial,
     objective=["maximize"],  # or [0.6] to stop after reaching score 0.6
     num_candidates=4,
-    budget=1000,
-    seed=7,
 )
 ```
 

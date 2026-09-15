@@ -19,8 +19,6 @@ result = genetic_algorithm_optimize(
     initial=initial,
     objective=["maximize"],  # or [0.6] to stop after reaching score 0.6
     num_candidates=16,
-    budget=1000,
-    seed=7,
 )
 ```
 

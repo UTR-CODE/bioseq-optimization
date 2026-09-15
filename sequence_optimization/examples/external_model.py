@@ -12,9 +12,6 @@ def main() -> None:
     result = genetic_algorithm_optimize(
         model,
         length=50,
-        budget=40,
-        num_candidates=4,
-        mutation_rate=0.1,
         initial=[
             "CCACTCGATTAACATGTTAACAACATACTCGTCCGGCCGATCAGCGGCTA",
             "GGTACCTCTAGTTTAATCCCTCCCTTATACGGTGCAACCCGCTCCCCTCA",
@@ -22,7 +19,7 @@ def main() -> None:
             "CTCATTTTTCACCTCCCTTTTATCTCTCTGCTTACGTTTCGATCCCATCA",
         ],
         objective=["maximize"],
-        seed=0,
+        num_candidates=4,
     )
     print(result.sequences)
     print(result.activities)
