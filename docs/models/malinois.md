@@ -2,6 +2,8 @@
 
 Load name: `malinois`.
 
+Optimized region: **enhancer**.
+
 The candidate is a 200-nt variable enhancer. The adapter inserts a fixed 200-nt
 left context and a fixed 200-nt right context before prediction, so the neural
 network receives 600 nt. Outputs are ordered `K562_log2FC`, `HepG2_log2FC`,

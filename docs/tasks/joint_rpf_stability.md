@@ -1,5 +1,7 @@
 # Joint RPF and mRNA-stability optimization
 
+Optimized region: **CDS**.
+
 This task designs a coding sequence that raises both UTR-CODE's
 `log1p_rpf_rpkm_x5` translation-output proxy and the CDS Stability model's
 `stability_score`. Both models score the same complete CDS, while the search

@@ -236,18 +236,18 @@ still evaluated.
 
 ## Model tasks
 
-- [Optimize MRL by Optimus 5-Prime](docs/models/optimus.md)
-- [Optimize translation output in a 5′UTR, 3′UTR, or CDS by UTR-CODE](docs/models/utr_code.md)
-- [Optimize CDS stability by CDS Stability](docs/models/cds_stability.md)
-- [Optimize housekeeping enhancer activity and reduce developmental activity by DeepSTARR](docs/models/deepstarr.md)
-- [Optimize promoter activity by DREAM LegNet](docs/models/dream_legnet.md)
-- [Optimize predicted mRNA stability by Cetnar](docs/models/cetnar_stability.md)
-- [Optimize K562 specificity against HepG2 and WTC11 by Agarwal lentiMPRA](docs/models/agarwal.md)
-- [Optimize heart specificity across mouse tissues by DeepSTARR Mouse](docs/models/deepstarr_mouse.md)
-- [Optimize brain/VNC specificity across embryonic tissues by DeepSTARR-Embryo](docs/models/deepstarr_embryo.md)
-- [Optimize K562 enhancer specificity against HepG2 and SK-N-SH by Malinois](docs/models/malinois.md)
-- [Jointly optimize RPF and mRNA stability with synonymous codons](docs/tasks/joint_rpf_stability.md)
-- [Optimize protein-preserving CDS stability with synonymous codons](docs/tasks/synonymous_cds.md)
+- **5′UTR** — [Optimize MRL by Optimus 5-Prime](docs/models/optimus.md)
+- **5′UTR, 3′UTR, or CDS** — [Optimize translation output by UTR-CODE](docs/models/utr_code.md)
+- **CDS** — [Optimize CDS stability by CDS Stability](docs/models/cds_stability.md)
+- **Enhancer** — [Optimize housekeeping activity and reduce developmental activity by DeepSTARR](docs/models/deepstarr.md)
+- **Promoter** — [Optimize promoter activity by DREAM LegNet](docs/models/dream_legnet.md)
+- **5′UTR** — [Optimize predicted mRNA stability by Cetnar](docs/models/cetnar_stability.md)
+- **Enhancer** — [Optimize K562 specificity against HepG2 and WTC11 by Agarwal lentiMPRA](docs/models/agarwal.md)
+- **Enhancer** — [Optimize heart specificity across mouse tissues by DeepSTARR Mouse](docs/models/deepstarr_mouse.md)
+- **Enhancer** — [Optimize brain/VNC specificity across embryonic tissues by DeepSTARR-Embryo](docs/models/deepstarr_embryo.md)
+- **Enhancer** — [Optimize K562 specificity against HepG2 and SK-N-SH by Malinois](docs/models/malinois.md)
+- **CDS** — [Jointly optimize RPF and mRNA stability with synonymous codons](docs/tasks/joint_rpf_stability.md)
+- **CDS** — [Optimize protein-preserving stability with synonymous codons](docs/tasks/synonymous_cds.md)
 
 ## Advanced features
 

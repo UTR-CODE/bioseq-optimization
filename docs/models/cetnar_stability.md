@@ -21,6 +21,8 @@ complete-transcript stability model.
 
 ## Cetnar decay alone
 
+Optimized region: **5′UTR**.
+
 The nine black-box optimizers can minimize the decay output. Each call below
 uses the same explicit four-sequence 80-nt seed set.
 
@@ -134,6 +136,8 @@ Use CPU for this gradient example. The soft input has canonical shape
 CNN-BiLSTM and restores the measured decay-rate scale.
 
 ## Joint decay and UTR-CODE translation
+
+Optimized region: **3′UTR**.
 
 The joint scorer places the same 80-nt candidate in UTR-CODE's 3′UTR slot with
 fixed 5′UTR/CDS placeholders. Replace those strings with the transcript

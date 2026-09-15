@@ -1,5 +1,7 @@
 # Synonymous CDS optimization
 
+Optimized region: **CDS**.
+
 ```python
 from bioseq_models import load_model
 from sequence_optimization import genetic_algorithm_optimize

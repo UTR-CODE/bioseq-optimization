@@ -2,6 +2,8 @@
 
 Load name: `deepstarr`.
 
+Optimized region: **enhancer**.
+
 The model accepts a 249-nt candidate and returns two outputs in this order:
 `developmental`, `housekeeping`. The examples below maximize housekeeping while
 minimizing developmental. The direction list is a search objective, not an

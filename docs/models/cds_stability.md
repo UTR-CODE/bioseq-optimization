@@ -2,6 +2,8 @@
 
 Load name: `cds_stability`.
 
+Optimized region: **CDS**.
+
 The model returns `stability_score`; maximize it. Candidates must be complete
 CDSs with an `ATG` start codon, a `TAA`, `TAG`, or `TGA` terminal codon, no
 internal stops, and a length divisible by three. The adapter accepts at most

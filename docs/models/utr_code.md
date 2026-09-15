@@ -26,6 +26,8 @@ transcript sequences.
 
 ## 5′UTR design
 
+Optimized region: **5′UTR**.
+
 The nine black-box optimizers operate on the fixed-context scorer. The examples
 use four explicit 50-nt seeds.
 
@@ -104,6 +106,8 @@ padding, CDS padding, transcriptome profile, and RNA-count inputs. See
 
 ## 3′UTR design
 
+Optimized region: **3′UTR**.
+
 This is the same nine-optimizer interface with an 80-nt candidate and a fixed
 5′UTR/CDS context.
 
@@ -175,6 +179,8 @@ result_cbas = cbas_optimize(
 ```
 
 ## CDS design with synonymous constraints
+
+Optimized region: **CDS**.
 
 For a CDS design that preserves the encoded protein, set
 `is_CDS_optimized=True`. The nine black-box optimizers operate within the

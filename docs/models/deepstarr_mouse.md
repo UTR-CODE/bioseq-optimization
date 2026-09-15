@@ -3,6 +3,8 @@
 Load names: `deepstarr_mouse_<tissue>_activity`, where `<tissue>` is one of
 `heart`, `limb`, `midbrain`, `forebrain`, `hindbrain`, or `neural_tube`.
 
+Optimized region: **enhancer**.
+
 Each activity model accepts a 1001-nt candidate and returns one probability.
 The combined scorer below evaluates models in this order: `heart`, `limb`,
 `midbrain`, `forebrain`, `hindbrain`, `neural_tube`. The examples maximize heart

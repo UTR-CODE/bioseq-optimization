@@ -2,6 +2,8 @@
 
 Load name: `dream_legnet`.
 
+Optimized region: **promoter**.
+
 The model returns `promoter_activity`; maximize it. With
 `variable_region_only=True`, candidates are 93-nt variable regions and the
 adapter supplies the fixed context. With `False`, candidates are complete

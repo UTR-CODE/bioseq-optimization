@@ -2,6 +2,8 @@
 
 Load name: `optimus5prime`.
 
+Optimized region: **5′UTR**.
+
 Optimus 5-Prime accepts 50-nt sequences and returns mean ribosome load (MRL).
 The examples below maximize the single MRL output on CPU from the same four
 starting sequences.

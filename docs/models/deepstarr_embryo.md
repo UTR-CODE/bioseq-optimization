@@ -3,6 +3,8 @@
 Load names: `deepstarr_embryo_<tissue>_activity`, where `<tissue>` is one of
 `brain_vnc`, `muscle`, `epidermis`, or `gut`.
 
+Optimized region: **enhancer**.
+
 Each activity model accepts a 1001-nt candidate and returns one probability.
 The combined scorer below evaluates models in this order: `brain_vnc`, `muscle`,
 `epidermis`, `gut`. The examples maximize brain_vnc while minimizing the other

@@ -2,6 +2,8 @@
 
 Load names: `agarwal_k562`, `agarwal_hepg2`, and `agarwal_wtc11`.
 
+Optimized region: **enhancer**.
+
 Each model accepts a 230-nt candidate and returns one `log2_rna_dna` output.
 The combined scorer below evaluates the same candidate with the models in this
 order: `K562`, `HepG2`, `WTC11`. Bundled loading uses ten cross-validation folds
