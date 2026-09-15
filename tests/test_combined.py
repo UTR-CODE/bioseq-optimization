@@ -23,6 +23,7 @@ def test_combined_order_budget_and_raw_predictions():
     result = basesearch_optimize(
         scorer,
         SequenceSpace(8),
+        initial=None,
         objective=["maximize", "minimize", "minimize"],
         num_candidates=4,
         budget=24,

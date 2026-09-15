@@ -54,46 +54,46 @@ model = CombinedScorer([k562, hepg2, wtc11], names=["K562", "HepG2", "WTC11"])
 initial = random_seed_sequences(230, count=4, seed=7)
 
 random_result = random_optimize(
-    model, length=230, budget=1000, num_candidates=4,
-    initial=initial, objective=["maximize", "minimize", "minimize"], seed=7,
+    model, length=230, initial=initial,
+    objective=["maximize", "minimize", "minimize"], num_candidates=4, budget=1000, seed=7,
 )
 ism_result = ism_optimize(
-    model, length=230, budget=1000, num_candidates=4,
-    initial=initial, objective=["maximize", "minimize", "minimize"], seed=7,
+    model, length=230, initial=initial,
+    objective=["maximize", "minimize", "minimize"], num_candidates=4, budget=1000, seed=7,
 )
 annealing_result = simulated_annealing_optimize(
-    model, length=230, budget=1000, num_candidates=4,
-    initial=initial, objective=["maximize", "minimize", "minimize"], seed=7,
+    model, length=230, initial=initial,
+    objective=["maximize", "minimize", "minimize"], num_candidates=4, budget=1000, seed=7,
 )
 genetic_result = genetic_algorithm_optimize(
-    model, length=230, budget=1000, num_candidates=4,
-    initial=initial, objective=["maximize", "minimize", "minimize"], seed=7,
+    model, length=230, initial=initial,
+    objective=["maximize", "minimize", "minimize"], num_candidates=4, budget=1000, seed=7,
 )
 adalead_result = adalead_optimize(
-    model, length=230, budget=1000, num_candidates=4,
-    initial=initial, objective=["maximize", "minimize", "minimize"], seed=7,
+    model, length=230, initial=initial,
+    objective=["maximize", "minimize", "minimize"], num_candidates=4, budget=1000, seed=7,
 )
 basesearch_result = basesearch_optimize(
-    model, length=230, budget=1000, num_candidates=4,
-    initial=initial, objective=["maximize", "minimize", "minimize"], seed=7,
+    model, length=230, initial=initial,
+    objective=["maximize", "minimize", "minimize"], num_candidates=4, budget=1000, seed=7,
 )
 beam_result = beam_search_optimize(
-    model, length=230, budget=1000, num_candidates=4,
-    initial=initial, objective=["maximize", "minimize", "minimize"], seed=7,
+    model, length=230, initial=initial,
+    objective=["maximize", "minimize", "minimize"], num_candidates=4, budget=1000, seed=7,
 )
 cross_entropy_result = cross_entropy_optimize(
-    model, length=230, budget=1000, num_candidates=4,
-    initial=initial, objective=["maximize", "minimize", "minimize"], seed=7,
+    model, length=230, initial=initial,
+    objective=["maximize", "minimize", "minimize"], num_candidates=4, budget=1000, seed=7,
 )
 cbas_result = cbas_optimize(
-    model, length=230, budget=1000, num_candidates=4,
-    initial=initial, objective=["maximize", "minimize", "minimize"], seed=7,
+    model, length=230, initial=initial,
+    objective=["maximize", "minimize", "minimize"], num_candidates=4, budget=1000, seed=7,
 )
 
 # To raise K562, HepG2, and WTC11 together:
 all_high_result = genetic_algorithm_optimize(
-    model, length=230, budget=1000, num_candidates=4,
-    initial=initial, objective=["maximize", "maximize", "maximize"], seed=7,
+    model, length=230, initial=initial,
+    objective=["maximize", "maximize", "maximize"], num_candidates=4, budget=1000, seed=7,
 )
 ```
 
@@ -149,20 +149,20 @@ gradient_model = CombinedScorer(
 )
 
 vanilla_result = vanilla_activation_maximization_optimize(
-    gradient_model, length=230, budget=1000, num_candidates=4,
-    initial=initial, objective=["maximize", "minimize", "minimize"], seed=7,
+    gradient_model, length=230, initial=initial,
+    objective=["maximize", "minimize", "minimize"], num_candidates=4, budget=1000, seed=7,
 )
 fast_seqprop_result = fast_seqprop_optimize(
-    gradient_model, length=230, budget=1000, num_candidates=4,
-    initial=initial, objective=["maximize", "minimize", "minimize"], seed=7,
+    gradient_model, length=230, initial=initial,
+    objective=["maximize", "minimize", "minimize"], num_candidates=4, budget=1000, seed=7,
 )
 ledidi_result = ledidi_optimize(
-    gradient_model, length=230, budget=1000, num_candidates=4,
-    initial=initial, objective=["maximize", "minimize", "minimize"], seed=7,
+    gradient_model, length=230, initial=initial,
+    objective=["maximize", "minimize", "minimize"], num_candidates=4, budget=1000, seed=7,
 )
 den_result = den_optimize(
-    gradient_model, length=230, budget=1000, num_candidates=4,
-    initial=initial, objective=["maximize", "minimize", "minimize"], seed=7,
+    gradient_model, length=230, initial=initial,
+    objective=["maximize", "minimize", "minimize"], num_candidates=4, budget=1000, seed=7,
 )
 ```
 

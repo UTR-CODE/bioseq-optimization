@@ -30,6 +30,7 @@ def test_search_improves_and_preserves_original_scores(offset):
             model,
             SequenceSpace(8),
             initial=["AAAAAAAA", "CCCCCCCC"],
+            objective=["maximize"],
             num_candidates=2,
             budget=50,
             seed=7,
@@ -52,6 +53,7 @@ def test_tiny_space_exhaustion_and_duplicate_budget():
         CallableScorer(lambda values: np.zeros(len(values))),
         SequenceSpace(1, "AC"),
         initial=["A"],
+        objective=["maximize"],
         num_candidates=1,
         budget=10,
     )
@@ -83,13 +85,17 @@ def test_invalid_config(key, value):
 
 def test_initial_only_budget_and_saturation():
     scorer = CallableScorer(lambda values: np.zeros(len(values)))
-    result = basesearch_optimize(scorer, SequenceSpace(8), num_candidates=4, budget=4)
+    result = basesearch_optimize(
+        scorer, SequenceSpace(8), None, ["maximize"], 4, budget=4
+    )
     assert result.query_count == 4
     assert result.trajectory == []
     saturated = basesearch_optimize(
         scorer,
         SequenceSpace(8),
-        num_candidates=4,
+        None,
+        ["maximize"],
+        4,
         saturation=SaturationConfig(
             minimum_queries=8, plateau_patience_queries=8, maximum_queries=40
         ),

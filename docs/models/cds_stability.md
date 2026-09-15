@@ -38,28 +38,27 @@ model = load_model(
     batch_size=4,
     device="cpu",
 )
-reference_cds = "ATG" + "GCT" * 18 + "TAA"
-allowed_codons = {"A": ["GCT", "GCC"]}
 initial_cds = [
-    reference_cds,
+    "ATG" + "GCT" * 18 + "TAA",
     "ATG" + "GCT" * 17 + "GCC" + "TAA",
     "ATG" + "GCT" * 16 + "GCC" * 2 + "TAA",
     "ATG" + "GCT" * 15 + "GCC" * 3 + "TAA",
 ]
 
-result_constrained = genetic_algorithm_optimize(
+results = genetic_algorithm_optimize(
     model,
     length=60,
     initial=initial_cds,
-    reference_cds=reference_cds,
-    synonymous_codons=allowed_codons,
     objective=["maximize"],
     num_candidates=4,
+    is_CDS_optimized=True,
     budget=4000,
     mutation_rate=0.1,
     elite_fraction=0.5,
     seed=7,
 )
+for result in results:
+    print(result.to_frame())
 ```
 
 ## Joint stability and translation

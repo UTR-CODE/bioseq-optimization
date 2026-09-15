@@ -136,8 +136,8 @@ class MultiTaskObjective:
     """Optimize signed, optionally thresholded outputs of one model.
 
     Bounds and centers use raw model units; scales are fixed positive reference
-    scales. Unselected tasks are ignored. ``mean`` is the default weighted
-    average, ``worst`` maximizes the smallest weighted margin, and ``smoothmin``
+    scales. Unselected tasks are ignored. ``mean`` is the default equal-weight
+    average, ``worst`` maximizes the smallest margin, and ``smoothmin``
     uses the same smooth objective in NumPy and PyTorch.
     """
 
@@ -148,7 +148,6 @@ class MultiTaskObjective:
     upper_bounds: Mapping[int | str, float] | None = None
     centers: Sequence[float] | None = None
     scales: Sequence[float] | None = None
-    model_weights: Sequence[float] | None = None
     temperature: float = 0.1
     directions: Sequence[str | float] | None = None
 
@@ -244,27 +243,17 @@ class MultiTaskObjective:
             if self.scales is None
             else np.asarray(self.scales, dtype=float)
         )
-        weights = (
-            np.ones(n_tasks)
-            if self.model_weights is None
-            else np.asarray(self.model_weights, dtype=float)
-        )
         if (
             center.shape != (n_tasks,)
             or scale.shape != (n_tasks,)
-            or weights.shape != (n_tasks,)
             or not np.isfinite(center).all()
             or not np.isfinite(scale).all()
-            or not np.isfinite(weights).all()
             or np.any(scale <= 0)
-            or np.any(weights < 0)
         ):
             raise ValueError(
-                "centers/scales/model_weights must be finite per-task vectors with "
-                "positive scales and non-negative model_weights"
+                "centers and scales must be finite per-task vectors with "
+                "positive scales"
             )
-        if np.any(weights[selected] <= 0):
-            raise ValueError("model_weights for active tasks must be positive")
         bounded = self.lower_bounds is not None or self.upper_bounds is not None
         direction_targets = self.target_thresholds(n_tasks)
         if direction_targets and bounded:
@@ -290,7 +279,7 @@ class MultiTaskObjective:
                 center[k] = value
             bounded = True
         signs = np.asarray([1.0] * len(high) + [-1.0] * len(low))
-        return selected, signs, center, scale, bounded, weights[selected]
+        return selected, signs, center, scale, bounded
 
     def target_thresholds(self, n_tasks: int | None = None) -> dict[int, float]:
         """Return numeric direction-list entries as raw-output lower targets."""
@@ -329,35 +318,29 @@ class MultiTaskObjective:
             values = values[:, None]
         if values.ndim != 2 or not np.isfinite(values).all():
             raise ValueError("activities must be a finite [N, tasks] matrix")
-        ids, signs, center, scale, _, _ = self._resolve(values.shape[1], task_names)
+        ids, signs, center, scale, _ = self._resolve(values.shape[1], task_names)
         return (values[:, ids] - center[ids]) / scale[ids] * signs
 
     def scalarize(self, activities, task_names=None, reached_targets=None):
         margins = self.margins(activities, task_names)
-        ids, _, _, _, _, weights = self._resolve(
-            np.asarray(activities).shape[1], task_names
-        )
+        ids, _, _, _, _ = self._resolve(np.asarray(activities).shape[1], task_names)
         active = self._active_positions(ids, reached_targets)
         if not len(active):
             return np.zeros(len(margins), dtype=np.float64)
         margins = margins[:, active]
-        weights = weights[active]
         if self.aggregation == "mean":
-            return np.average(margins, axis=1, weights=weights)
-        weighted_margins = margins * weights
-        worst = weighted_margins.min(axis=1)
+            return margins.mean(axis=1)
+        worst = margins.min(axis=1)
         if self.aggregation == "worst":
             return worst
         return worst - self.temperature * np.log(
-            np.exp(-(weighted_margins - worst[:, None]) / self.temperature).mean(axis=1)
+            np.exp(-(margins - worst[:, None]) / self.temperature).mean(axis=1)
         )
 
     def scalarize_soft(self, activities, task_names=None, reached_targets=None):
         import torch
 
-        ids, signs, center, scale, _, weights = self._resolve(
-            activities.shape[1], task_names
-        )
+        ids, signs, center, scale, _ = self._resolve(activities.shape[1], task_names)
 
         def tensor(value):
             return torch.as_tensor(
@@ -373,15 +356,12 @@ class MultiTaskObjective:
         if not len(active):
             return activities[:, 0] * 0.0
         margins = margins[:, active]
-        weights = weights[active]
         if self.aggregation == "mean":
-            return (margins * tensor(weights)).sum(dim=1) / float(weights.sum())
-        weighted_margins = margins * tensor(weights)
+            return margins.mean(dim=1)
         if self.aggregation == "worst":
-            return weighted_margins.amin(dim=1)
+            return margins.amin(dim=1)
         return -self.temperature * (
-            torch.logsumexp(-weighted_margins / self.temperature, dim=1)
-            - np.log(len(active))
+            torch.logsumexp(-margins / self.temperature, dim=1) - np.log(len(active))
         )
 
     def uncertainty(
@@ -389,33 +369,26 @@ class MultiTaskObjective:
     ):
         # First-order independent-output approximation, not joint confidence.
         margins = self.margins(activities, task_names)
-        ids, _, _, scale, _, model_weights = self._resolve(
-            np.asarray(activities).shape[1], task_names
-        )
+        ids, _, _, scale, _ = self._resolve(np.asarray(activities).shape[1], task_names)
         active = self._active_positions(ids, reached_targets)
         if not len(active):
             return np.zeros(len(margins), dtype=np.float64)
         margins = margins[:, active]
         ids = np.asarray(ids)[active].tolist()
-        model_weights = model_weights[active]
-        weighted_margins = margins * model_weights
         if self.aggregation == "mean":
             aggregation_weights = np.broadcast_to(
-                model_weights / model_weights.sum(), margins.shape
+                np.full(len(active), 1 / len(active)), margins.shape
             )
         elif self.aggregation == "worst":
             aggregation_weights = (
-                weighted_margins == weighted_margins.min(axis=1, keepdims=True)
+                margins == margins.min(axis=1, keepdims=True)
             ).astype(float)
             aggregation_weights /= aggregation_weights.sum(axis=1, keepdims=True)
-            aggregation_weights *= model_weights
         else:
             aggregation_weights = np.exp(
-                -(weighted_margins - weighted_margins.min(axis=1, keepdims=True))
-                / self.temperature
+                -(margins - margins.min(axis=1, keepdims=True)) / self.temperature
             )
             aggregation_weights /= aggregation_weights.sum(axis=1, keepdims=True)
-            aggregation_weights *= model_weights
         return np.sqrt(
             (
                 (np.asarray(uncertainties)[:, ids] / scale[ids] * aggregation_weights)
@@ -424,7 +397,7 @@ class MultiTaskObjective:
         )
 
     def describe(self, n_tasks, task_names=None):
-        ids, signs, center, scale, bounded, weights = self._resolve(n_tasks, task_names)
+        ids, signs, center, scale, bounded = self._resolve(n_tasks, task_names)
         return {
             "mode": "multi_task",
             "aggregation": self.aggregation,
@@ -435,7 +408,6 @@ class MultiTaskObjective:
             ),
             "centers_or_bounds": center.tolist(),
             "scales": scale.tolist(),
-            "model_weights": weights.tolist(),
             "thresholded": bounded,
             "temperature": self.temperature,
             "uncertainty_method": "independent_first_order",
@@ -446,7 +418,7 @@ class MultiTaskObjective:
         }
 
     def evaluate(self, activities, task_names=None):
-        ids, _, _, _, bounded, _ = self._resolve(activities.shape[1], task_names)
+        ids, _, _, _, bounded = self._resolve(activities.shape[1], task_names)
         margins = self.margins(activities, task_names)
         targets = self.target_thresholds(activities.shape[1])
         if targets:
@@ -478,16 +450,12 @@ class ObjectiveScorer:
         | MultiTaskObjective
         | list[str | float]
         | tuple[str | float, ...],
-        model_weights: Sequence[float] | None = None,
     ) -> None:
         self.scorer = scorer
-        if model_weights is not None and not isinstance(objective, (list, tuple)):
-            raise ValueError("model_weights requires objective to be a direction list")
         self.objective = (
             MultiTaskObjective(
                 directions=objective,
                 aggregation="mean",
-                model_weights=model_weights,
             )
             if isinstance(objective, (list, tuple))
             else objective
@@ -586,9 +554,7 @@ class ObjectiveScorer:
                 self.task_names,
                 reached_targets=self._reached_targets,
             )
-        coefficients = self.objective.coefficients(
-            activities.shape[1], self.task_names
-        )
+        coefficients = self.objective.coefficients(activities.shape[1], self.task_names)
         return np.sqrt((uncertainties**2) @ (coefficients**2))
 
     def thresholds_passed(self, sequences) -> np.ndarray:
@@ -605,10 +571,7 @@ class ObjectiveScorer:
             targets = self._targets(activities.shape[1])
             passed[present] = np.asarray(
                 [
-                    all(
-                        row[index] >= targets[index]
-                        for index in self._reached_targets
-                    )
+                    all(row[index] >= targets[index] for index in self._reached_targets)
                     for row in activities
                 ],
                 dtype=bool,
@@ -627,7 +590,10 @@ class ObjectiveScorer:
         return bool(
             np.any(
                 np.logical_and.reduce(
-                    [activities[:, index] >= target for index, target in targets.items()]
+                    [
+                        activities[:, index] >= target
+                        for index, target in targets.items()
+                    ]
                 )
             )
         )
@@ -649,9 +615,7 @@ class ObjectiveScorer:
             if uncertainty.shape != activities.shape:
                 raise ValueError("activity uncertainties must match activity outputs")
             for sequence, values_uncertainty in zip(values, uncertainty):
-                self._activity_uncertainties[str(sequence)] = (
-                    values_uncertainty.copy()
-                )
+                self._activity_uncertainties[str(sequence)] = values_uncertainty.copy()
             utility_uncertainties = self.uncertainties_for(values)
 
         return ScoreBatch(utilities, utility_uncertainties)
@@ -682,17 +646,14 @@ class ObjectiveScorer:
                     raise ValueError(
                         "activity uncertainties must match activity outputs"
                     )
-                ids, signs, center, scale, _, model_weights = self.objective._resolve(
+                ids, signs, center, scale, _ = self.objective._resolve(
                     activities.shape[1], self.task_names
                 )
-                active = self.objective._active_positions(
-                    ids, self._reached_targets
-                )
+                active = self.objective._active_positions(ids, self._reached_targets)
                 if not len(active):
                     return utilities, torch.zeros_like(utilities)
                 ids = np.asarray(ids)[active].tolist()
                 signs = signs[active]
-                model_weights = model_weights[active]
 
                 def tensor(value):
                     return torch.as_tensor(
@@ -705,22 +666,16 @@ class ObjectiveScorer:
                     * tensor(signs)
                 )
                 if self.objective.aggregation == "mean":
-                    weights = tensor(model_weights / model_weights.sum()).expand_as(
-                        margins
-                    )
+                    weights = torch.full_like(margins, 1 / len(active))
                 elif self.objective.aggregation == "worst":
-                    weighted_margins = margins * tensor(model_weights)
-                    weights = (
-                        weighted_margins == weighted_margins.amin(dim=1, keepdim=True)
-                    ).to(activities.dtype)
-                    weights = weights / weights.sum(dim=1, keepdim=True)
-                    weights = weights * tensor(model_weights)
-                else:
-                    weighted_margins = margins * tensor(model_weights)
-                    weights = torch.softmax(
-                        -weighted_margins / self.objective.temperature, dim=1
+                    weights = (margins == margins.amin(dim=1, keepdim=True)).to(
+                        activities.dtype
                     )
-                    weights = weights * tensor(model_weights)
+                    weights = weights / weights.sum(dim=1, keepdim=True)
+                else:
+                    weights = torch.softmax(
+                        -margins / self.objective.temperature, dim=1
+                    )
                 uncertainty = torch.linalg.vector_norm(
                     uncertainties[:, ids] / tensor(scale[ids]) * weights, dim=1
                 )

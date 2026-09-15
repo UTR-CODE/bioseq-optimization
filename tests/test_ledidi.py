@@ -30,6 +30,7 @@ def make_scorer():
 def test_ledidi_budget_reproducibility_and_loss(budget):
     options = dict(
         initial=["AAAAAAAA", "CCCCCCCC", "TTTTTTTT", "AAAACCCC"],
+        objective=["maximize"],
         num_candidates=4,
         diversity=0,
         budget=budget,
@@ -74,8 +75,10 @@ def test_ledidi_requires_gradients():
         ledidi_optimize(
             CallableScorer(lambda x: np.ones(len(x))),
             SequenceSpace(8),
+            None,
+            ["maximize"],
+            4,
             budget=8,
-            num_candidates=4,
         )
 
 
@@ -92,9 +95,10 @@ def test_ledidi_accepts_multitask_objective():
     result = ledidi_optimize(
         MultiTask(),
         SequenceSpace(8),
+        initial=None,
         budget=8,
-        num_candidates=4,
         objective=MultiTaskObjective(high="all"),
+        num_candidates=4,
     )
     assert result.activities.shape == (4, 2)
     assert result.metadata["soft_query_count"] == 4

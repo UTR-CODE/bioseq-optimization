@@ -1,35 +1,42 @@
 # genetic_algorithm_optimize
 
-Elite selection, crossover and mutation. With `reference_cds`, crossover and mutation operate on whole codons; every candidate starts with `ATG`, ends with `TAA`, `TAG`, or `TGA`, and encodes the reference protein. Only the standard genetic code is supported. Unspecified amino acids use all standard synonymous codons. A custom table restricts permitted codons, not amino-acid identity.
+Elite selection, crossover and mutation. With `is_CDS_optimized=True`, crossover
+and mutation operate on whole codons. Each initial CDS is optimized independently;
+every result starts with `ATG`, ends with `TAA`, `TAG`, or `TGA`, and encodes the
+same protein as that initial sequence. Only the standard genetic code is used.
 
 | Parameter | Default | Meaning |
 |---|---|---|
-| `scorer` | required | Predictor accepting sequence strings |
+| `model` | required | Parameterized predictor accepting sequence strings |
 | `length` | required | Candidate sequence length |
+| `initial` | required | Starting sequences, or None for random initialization |
+| `objective` | required | Per-output numeric targets or maximize, minimize, and ignore directions; an objective object is also accepted |
+| `num_candidates` | required | Number of unique retained results |
 | `budget` | 10,000 | Optional fixed candidate budget; invalid when saturation is set |
 | `saturation` | None | SaturationConfig for plateau-based stopping; omit budget when set |
 | `constraint` | None | One constraint callable or a list of independently intersected constraint callables |
-| `num_candidates` | 100 | Number of unique seeds and retained results |
 | `diversity` | 5 | Minimum pairwise Hamming distance among returned sequences; zero disables it |
 | `fixed_region` | None | List of zero-based positions or Python-style start:stop slices held to one shared template |
-| `initial` | None | Exactly num_candidates unique starting sequences; otherwise random |
-| `objective` | None | Per-output numeric targets or maximize, minimize, and ignore directions; an objective object is also accepted |
-| `model_weights` | None | Positive relative weights for direction-list outputs; default equal weights |
 | `alphabet` | "ACGT" | Candidate alphabet |
 | `seed` | 0 | Random seed |
 | `count_repeated` | False | Charge repeated proposals even when cached |
 | `mutation_rate` | 0.02 | Mutation probability per position (0 < value <= 1); per codon for constrained CDS |
 | `elite_fraction` | 0.2 | Elite proportion (0 < value <= 1) |
-| `reference_cds` | None | Complete CDS beginning with ATG and ending with TAA, TAG, or TGA; length must match |
-| `synonymous_codons` | None | Optional amino-acid to allowed codon lists; requires reference_cds |
+| `is_CDS_optimized` | False | Validate and independently optimize each initial sequence as a protein-preserving CDS |
 
 ```python
 from sequence_optimization import genetic_algorithm_optimize, random_seed_sequences
 
 initial = random_seed_sequences(length=50, count=4, seed=7)
 result = genetic_algorithm_optimize(
-    predictor, length=50, initial=initial, budget=1000,
-    num_candidates=4, mutation_rate=0.1, objective=["maximize"], seed=7,
+    predictor,
+    length=50,
+    initial=initial,
+    objective=["maximize"],  # or [0.6] to stop after reaching score 0.6
+    num_candidates=4,
+    budget=1000,
+    mutation_rate=0.1,
+    seed=7,
 )
 ```
 

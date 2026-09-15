@@ -120,6 +120,7 @@ def test_plain_single_task_model_can_return_numpy_array(column_output):
         num_candidates=4,
         diversity=0,
         initial=["AAAA", "CCCC", "GGGG", "TTTT"],
+        objective=["maximize"],
         seed=3,
     )
 
@@ -144,6 +145,7 @@ def test_plain_model_score_batch_output_remains_supported():
         num_candidates=4,
         diversity=0,
         initial=["AAAA", "CCCC", "GGGG", "TTTT"],
+        objective=["maximize"],
         seed=3,
     )
 
@@ -216,7 +218,12 @@ def test_named_optimizer_functions_and_rna_space():
     initial = np.asarray(["AAAA", "CCCC", "GGGG", "UUUU"])
     scorer = CallableScorer(lambda values: [value.count("U") for value in values])
     common = dict(
-        budget=4, num_candidates=4, diversity=0, initial=initial, seed=3
+        budget=4,
+        num_candidates=4,
+        diversity=0,
+        initial=initial,
+        objective=["maximize"],
+        seed=3,
     )
     ism = ISM_optimize(scorer, space, **common)
     genetic = genetic_algorithm_optimize(scorer, space, **common)
@@ -360,6 +367,7 @@ def test_saturation_returns_requested_q80_and_q90_archives():
         SequenceSpace(5),
         num_candidates=4,
         initial=["AAAAA", "CCCCC", "GGGGG", "TTTTT"],
+        objective=["maximize"],
         saturation=SaturationConfig(
             fractions=(0.8, 0.9),
             minimum_queries=8,
@@ -380,6 +388,8 @@ def test_saturation_and_budget_are_mutually_exclusive():
         genetic_algorithm_optimize(
             scorer,
             length=5,
+            initial=None,
+            objective=["maximize"],
             budget=40,
             saturation=SaturationConfig(maximum_queries=40),
             num_candidates=4,
@@ -389,12 +399,24 @@ def test_saturation_and_budget_are_mutually_exclusive():
 def test_omitted_budget_uses_default():
     scorer = CallableScorer(lambda values: [value.count("G") for value in values])
     result = random_optimize(
-        scorer, length=1, num_candidates=4, diversity=0, seed=4
+        scorer,
+        length=1,
+        initial=None,
+        objective=["maximize"],
+        num_candidates=4,
+        diversity=0,
+        seed=4,
     )
     assert result.query_count == 4
     with pytest.raises(ValueError, match="budget must be at least num_candidates"):
         random_optimize(
-            scorer, length=1, num_candidates=10_001, diversity=0, seed=4
+            scorer,
+            length=1,
+            initial=None,
+            objective=["maximize"],
+            num_candidates=10_001,
+            diversity=0,
+            seed=4,
         )
 
 
@@ -403,6 +425,8 @@ def test_default_diversity_applies_to_returned_sequences():
     result = random_optimize(
         scorer,
         length=12,
+        initial=None,
+        objective=["maximize"],
         num_candidates=4,
         budget=200,
         seed=4,
@@ -418,6 +442,8 @@ def test_default_diversity_applies_to_saturation_selections():
     saturated = random_optimize(
         scorer,
         length=12,
+        initial=None,
+        objective=["maximize"],
         num_candidates=4,
         saturation=SaturationConfig(
             fractions=(0.8,),
@@ -438,7 +464,14 @@ def test_default_diversity_applies_to_saturation_selections():
 def test_diversity_cannot_exceed_sequence_length_for_multiple_results():
     scorer = CallableScorer(lambda values: np.zeros(len(values)))
     with pytest.raises(ValueError, match="mutable positions"):
-        random_optimize(scorer, length=4, num_candidates=2, budget=10)
+        random_optimize(
+            scorer,
+            length=4,
+            initial=None,
+            objective=["maximize"],
+            num_candidates=2,
+            budget=10,
+        )
 
 
 def test_fixed_region_resolves_requested_positive_and_negative_slices():
@@ -457,9 +490,7 @@ def test_fixed_region_resolves_requested_positive_and_negative_slices():
 
 
 def test_fixed_region_is_preserved_by_every_black_box_optimizer():
-    initial = np.asarray(
-        ["AAAACCTT", "AACCAATT", "AAGGGGTT", "AATTTGTT"]
-    )
+    initial = np.asarray(["AAAACCTT", "AACCAATT", "AAGGGGTT", "AATTTGTT"])
     scorer = CallableScorer(lambda values: [value.count("G") for value in values])
     config = OptimizationConfig(
         budget=40,
@@ -499,6 +530,8 @@ def test_fixed_region_uses_one_seeded_template_without_initial():
     result = random_optimize(
         CallableScorer(lambda values: [value.count("G") for value in values]),
         length=10,
+        initial=None,
+        objective=["maximize"],
         fixed_region=["0:2", "-2:"],
         num_candidates=4,
         diversity=0,
@@ -514,6 +547,8 @@ def test_fixed_region_is_preserved_in_saturation_selections():
     saturated = random_optimize(
         CallableScorer(lambda values: [value.count("G") for value in values]),
         length=10,
+        initial=None,
+        objective=["maximize"],
         fixed_region=["0:2", "-2:"],
         num_candidates=4,
         diversity=0,
@@ -538,6 +573,8 @@ def test_fixed_region_limits_possible_diversity():
         random_optimize(
             scorer,
             length=8,
+            initial=None,
+            objective=["maximize"],
             fixed_region=["0:6"],
             num_candidates=2,
             diversity=3,
@@ -561,6 +598,8 @@ def test_invalid_fixed_region_entries(fixed_region, match):
         random_optimize(
             scorer,
             length=8,
+            initial=None,
+            objective=["maximize"],
             fixed_region=fixed_region,
             num_candidates=1,
             budget=1,
@@ -575,6 +614,7 @@ def test_fixed_region_requires_initial_sequences_to_agree():
             length=6,
             fixed_region=["0:2"],
             initial=["AAAAAA", "CAAAAA"],
+            objective=["maximize"],
             num_candidates=2,
             diversity=0,
             budget=2,
@@ -608,8 +648,21 @@ def test_public_optimizers_expose_saturation_parameter():
     ]
     for function in functions:
         signature = inspect.signature(function)
+        required = [
+            parameter.name
+            for parameter in signature.parameters.values()
+            if parameter.default is inspect.Parameter.empty
+        ]
+        assert required == [
+            "model",
+            "length",
+            "initial",
+            "objective",
+            "num_candidates",
+        ]
         assert signature.parameters["saturation"].default is None
         assert signature.parameters["budget"].default is None
-        assert signature.parameters["model_weights"].default is None
+        assert "model_weights" not in signature.parameters
+        assert signature.parameters["is_CDS_optimized"].default is False
         assert signature.parameters["diversity"].default == 5
         assert signature.parameters["fixed_region"].default is None

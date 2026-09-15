@@ -163,13 +163,13 @@ def main() -> None:
         saturated = optimize(
             scorer,
             args.length,
+            initial,
+            objective,
+            args.num_candidates,
             algorithm=args.algorithm,
-            num_candidates=args.num_candidates,
             diversity=args.diversity,
             fixed_region=args.fixed_region,
             alphabet=args.alphabet,
-            initial=initial,
-            objective=objective,
             constraint=constraint,
             saturation=SaturationConfig(
                 fractions=fractions,

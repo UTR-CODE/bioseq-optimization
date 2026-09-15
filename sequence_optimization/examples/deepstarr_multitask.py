@@ -1,7 +1,7 @@
 """Python example: three direction lists for a two-output scorer."""
 
 from bioseq_models import load_model
-from sequence_optimization import basesearch_optimize
+from sequence_optimization import basesearch_optimize, random_seed_sequences
 
 
 def main():
@@ -15,6 +15,7 @@ def main():
         result = basesearch_optimize(
             model,
             length=249,
+            initial=random_seed_sequences(249, 4, seed=7),
             objective=objective,
             num_candidates=4,
             budget=100,

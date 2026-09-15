@@ -67,7 +67,7 @@ single_result = genetic_algorithm_optimize(
     single_model,
     length=20,
     initial=initial,
-    objective=["maximize"],
+    objective=["maximize"],  # or [0.6] to stop after reaching score 0.6
     num_candidates=4,
     budget=1000,
     mutation_rate=0.1,
@@ -198,9 +198,8 @@ print(all_high_result.to_frame())
 | TCCCTCTCCGGGGCCTGTCG | 0.083 | 0.05 | 0.20 | 0.00 |
 | ACCCCCTCCGGGGTTTGGCG | 0.067 | 0.10 | 0.15 | -0.05 |
 
-The default direction-list score is the equal-weight mean of the signed active
-outputs. `ignore` outputs are excluded from that mean. Set `model_weights` when
-the active outputs should have different influence.
+The direction-list score is the equal-weight mean of the signed active outputs.
+`ignore` outputs are excluded from that mean.
 
 [Multi-task CNN with every optimizer](docs/tasks/multi_task.md) ·
 [DeepSTARR: housekeeping specificity](docs/models/deepstarr.md) ·
@@ -266,35 +265,6 @@ still evaluated.
 [Agarwal: three cell lines](docs/models/agarwal.md) ·
 [DeepSTARR Mouse](docs/models/deepstarr_mouse.md) ·
 [DeepSTARR-Embryo](docs/models/deepstarr_embryo.md).
-
-## Set relative model weights
-
-The same `model_weights` parameter applies to a multi-output model and to
-independent models joined with `CombinedScorer`. Values follow model-output
-order. Active outputs must have positive finite weights; only their ratios
-matter. When omitted, every active output has weight 1.
-
-```python
-weighted_result = genetic_algorithm_optimize(
-    combined,
-    length=20,
-    initial=initial,
-    objective=["maximize", "minimize", "minimize"],
-    model_weights=[2.0, 1.0, 1.0],
-    num_candidates=4,
-    budget=1000,
-    mutation_rate=0.1,
-    elite_fraction=0.5,
-    seed=7,
-)
-```
-
-This gives `model_a` twice the influence of `model_b` or `model_c`. The scalar
-score is the normalized weighted mean
-`(2 * model_a - model_b - model_c) / 4`. For a multi-output scorer, use the
-same argument with weights ordered by its output columns.
-
-[`MultiTaskObjective` parameters](docs/objectives.md).
 
 ## Use your own model
 
@@ -365,8 +335,8 @@ constrained_result = genetic_algorithm_optimize(
     length=20,
     initial=initial,
     objective=["maximize"],
-    constraint=[gc_at_most_60, excludes_motifs],
     num_candidates=4,
+    constraint=[gc_at_most_60, excludes_motifs],
     budget=1000,
     seed=7,
 )

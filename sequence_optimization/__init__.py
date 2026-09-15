@@ -1,9 +1,8 @@
 """Standalone, model-agnostic sequence optimization toolkit.
 
-Wrap a model in a scorer, supply the sequence length, choose seed sequences
-(or let the toolkit sample them), and run one or more registered algorithms.
-Model architectures and weights live in the separate ``bioseq-models``
-package.
+Supply a parameterized prediction model, the sequence length, starting
+sequences, an objective, and a candidate count. Model architectures and weights
+live in the separate ``bioseq-models`` package.
 """
 
 from .api import (

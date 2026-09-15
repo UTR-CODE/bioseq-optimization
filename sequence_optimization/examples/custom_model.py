@@ -9,6 +9,7 @@ from sequence_optimization import (
     SequencePredictor,
     basesearch_optimize,
     onehot,
+    random_seed_sequences,
 )
 
 
@@ -46,6 +47,7 @@ def example():
     return basesearch_optimize(
         predictor,
         length=20,
+        initial=random_seed_sequences(20, 4, seed=7),
         objective=["maximize"],
         num_candidates=4,
         budget=40,

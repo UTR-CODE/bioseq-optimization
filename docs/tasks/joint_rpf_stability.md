@@ -6,16 +6,15 @@ This task designs a coding sequence that raises both UTR-CODE's
 changes codons without changing the encoded protein.
 
 Only `genetic_algorithm_optimize` supports the synonymous-CDS search space.
-The reference and every initial sequence must begin with `ATG`, end with
-`TAA`, `TAG`, or `TGA`, contain no internal stop codon, and encode the same
-amino-acid sequence.
+Every initial sequence must begin with `ATG`, end with `TAA`, `TAG`, or `TGA`,
+have a length divisible by three, and contain no internal stop codon. Each is
+optimized in its own protein-preserving search.
 
 ## Models, transcript context, and initial CDSs
 
 The example uses the Gluc CDS. Replace the fixed UTRs with its transcript
-context. `reference_cds` restricts every candidate to the Gluc protein, and
-`synonymous_codons` keeps `TAA` as the terminal stop codon. Amino acids omitted
-from the mapping retain all synonymous codons in the standard genetic code.
+context. Each initial CDS defines its protein-preserving synonymous search space
+using the standard genetic code.
 
 ```python
 from bioseq_models import load_model
@@ -25,14 +24,13 @@ fixed_utr5 = "ACGT" * 10  # replace with the transcript 5′UTR
 fixed_utr3 = "ACGT" * 10  # replace with the transcript 3′UTR
 
 # >Gluc_CDS
-reference_cds = "ATGGGAGTCAAAGTTCTGTTTGCCCTGATCTGCATCGCTGTGGCCGAGGCCAAGCCCACCGAGAACAACGAAGACTTCAACATCGTGGCCGTGGCCAGCAACTTCGCGACCACGGATCTCGATGCTGACCGCGGGAAGTTGCCCGGCAAGAAGCTGCCGCTGGAGGTGCTCAAAGAGATGGAAGCCAATGCCCGGAAAGCTGGCTGCACCAGGGGCTGTCTGATCTGCCTGTCCCACATCAAGTGCACGCCCAAGATGAAGAAGTTCATCCCAGGACGCTGCCACACCTACGAAGGCGACAAAGAGTCCGCACAGGGCGGCATAGGCGAGGCGATCGTCGACATTCCTGAGATTCCTGGGTTCAAGGACTTGGAGCCCATGGAGCAGTTCATCGCACAGGTCGATCTGTGTGTGGACTGCACAACTGGCTGCCTCAAAGGGCTTGCCAACGTGCAGTGTTCTGACCTGCTCAAGAAGTGGCTGCCGCAACGCTGTGCGACCTTTGCCAGCAAGATCCAGGGCCAGGTGGACAAGATCAAGGGGGCCGGTGGTGACTAA"
+cds = "ATGGGAGTCAAAGTTCTGTTTGCCCTGATCTGCATCGCTGTGGCCGAGGCCAAGCCCACCGAGAACAACGAAGACTTCAACATCGTGGCCGTGGCCAGCAACTTCGCGACCACGGATCTCGATGCTGACCGCGGGAAGTTGCCCGGCAAGAAGCTGCCGCTGGAGGTGCTCAAAGAGATGGAAGCCAATGCCCGGAAAGCTGGCTGCACCAGGGGCTGTCTGATCTGCCTGTCCCACATCAAGTGCACGCCCAAGATGAAGAAGTTCATCCCAGGACGCTGCCACACCTACGAAGGCGACAAAGAGTCCGCACAGGGCGGCATAGGCGAGGCGATCGTCGACATTCCTGAGATTCCTGGGTTCAAGGACTTGGAGCCCATGGAGCAGTTCATCGCACAGGTCGATCTGTGTGTGGACTGCACAACTGGCTGCCTCAAAGGGCTTGCCAACGTGCAGTGTTCTGACCTGCTCAAGAAGTGGCTGCCGCAACGCTGTGCGACCTTTGCCAGCAAGATCCAGGGCCAGGTGGACAAGATCAAGGGGGCCGGTGGTGACTAA"
 initial_cds = [
-    reference_cds,
+    cds,
     "ATGGGAGTCAAAGTTCTGTTTGCCCTGATCTGTATCGCTGTGGCCGAGGCCAAGCCCACCGAGAACAACGAAGACTTCAACATCGTGGCCGTAGCCAGCAACTTCGCGACCACGGATCTCGATGCTGACCGCGGGAAGTTGCCCGGCAAGAAACTGCCGCTGGAGGTGCTCAAAGAGATGGAAGCCAATGCCCGGAAAGCTGGCTGCACCAGAGGCTGTCTGATCTGCCTGTCCCACATCAAGTGCACGCCCAAGATGAAGAAGTTCATCCCCGGACGCTGCCACACCTACGAAGGCGACAAAGAGTCCGCACAGGGCGGCATAGGCGAGGCAATCGTCGACATTCCTGAGATTCCTGGGTTCAAGGACTTGGAGCCCATGGAGCAGTTCATAGCACAGGTCGATCTGTGTGTGGACTGCACAACTGGCTGCCTCAAAGGGCTTGCCAACGTACAGTGTTCTGACCTGCTCAAGAAGTGGCTGCCGCAACGCTGTGCGACCTTTGCCAGCAAAATCCAGGGCCAGGTGGACAAGATCAAGGGGGCCGGTGGTGACTAA",
     "ATGGGAGTCAAAGTTCTGTTTGCCCTGATCTGCATCGCTGTGGCCGAAGCCAAGCCCACCGAGAACAACGAAGACTTCAACATCGTGGCCGTGGCCAGCAACTTCGCAACCACGGATCTCGATGCTGACCGCGGGAAGTTGCCCGGCAAGAAGCTGCCGCTGGAGGTACTCAAAGAGATGGAAGCCAATGCCCGGAAAGCTGGCTGCACCAGGGGCTGTCTGATCTGTCTGTCCCACATCAAGTGCACGCCCAAGATGAAGAAGTTCATCCCAGGACGCTGCCACACATACGAAGGCGACAAAGAGTCCGCACAGGGCGGCATAGGCGAGGCGATCGTCGACATTCCAGAGATTCCTGGGTTCAAGGACTTGGAGCCCATGGAGCAGTTCATCGCACAGGTCGATCTATGTGTGGACTGCACAACTGGCTGCCTCAAAGGGCTTGCCAACGTGCAGTGTTCTGACCTACTCAAGAAGTGGCTGCCGCAACGCTGTGCGACCTTTGCCAGCAAGATCCAGGGCCAGGTAGACAAGATCAAGGGGGCCGGTGGTGACTAA",
     "ATGGGAGTCAAAGTTCTGTTTGCCCTGATCTGCATCGCTGTGGCCGAGGCCAAGCCCACCGAAAACAACGAAGACTTCAACATCGTGGCCGTGGCCAGCAACTTCGCGACCACGGATCTCGACGCTGACCGCGGGAAGTTGCCCGGCAAGAAGCTGCCGCTGGAGGTGCTCAAAGAGATGGAGGCCAATGCCCGGAAAGCTGGCTGCACCAGGGGCTGTCTGATCTGCCTGTCCCACATCAAATGCACGCCCAAGATGAAGAAGTTCATCCCAGGACGCTGCCACACCTACGAAGGCGACAAGGAGTCCGCACAGGGCGGCATAGGCGAGGCGATCGTCGACATTCCTGAGATTCCTGGGTTTAAGGACTTGGAGCCCATGGAGCAGTTCATCGCACAGGTCGATCTGTGTGTGGACTGCACCACTGGCTGCCTCAAAGGGCTTGCCAACGTGCAGTGTTCTGACCTGCTCAAGAAGTGGCTACCGCAACGCTGTGCGACCTTTGCCAGCAAGATCCAGGGCCAGGTGGACAAGATCAAGGGAGCCGGTGGTGACTAA",
 ]
-allowed_codons = {"*": ["TAA"]}
 
 rpf_model = load_model(
     "utr_code",
@@ -57,54 +55,50 @@ joint_model = CombinedScorer(
 )
 ```
 
-`CombinedScorer` orders the outputs as `[rpf, mrna_stability]`. The same order
-is used by `objective` and `model_weights` below. The two equal weights produce
-the mean of the signed RPF and mRNA-stability predictions.
+`CombinedScorer` orders the outputs as `[rpf, mrna_stability]`; this is also the
+order used by `objective`. Active outputs use an equal-weight mean.
 
 ## Fixed-budget search
 
 ```python
 from sequence_optimization import genetic_algorithm_optimize
 
-result = genetic_algorithm_optimize(
+results = genetic_algorithm_optimize(
     joint_model,
-    length=len(reference_cds),
+    length=len(initial_cds[0]),
     initial=initial_cds,
-    reference_cds=reference_cds,
-    synonymous_codons=allowed_codons,
     objective=["maximize", "maximize"],
-    model_weights=[1.0, 1.0],
     num_candidates=4,
+    is_CDS_optimized=True,
     budget=4_000,
     mutation_rate=0.1,
     elite_fraction=0.5,
     seed=7,
 )
-print(result.to_frame())
+for result in results:
+    print(result.to_frame())
 ```
 
 `activity_rpf` and `activity_mrna_stability` contain the two raw model
 predictions. The candidate `budget` counts joint sequence evaluations; each
-uncached candidate is evaluated once by each child model. Change the two
-positive values in `model_weights` to adjust their relative influence.
+uncached candidate is evaluated once by each child model. The budget is applied
+separately to each initial CDS.
 
 ## Saturation screening
 
-Use `saturation` without `budget` to stop after the joint weighted-mean
+Use `saturation` without `budget` to stop after the joint equal-weight mean
 trajectory levels off:
 
 ```python
 from sequence_optimization import SaturationConfig, genetic_algorithm_optimize
 
-saturated = genetic_algorithm_optimize(
+saturated_results = genetic_algorithm_optimize(
     joint_model,
-    length=len(reference_cds),
+    length=len(initial_cds[0]),
     initial=initial_cds,
-    reference_cds=reference_cds,
-    synonymous_codons=allowed_codons,
     objective=["maximize", "maximize"],
-    model_weights=[1.0, 1.0],
     num_candidates=4,
+    is_CDS_optimized=True,
     mutation_rate=0.1,
     elite_fraction=0.5,
     saturation=SaturationConfig(
@@ -116,17 +110,18 @@ saturated = genetic_algorithm_optimize(
     ),
     seed=7,
 )
-q80 = saturated[0.8]
-q90 = saturated[0.9]
-print(q80.to_frame())
-print(q90.to_frame())
-print(saturated.stop_reason, saturated.total_query_count)
+for saturated in saturated_results:
+    q80 = saturated[0.8]
+    q90 = saturated[0.9]
+    print(q80.to_frame())
+    print(q90.to_frame())
+    print(saturated.stop_reason, saturated.total_query_count)
 ```
 
 All retained sequences, including q80 and q90, translate to the same protein
-as `reference_cds` and use only the configured synonymous codons. The q80 and
-q90 fractions refer to the observed improvement in the joint weighted-mean
-objective, not either raw model output alone.
+as their corresponding initial CDS. The q80 and q90 fractions refer to the
+observed improvement in the joint equal-weight objective, not either raw model
+output alone.
 
 [Synonymous CDS requirements](synonymous_cds.md) ·
 [Multi-output objectives](../objectives.md) ·

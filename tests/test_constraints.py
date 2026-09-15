@@ -99,6 +99,8 @@ def test_soft_constraints_are_reproducible_and_report_probabilities():
     )
     options = dict(
         length=5,
+        initial=None,
+        objective=["maximize"],
         constraint=soft_gc,
         num_candidates=4,
         diversity=0,
@@ -126,6 +128,8 @@ def test_constraint_output_validation(constraint, match):
         so.random_optimize(
             so.CallableScorer(lambda values: np.zeros(len(values))),
             length=3,
+            initial=None,
+            objective=["maximize"],
             constraint=constraint,
             num_candidates=2,
             diversity=0,
@@ -140,6 +144,8 @@ def test_constraint_requires_callable_and_enough_feasible_sequences():
         so.random_optimize(
             scorer,
             length=2,
+            initial=None,
+            objective=["maximize"],
             constraint=[lambda values: np.ones(len(values)), "invalid"],
             num_candidates=2,
             diversity=0,
@@ -149,6 +155,8 @@ def test_constraint_requires_callable_and_enough_feasible_sequences():
         so.random_optimize(
             scorer,
             length=2,
+            initial=None,
+            objective=["maximize"],
             constraint=lambda values: np.zeros(len(values)),
             num_candidates=2,
             diversity=0,
@@ -168,6 +176,8 @@ def test_saturation_uses_constraint_intersection():
             lambda values: np.asarray([value.count("G") for value in values])
         ),
         length=4,
+        initial=None,
+        objective=["maximize"],
         constraint=[no_t, no_c],
         num_candidates=4,
         diversity=0,

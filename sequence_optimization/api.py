@@ -611,9 +611,7 @@ def resolve_fixed_positions(
     """Resolve integer and Python-style slice entries to zero-based positions."""
     if fixed_region is None:
         return ()
-    if isinstance(fixed_region, (str, bytes)) or not isinstance(
-        fixed_region, Sequence
-    ):
+    if isinstance(fixed_region, (str, bytes)) or not isinstance(fixed_region, Sequence):
         raise ValueError("fixed_region must be a list of positions or slices")
     positions: set[int] = set()
     for entry in fixed_region:
@@ -630,24 +628,17 @@ def resolve_fixed_positions(
                 try:
                     region = int(value)
                 except ValueError as error:
-                    raise ValueError(
-                        f"invalid fixed_region entry {entry!r}"
-                    ) from error
+                    raise ValueError(f"invalid fixed_region entry {entry!r}") from error
             else:
                 parts = value.split(":")
                 if len(parts) != 2:
-                    raise ValueError(
-                        "fixed_region string slices must use start:stop"
-                    )
+                    raise ValueError("fixed_region string slices must use start:stop")
                 try:
                     start, stop = (
-                        None if part.strip() == "" else int(part)
-                        for part in parts
+                        None if part.strip() == "" else int(part) for part in parts
                     )
                 except ValueError as error:
-                    raise ValueError(
-                        f"invalid fixed_region entry {entry!r}"
-                    ) from error
+                    raise ValueError(f"invalid fixed_region entry {entry!r}") from error
                 region = slice(start, stop)
         elif isinstance(entry, slice):
             if entry.step not in {None, 1}:
@@ -694,7 +685,7 @@ class FixedRegionSequenceSpace:
         if hasattr(base, "choices"):
             self.capacity = int(getattr(base, "capacity"))
         else:
-            self.capacity = self.alphabet_size**len(self.mutable_positions)
+            self.capacity = self.alphabet_size ** len(self.mutable_positions)
 
     def __getattr__(self, name):
         return getattr(self.base, name)
@@ -753,12 +744,10 @@ class FixedRegionSequenceSpace:
             dtype=torch.long,
             device=probabilities.device,
         )
-        fixed_values = functional.one_hot(
-            template, num_classes=self.alphabet_size
-        ).to(probabilities.dtype)
-        mask = torch.zeros(
-            self.length, dtype=torch.bool, device=probabilities.device
+        fixed_values = functional.one_hot(template, num_classes=self.alphabet_size).to(
+            probabilities.dtype
         )
+        mask = torch.zeros(self.length, dtype=torch.bool, device=probabilities.device)
         mask[list(self.fixed_positions)] = True
         return torch.where(mask[None, :, None], fixed_values[None, :, :], probabilities)
 
@@ -803,9 +792,7 @@ class FixedRegionSequenceSpace:
 
     def offspring(self, elite, count, mutation_rate, rng):
         if hasattr(self.base, "offspring"):
-            return self.validate(
-                self.base.offspring(elite, count, mutation_rate, rng)
-            )
+            return self.validate(self.base.offspring(elite, count, mutation_rate, rng))
         a = self.encode(elite[rng.integers(len(elite), size=count)])
         b = self.encode(elite[rng.integers(len(elite), size=count)])
         child = np.where(rng.random(a.shape) < 0.5, a, b)
@@ -848,11 +835,12 @@ class OptimizationConfig:
     basesearch_decay: float = 0.995
     basesearch_queue_size: int = 1024
     basesearch_max_stalled: int = 1024
-    reference_cds: str | None = None
-    synonymous_codons: dict[str, Sequence[str]] | None = None
     fixed_region: Sequence[FixedRegionSpec] | None = None
+    is_CDS_optimized: bool = False
 
     def __post_init__(self) -> None:
+        if not isinstance(self.is_CDS_optimized, bool):
+            raise ValueError("is_CDS_optimized must be a boolean")
         if self.fixed_region is not None:
             if isinstance(self.fixed_region, (str, bytes)) or not isinstance(
                 self.fixed_region, Sequence

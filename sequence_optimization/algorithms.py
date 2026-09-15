@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import random
 from collections.abc import Callable, Iterable, Sequence
 from typing import Any
@@ -17,6 +18,7 @@ from .api import (
     ScoreBatch,
     SequenceScorer,
     SequenceSpace,
+    normalize_nucleotide_sequences,
     resolve_fixed_positions,
 )
 from .constraints import ConstraintSpec
@@ -161,7 +163,12 @@ def _finalize(
 
 
 def _initial(
-    initial, space: SequenceSpace, config: OptimizationConfig, rng: np.random.Generator
+    initial,
+    space: SequenceSpace,
+    config: OptimizationConfig,
+    rng: np.random.Generator,
+    *,
+    anchor: str | None = None,
 ) -> np.ndarray:
     maximum_distance = int(getattr(space, "max_hamming_distance", space.length))
     if config.num_candidates > 1 and config.diversity > maximum_distance:
@@ -177,6 +184,9 @@ def _initial(
                 f"cannot draw {config.num_candidates} unique seeds from a space of size {capacity}"
             )
         seeds: dict[str, None] = {}
+        if anchor is not None:
+            anchor_value = str(space.validate([anchor])[0])
+            seeds[anchor_value] = None
         draws = 0
         maximum_draws = max(10_000, 1000 * config.num_candidates)
         while len(seeds) < config.num_candidates and draws < maximum_draws:
@@ -283,9 +293,7 @@ def ism_greedy(initial, scorer, space, config, rng):
             "mean_score": float(current_scores.mean()),
         }
     ]
-    mutable_count = len(
-        getattr(space, "mutable_positions", tuple(range(space.length)))
-    )
+    mutable_count = len(getattr(space, "mutable_positions", tuple(range(space.length))))
     block = mutable_count * (space.alphabet_size - 1)
     if block == 0:
         return _finalize(
@@ -357,11 +365,15 @@ def simulated_annealing(initial, scorer, space, config, rng):
         progress = scorer.query_count / max(config.budget, 1)
         temp = max(temperature * (0.001**progress), 1e-6)
         accept = np.zeros(len(current), dtype=bool)
-        accept[passed] = (~current_passed[passed]) | (
-            values[passed] >= current_scores[passed]
-        ) | (
-            rng.random(int(passed.sum()))
-            < np.exp(np.minimum((values[passed] - current_scores[passed]) / temp, 0))
+        accept[passed] = (
+            (~current_passed[passed])
+            | (values[passed] >= current_scores[passed])
+            | (
+                rng.random(int(passed.sum()))
+                < np.exp(
+                    np.minimum((values[passed] - current_scores[passed]) / temp, 0)
+                )
+            )
         )
         current[accept] = proposals[accept]
         current_scores[accept] = values[accept]
@@ -485,19 +497,23 @@ def adalead(initial, scorer, space, config, rng):
     )
 
 
-def _configured_space(length, alphabet, config, algorithm):
-    if config.reference_cds is None:
-        if config.synonymous_codons is not None:
-            raise ValueError("synonymous_codons requires reference_cds")
+def _configured_space(length, alphabet, config, algorithm, initial=None):
+    if not config.is_CDS_optimized:
         return _sequence_space(length, alphabet)
     if algorithm != "genetic_algorithm":
-        raise ValueError("synonymous CDS constraints require genetic_algorithm")
+        raise ValueError("is_CDS_optimized=True requires genetic_algorithm")
+    if initial is None:
+        raise ValueError("initial is required when is_CDS_optimized=True")
     from .codons import SynonymousCodonSpace
 
-    space = SynonymousCodonSpace(config.reference_cds, config.synonymous_codons)
+    values = normalize_nucleotide_sequences(initial)
+    if not len(values):
+        raise ValueError("initial must contain at least one CDS")
+    space = SynonymousCodonSpace(str(values[0]))
     requested = _sequence_space(length, alphabet)
     if requested.length != space.length or requested.alphabet != "ACGT":
-        raise ValueError("length must match reference_cds and alphabet must be ACGT")
+        raise ValueError("length must match the initial CDS and alphabet must be ACGT")
+    space.validate(values)
     return space
 
 
@@ -531,7 +547,6 @@ def run(
     | list[str | float]
     | tuple[str | float, ...]
     | None = None,
-    model_weights: Sequence[float] | None = None,
     constraint: ConstraintSpec | None = None,
     seed: int = 0,
     count_repeated: bool = False,
@@ -540,10 +555,10 @@ def run(
 
     The model output is scalarized by ``objective``. If omitted, output zero is
     maximized, which is the natural default for a single-task model. Direction
-    lists use a normalized weighted mean controlled by ``model_weights``.
+    lists use an equal-weight mean across active outputs.
     """
     key = str(name).strip().lower()
-    space = _configured_space(length, alphabet, config, key)
+    space = _configured_space(length, alphabet, config, key, initial)
     if key not in _REGISTRY:
         raise KeyError(
             f"unknown algorithm {name!r}; choose from {', '.join(available_algorithms())}"
@@ -557,7 +572,7 @@ def run(
     prepared = _initial(initial, space, config, rng)
     objective_scorer: ObjectiveScorer | None
     if isinstance(scorer, CachedScorer):
-        if objective is not None or model_weights is not None:
+        if objective is not None:
             raise ValueError(
                 "pass an uncached activity scorer when using a multi-task objective"
             )
@@ -569,7 +584,6 @@ def run(
         objective_scorer = ObjectiveScorer(
             scorer,
             TargetObjective() if objective is None else objective,
-            model_weights=model_weights,
         )
         proposal_count_algorithms = {
             "ledidi",
@@ -634,7 +648,6 @@ def run_many(
     | list[str | float]
     | tuple[str | float, ...]
     | None = None,
-    model_weights: Sequence[float] | None = None,
     constraint: ConstraintSpec | None = None,
     seed: int = 0,
 ) -> dict[str, OptimizationResult]:
@@ -648,7 +661,6 @@ def run_many(
             alphabet=alphabet,
             initial=initial,
             objective=objective,
-            model_weights=model_weights,
             constraint=constraint,
             seed=seed + offset,
         )
@@ -657,23 +669,22 @@ def run_many(
 
 
 def optimize(
-    scorer: SequenceScorer,
+    model: SequenceScorer,
     length: int,
-    *,
-    algorithm: str,
-    budget: int | None = None,
-    saturation: SaturationConfig | None = None,
-    num_candidates: int = 100,
-    diversity: int = 5,
-    fixed_region: Sequence[int | str | slice] | None = None,
-    alphabet: str = "ACGT",
-    initial: Sequence[str] | np.ndarray | None = None,
+    initial: Sequence[str] | np.ndarray | None,
     objective: TargetObjective
     | MultiTaskObjective
     | list[str | float]
     | tuple[str | float, ...]
-    | None = None,
-    model_weights: Sequence[float] | None = None,
+    | None,
+    num_candidates: int,
+    *,
+    algorithm: str = "genetic_algorithm",
+    budget: int | None = None,
+    saturation: SaturationConfig | None = None,
+    diversity: int = 5,
+    fixed_region: Sequence[int | str | slice] | None = None,
+    alphabet: str = "ACGT",
     constraint: ConstraintSpec | None = None,
     seed: int = 0,
     mutation_rate: float = 0.02,
@@ -692,11 +703,12 @@ def optimize(
     basesearch_decay: float = 0.995,
     basesearch_queue_size: int = 1024,
     basesearch_max_stalled: int = 1024,
-    reference_cds: str | None = None,
-    synonymous_codons: dict[str, Sequence[str]] | None = None,
+    is_CDS_optimized: bool = False,
     count_repeated: bool = False,
-) -> OptimizationResult | SaturationResult:
-    """Optimize with a fixed budget or saturation and optional model weights.
+) -> (
+    OptimizationResult | SaturationResult | list[OptimizationResult | SaturationResult]
+):
+    """Optimize sequences with a parameterized model.
 
     ``diversity`` is the minimum pairwise Hamming distance among returned
     sequences. ``fixed_region`` holds zero-based positions or Python-style
@@ -723,386 +735,150 @@ def optimize(
         basesearch_decay=basesearch_decay,
         basesearch_queue_size=basesearch_queue_size,
         basesearch_max_stalled=basesearch_max_stalled,
-        reference_cds=reference_cds,
-        synonymous_codons=synonymous_codons,
+        is_CDS_optimized=is_CDS_optimized,
     )
-    if saturation is not None:
-        if budget is not None:
-            raise ValueError("budget is invalid when saturation is set; omit budget")
-        from .saturation import _optimize_with_saturation
+    if saturation is not None and budget is not None:
+        raise ValueError("budget is invalid when saturation is set; omit budget")
+    if saturation is not None and not isinstance(saturation, SaturationConfig):
+        raise TypeError("saturation must be a SaturationConfig or None")
 
-        if not isinstance(saturation, SaturationConfig):
-            raise TypeError("saturation must be a SaturationConfig or None")
-        return _optimize_with_saturation(
-            scorer,
+    def execute(one_initial, one_seed):
+        if saturation is not None:
+            from .saturation import _optimize_with_saturation
+
+            return _optimize_with_saturation(
+                model,
+                length,
+                algorithm=algorithm,
+                alphabet=alphabet,
+                initial=one_initial,
+                objective=objective,
+                constraint=constraint,
+                saturation=saturation,
+                seed=one_seed,
+                count_repeated=count_repeated,
+                **parameters,
+            )
+        resolved_budget = _DEFAULT_BUDGET if budget is None else budget
+        config = OptimizationConfig(budget=resolved_budget, **parameters)
+        return run(
+            algorithm,
+            model,
             length,
-            algorithm=algorithm,
+            config,
             alphabet=alphabet,
-            initial=initial,
+            initial=one_initial,
             objective=objective,
-            model_weights=model_weights,
             constraint=constraint,
-            saturation=saturation,
-            seed=seed,
+            seed=one_seed,
             count_repeated=count_repeated,
-            **parameters,
         )
-    if budget is None:
-        budget = _DEFAULT_BUDGET
-    config = OptimizationConfig(budget=budget, **parameters)
-    return run(
-        algorithm,
-        scorer,
-        length,
-        config,
-        alphabet=alphabet,
-        initial=initial,
-        objective=objective,
-        model_weights=model_weights,
-        constraint=constraint,
-        seed=seed,
-        count_repeated=count_repeated,
+
+    if not is_CDS_optimized:
+        return execute(initial, seed)
+    if algorithm != "genetic_algorithm":
+        raise ValueError("is_CDS_optimized=True requires genetic_algorithm")
+    if initial is None:
+        raise ValueError("initial is required when is_CDS_optimized=True")
+    cds_values = normalize_nucleotide_sequences(initial)
+    if not len(cds_values):
+        raise ValueError("initial must contain at least one CDS")
+    from .codons import SynonymousCodonSpace
+
+    prepared_cds = []
+    seed_config = OptimizationConfig(
+        budget=_DEFAULT_BUDGET if budget is None else budget,
+        **parameters,
     )
+    for offset, value in enumerate(cds_values):
+        reference = str(value)
+        space = SynonymousCodonSpace(reference)
+        if space.length != length:
+            raise ValueError("length must match every initial CDS")
+        local_seed = seed + offset
+        local_rng = np.random.default_rng(local_seed)
+        space = _apply_fixed_region(space, fixed_region, [reference], local_rng)
+        population = _initial(
+            None,
+            space,
+            seed_config,
+            local_rng,
+            anchor=reference,
+        )
+        prepared_cds.append((reference, population, local_seed))
+
+    def optimize_cds(reference, population, local_seed):
+        result = execute(population, local_seed)
+        selections = (
+            result.selections.values()
+            if isinstance(result, SaturationResult)
+            else (result,)
+        )
+        for selection in selections:
+            selection.metadata["initial_cds"] = reference
+        return result
+
+    results = [optimize_cds(*values) for values in prepared_cds]
+    return results[0] if len(results) == 1 else results
 
 
-def basesearch_optimize(
-    scorer: SequenceScorer,
-    length: int,
-    *,
-    budget: int | None = None,
-    saturation: SaturationConfig | None = None,
-    constraint: ConstraintSpec | None = None,
-    model_weights: Sequence[float] | None = None,
-    diversity: int = 5,
-    fixed_region: Sequence[int | str | slice] | None = None,
-    **kwargs,
-) -> OptimizationResult | SaturationResult:
-    """Priority-decayed black-box search with unique mutation proposals."""
-    return optimize(
-        scorer,
-        length,
-        algorithm="basesearch",
-        budget=budget,
-        saturation=saturation,
-        constraint=constraint,
-        model_weights=model_weights,
-        diversity=diversity,
-        fixed_region=fixed_region,
-        **kwargs,
+def _named_optimizer(name, public_name=None, doc=None):
+    def function(model, length, initial, objective, num_candidates, **kwargs):
+        if "algorithm" in kwargs:
+            raise TypeError(f"{function.__name__}() does not accept algorithm")
+        return optimize(
+            model,
+            length,
+            initial,
+            objective,
+            num_candidates,
+            algorithm=name,
+            **kwargs,
+        )
+
+    function.__name__ = public_name or f"{name}_optimize"
+    function.__qualname__ = function.__name__
+    function.__module__ = __name__
+    function.__doc__ = doc or f"Optimize sequences with {name}."
+    function.__signature__ = inspect.signature(optimize).replace(
+        parameters=[
+            parameter
+            for parameter in inspect.signature(optimize).parameters.values()
+            if parameter.name != "algorithm"
+        ]
     )
+    return function
 
 
-def random_optimize(
-    scorer: SequenceScorer,
-    length: int,
-    *,
-    budget: int | None = None,
-    saturation: SaturationConfig | None = None,
-    constraint: ConstraintSpec | None = None,
-    model_weights: Sequence[float] | None = None,
-    diversity: int = 5,
-    fixed_region: Sequence[int | str | slice] | None = None,
-    **kwargs,
-) -> OptimizationResult | SaturationResult:
-    return optimize(
-        scorer,
-        length,
-        algorithm="random",
-        budget=budget,
-        saturation=saturation,
-        constraint=constraint,
-        model_weights=model_weights,
-        diversity=diversity,
-        fixed_region=fixed_region,
-        **kwargs,
-    )
-
-
-def ism_optimize(
-    scorer: SequenceScorer,
-    length: int,
-    *,
-    budget: int | None = None,
-    saturation: SaturationConfig | None = None,
-    constraint: ConstraintSpec | None = None,
-    model_weights: Sequence[float] | None = None,
-    diversity: int = 5,
-    fixed_region: Sequence[int | str | slice] | None = None,
-    **kwargs,
-) -> OptimizationResult | SaturationResult:
-    return optimize(
-        scorer,
-        length,
-        algorithm="ism_greedy",
-        budget=budget,
-        saturation=saturation,
-        constraint=constraint,
-        model_weights=model_weights,
-        diversity=diversity,
-        fixed_region=fixed_region,
-        **kwargs,
-    )
-
-
-def simulated_annealing_optimize(
-    scorer: SequenceScorer,
-    length: int,
-    *,
-    budget: int | None = None,
-    saturation: SaturationConfig | None = None,
-    constraint: ConstraintSpec | None = None,
-    model_weights: Sequence[float] | None = None,
-    diversity: int = 5,
-    fixed_region: Sequence[int | str | slice] | None = None,
-    **kwargs,
-) -> OptimizationResult | SaturationResult:
-    return optimize(
-        scorer,
-        length,
-        algorithm="simulated_annealing",
-        budget=budget,
-        saturation=saturation,
-        constraint=constraint,
-        model_weights=model_weights,
-        diversity=diversity,
-        fixed_region=fixed_region,
-        **kwargs,
-    )
-
-
-def genetic_algorithm_optimize(
-    scorer: SequenceScorer,
-    length: int,
-    *,
-    budget: int | None = None,
-    saturation: SaturationConfig | None = None,
-    constraint: ConstraintSpec | None = None,
-    model_weights: Sequence[float] | None = None,
-    diversity: int = 5,
-    fixed_region: Sequence[int | str | slice] | None = None,
-    **kwargs,
-) -> OptimizationResult | SaturationResult:
-    return optimize(
-        scorer,
-        length,
-        algorithm="genetic_algorithm",
-        budget=budget,
-        saturation=saturation,
-        constraint=constraint,
-        model_weights=model_weights,
-        diversity=diversity,
-        fixed_region=fixed_region,
-        **kwargs,
-    )
-
-
-def adalead_optimize(
-    scorer: SequenceScorer,
-    length: int,
-    *,
-    budget: int | None = None,
-    saturation: SaturationConfig | None = None,
-    constraint: ConstraintSpec | None = None,
-    model_weights: Sequence[float] | None = None,
-    diversity: int = 5,
-    fixed_region: Sequence[int | str | slice] | None = None,
-    **kwargs,
-) -> OptimizationResult | SaturationResult:
-    return optimize(
-        scorer,
-        length,
-        algorithm="adalead",
-        budget=budget,
-        saturation=saturation,
-        constraint=constraint,
-        model_weights=model_weights,
-        diversity=diversity,
-        fixed_region=fixed_region,
-        **kwargs,
-    )
-
-
-def beam_search_optimize(
-    scorer: SequenceScorer,
-    length: int,
-    *,
-    budget: int | None = None,
-    saturation: SaturationConfig | None = None,
-    constraint: ConstraintSpec | None = None,
-    model_weights: Sequence[float] | None = None,
-    diversity: int = 5,
-    fixed_region: Sequence[int | str | slice] | None = None,
-    **kwargs,
-) -> OptimizationResult | SaturationResult:
-    return optimize(
-        scorer,
-        length,
-        algorithm="beam_search",
-        budget=budget,
-        saturation=saturation,
-        constraint=constraint,
-        model_weights=model_weights,
-        diversity=diversity,
-        fixed_region=fixed_region,
-        **kwargs,
-    )
-
-
-def cross_entropy_optimize(
-    scorer: SequenceScorer,
-    length: int,
-    *,
-    budget: int | None = None,
-    saturation: SaturationConfig | None = None,
-    constraint: ConstraintSpec | None = None,
-    model_weights: Sequence[float] | None = None,
-    diversity: int = 5,
-    fixed_region: Sequence[int | str | slice] | None = None,
-    **kwargs,
-) -> OptimizationResult | SaturationResult:
-    return optimize(
-        scorer,
-        length,
-        algorithm="cross_entropy_method",
-        budget=budget,
-        saturation=saturation,
-        constraint=constraint,
-        model_weights=model_weights,
-        diversity=diversity,
-        fixed_region=fixed_region,
-        **kwargs,
-    )
-
-
-def cbas_optimize(
-    scorer: SequenceScorer,
-    length: int,
-    *,
-    budget: int | None = None,
-    saturation: SaturationConfig | None = None,
-    constraint: ConstraintSpec | None = None,
-    model_weights: Sequence[float] | None = None,
-    diversity: int = 5,
-    fixed_region: Sequence[int | str | slice] | None = None,
-    **kwargs,
-) -> OptimizationResult | SaturationResult:
-    return optimize(
-        scorer,
-        length,
-        algorithm="cbas",
-        budget=budget,
-        saturation=saturation,
-        constraint=constraint,
-        model_weights=model_weights,
-        diversity=diversity,
-        fixed_region=fixed_region,
-        **kwargs,
-    )
-
-
-def vanilla_activation_maximization_optimize(
-    scorer: SequenceScorer,
-    length: int,
-    *,
-    budget: int | None = None,
-    saturation: SaturationConfig | None = None,
-    constraint: ConstraintSpec | None = None,
-    model_weights: Sequence[float] | None = None,
-    diversity: int = 5,
-    fixed_region: Sequence[int | str | slice] | None = None,
-    **kwargs,
-) -> OptimizationResult | SaturationResult:
-    return optimize(
-        scorer,
-        length,
-        algorithm="vanilla_activation_maximization",
-        budget=budget,
-        saturation=saturation,
-        constraint=constraint,
-        model_weights=model_weights,
-        diversity=diversity,
-        fixed_region=fixed_region,
-        **kwargs,
-    )
-
-
-def fast_seqprop_optimize(
-    scorer: SequenceScorer,
-    length: int,
-    *,
-    budget: int | None = None,
-    saturation: SaturationConfig | None = None,
-    constraint: ConstraintSpec | None = None,
-    model_weights: Sequence[float] | None = None,
-    diversity: int = 5,
-    fixed_region: Sequence[int | str | slice] | None = None,
-    **kwargs,
-) -> OptimizationResult | SaturationResult:
-    return optimize(
-        scorer,
-        length,
-        algorithm="fast_seqprop",
-        budget=budget,
-        saturation=saturation,
-        constraint=constraint,
-        model_weights=model_weights,
-        diversity=diversity,
-        fixed_region=fixed_region,
-        **kwargs,
-    )
-
-
-def ledidi_optimize(
-    scorer: SequenceScorer,
-    length: int,
-    *,
-    budget: int | None = None,
-    saturation: SaturationConfig | None = None,
-    constraint: ConstraintSpec | None = None,
-    model_weights: Sequence[float] | None = None,
-    diversity: int = 5,
-    fixed_region: Sequence[int | str | slice] | None = None,
-    **kwargs,
-) -> OptimizationResult | SaturationResult:
-    """Ledidi-style single-output maximization with an edit penalty."""
-    return optimize(
-        scorer,
-        length,
-        algorithm="ledidi",
-        budget=budget,
-        saturation=saturation,
-        constraint=constraint,
-        model_weights=model_weights,
-        diversity=diversity,
-        fixed_region=fixed_region,
-        **kwargs,
-    )
-
-
-def den_optimize(
-    scorer: SequenceScorer,
-    length: int,
-    *,
-    budget: int | None = None,
-    saturation: SaturationConfig | None = None,
-    constraint: ConstraintSpec | None = None,
-    model_weights: Sequence[float] | None = None,
-    diversity: int = 5,
-    fixed_region: Sequence[int | str | slice] | None = None,
-    **kwargs,
-) -> OptimizationResult | SaturationResult:
-    return optimize(
-        scorer,
-        length,
-        algorithm="den",
-        budget=budget,
-        saturation=saturation,
-        constraint=constraint,
-        model_weights=model_weights,
-        diversity=diversity,
-        fixed_region=fixed_region,
-        **kwargs,
-    )
+basesearch_optimize = _named_optimizer(
+    "basesearch",
+    "basesearch_optimize",
+    "Priority-decayed black-box search with unique mutation proposals.",
+)
+random_optimize = _named_optimizer("random", "random_optimize")
+ism_optimize = _named_optimizer("ism_greedy", "ism_optimize")
+simulated_annealing_optimize = _named_optimizer(
+    "simulated_annealing", "simulated_annealing_optimize"
+)
+genetic_algorithm_optimize = _named_optimizer(
+    "genetic_algorithm", "genetic_algorithm_optimize"
+)
+adalead_optimize = _named_optimizer("adalead", "adalead_optimize")
+beam_search_optimize = _named_optimizer("beam_search", "beam_search_optimize")
+cross_entropy_optimize = _named_optimizer(
+    "cross_entropy_method", "cross_entropy_optimize"
+)
+cbas_optimize = _named_optimizer("cbas", "cbas_optimize")
+vanilla_activation_maximization_optimize = _named_optimizer(
+    "vanilla_activation_maximization", "vanilla_activation_maximization_optimize"
+)
+fast_seqprop_optimize = _named_optimizer("fast_seqprop", "fast_seqprop_optimize")
+ledidi_optimize = _named_optimizer(
+    "ledidi",
+    "ledidi_optimize",
+    "Ledidi-style single-output maximization with an edit penalty.",
+)
+den_optimize = _named_optimizer("den", "den_optimize")
 
 
 # Requested spelling retained as a public alias; lower-case ``ism_optimize`` is

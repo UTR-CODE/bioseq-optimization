@@ -53,6 +53,8 @@ def test_every_convenience_function_accepts_length(algorithm):
     result = getattr(so, function_name)(
         scorer,
         length=8,
+        initial=None,
+        objective=["maximize"],
         num_candidates=4,
         budget=28,
         generator_pretrain_epochs=1,
@@ -83,6 +85,8 @@ def test_length_seed_and_saturation_interfaces(tmp_path):
     result = so.random_optimize(
         scorer,
         length=4,
+        initial=None,
+        objective=["maximize"],
         alphabet="AC",
         num_candidates=4,
         diversity=0,
@@ -99,6 +103,8 @@ def test_invalid_length(length):
         so.random_optimize(
             so.CallableScorer(lambda values: np.ones(len(values))),
             length=length,
+            initial=None,
+            objective=["maximize"],
             num_candidates=1,
             budget=1,
         )

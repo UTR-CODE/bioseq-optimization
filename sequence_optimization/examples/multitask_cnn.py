@@ -3,7 +3,11 @@
 import torch
 from torch import nn
 
-from sequence_optimization import SequencePredictor, genetic_algorithm_optimize
+from sequence_optimization import (
+    SequencePredictor,
+    genetic_algorithm_optimize,
+    random_seed_sequences,
+)
 
 
 class ThreeOutputCNN(nn.Module):
@@ -29,6 +33,7 @@ def example():
     return genetic_algorithm_optimize(
         predictor,
         length=20,
+        initial=random_seed_sequences(20, 4, seed=7),
         objective=["maximize", "minimize", "ignore"],
         num_candidates=4,
         budget=80,

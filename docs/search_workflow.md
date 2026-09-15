@@ -1,9 +1,9 @@
 # Search workflow
 
-The public optimizer functions accept a scorer, the length of the designed
-sequence, an objective, a candidate count, and either a fixed query budget or
-a saturation stopping rule. A search can start from supplied sequences,
-reproducible random sequences, or sequences loaded from a text file.
+The five required optimizer arguments are `model`, `length`, `initial`,
+`objective`, and `num_candidates`. Other arguments have defaults. A search can
+start from supplied sequences, reproducible random sequences, or sequences
+loaded from a text file.
 
 ## Starting sequences
 
@@ -31,8 +31,8 @@ result = genetic_algorithm_optimize(
 )
 ```
 
-Omit `initial` to let an optimizer sample its own random starting set. To share
-the same starting set between runs, call `random_seed_sequences` in each
+Pass `initial=None` to let an optimizer sample its own random starting set. To
+share the same starting set between runs, call `random_seed_sequences` in each
 example with the same arguments:
 
 ```python
@@ -62,10 +62,11 @@ Blank lines and lines whose first non-whitespace character is `#` are ignored.
 The loader normalizes lowercase DNA and RNA notation, validates sequence length
 and alphabet, rejects duplicates, and checks `count` when it is provided.
 
-For a constrained CDS search, use complete, explicitly prepared CDSs as
-`initial`, and pass `reference_cds` and `synonymous_codons` to
-`genetic_algorithm_optimize`. Every initial sequence must encode the same
-protein as the reference. See [synonymous CDS constraints](tasks/synonymous_cds.md).
+For a protein-preserving CDS search, pass complete CDSs through `initial` and
+set `is_CDS_optimized=True` on `genetic_algorithm_optimize`. Each input is
+validated and optimized independently. One input returns one result; multiple
+inputs return a result list in the same order. See
+[synonymous CDS optimization](tasks/synonymous_cds.md).
 
 ## Fixed regions
 
@@ -79,9 +80,9 @@ result = genetic_algorithm_optimize(
     model,
     length=50,
     initial=initial,
-    fixed_region=["1:3", "-3:-1", "-35:-20"],
     objective=["maximize"],
     num_candidates=4,
+    fixed_region=["1:3", "-3:-1", "-35:-20"],
     budget=1000,
     seed=7,
 )
@@ -93,9 +94,9 @@ equivalent Python form is
 `["0:1"]` for the first base and `[-1]` or `["-1:"]` for the final base.
 Overlapping entries are combined.
 
-With explicit `initial` sequences, the fixed bases come from the first sequence
-and every other initial sequence must agree at those positions. When `initial`
-is omitted, one shared fixed template is drawn reproducibly from `seed`. Fixed
+With explicit non-CDS `initial` sequences, the fixed bases come from the first
+sequence and every other initial sequence must agree at those positions. With
+`initial=None`, one shared fixed template is drawn reproducibly from `seed`. Fixed
 positions apply to random proposals, mutations, crossover, generated sequences,
 and differentiable optimization. In synonymous CDS optimization, codon choices
 are restricted to preserve both the fixed bases and the encoded protein.
@@ -225,10 +226,9 @@ a finite numeric target. A numeric entry is a raw-output lower target. Once it
 is reached, later selection preserves that threshold while optimizing any
 remaining directions; a target-only search stops when one candidate satisfies
 all numeric entries. Numeric targets use fixed-budget mode and cannot be
-combined with saturation. Active outputs use an equal-weight signed mean by
-default; pass `model_weights` in output order to change their relative
-influence. Use [`MultiTaskObjective`](objectives.md) for fixed centers, scales,
-another aggregation, or explicit lower and upper bounds.
+combined with saturation. Active outputs use an equal-weight signed mean. Use
+[`MultiTaskObjective`](objectives.md) for fixed centers, scales, another
+aggregation, or explicit lower and upper bounds.
 
 An `OptimizationResult` provides `sequences`, scalar `scores`, raw model
 `activities`, `uncertainties`, `task_names`, `query_count`, `metadata`, and an

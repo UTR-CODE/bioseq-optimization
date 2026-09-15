@@ -49,46 +49,46 @@ model = load_model("malinois", device="cpu")
 initial = random_seed_sequences(200, count=4, seed=7)
 
 random_result = random_optimize(
-    model, length=200, budget=1000, num_candidates=4,
-    initial=initial, objective=["maximize", "minimize", "minimize"], seed=7,
+    model, length=200, initial=initial,
+    objective=["maximize", "minimize", "minimize"], num_candidates=4, budget=1000, seed=7,
 )
 ism_result = ism_optimize(
-    model, length=200, budget=1000, num_candidates=4,
-    initial=initial, objective=["maximize", "minimize", "minimize"], seed=7,
+    model, length=200, initial=initial,
+    objective=["maximize", "minimize", "minimize"], num_candidates=4, budget=1000, seed=7,
 )
 annealing_result = simulated_annealing_optimize(
-    model, length=200, budget=1000, num_candidates=4,
-    initial=initial, objective=["maximize", "minimize", "minimize"], seed=7,
+    model, length=200, initial=initial,
+    objective=["maximize", "minimize", "minimize"], num_candidates=4, budget=1000, seed=7,
 )
 genetic_result = genetic_algorithm_optimize(
-    model, length=200, budget=1000, num_candidates=4,
-    initial=initial, objective=["maximize", "minimize", "minimize"], seed=7,
+    model, length=200, initial=initial,
+    objective=["maximize", "minimize", "minimize"], num_candidates=4, budget=1000, seed=7,
 )
 adalead_result = adalead_optimize(
-    model, length=200, budget=1000, num_candidates=4,
-    initial=initial, objective=["maximize", "minimize", "minimize"], seed=7,
+    model, length=200, initial=initial,
+    objective=["maximize", "minimize", "minimize"], num_candidates=4, budget=1000, seed=7,
 )
 basesearch_result = basesearch_optimize(
-    model, length=200, budget=1000, num_candidates=4,
-    initial=initial, objective=["maximize", "minimize", "minimize"], seed=7,
+    model, length=200, initial=initial,
+    objective=["maximize", "minimize", "minimize"], num_candidates=4, budget=1000, seed=7,
 )
 beam_result = beam_search_optimize(
-    model, length=200, budget=1000, num_candidates=4,
-    initial=initial, objective=["maximize", "minimize", "minimize"], seed=7,
+    model, length=200, initial=initial,
+    objective=["maximize", "minimize", "minimize"], num_candidates=4, budget=1000, seed=7,
 )
 cross_entropy_result = cross_entropy_optimize(
-    model, length=200, budget=1000, num_candidates=4,
-    initial=initial, objective=["maximize", "minimize", "minimize"], seed=7,
+    model, length=200, initial=initial,
+    objective=["maximize", "minimize", "minimize"], num_candidates=4, budget=1000, seed=7,
 )
 cbas_result = cbas_optimize(
-    model, length=200, budget=1000, num_candidates=4,
-    initial=initial, objective=["maximize", "minimize", "minimize"], seed=7,
+    model, length=200, initial=initial,
+    objective=["maximize", "minimize", "minimize"], num_candidates=4, budget=1000, seed=7,
 )
 
 # To raise K562, HepG2, and SKNSH together:
 all_high_result = genetic_algorithm_optimize(
-    model, length=200, budget=1000, num_candidates=4,
-    initial=initial, objective=["maximize", "maximize", "maximize"], seed=7,
+    model, length=200, initial=initial,
+    objective=["maximize", "maximize", "maximize"], num_candidates=4, budget=1000, seed=7,
 )
 ```
 
@@ -136,20 +136,20 @@ gradient_model = DifferentiableSequencePredictor(
 )
 
 vanilla_result = vanilla_activation_maximization_optimize(
-    gradient_model, length=200, budget=1000, num_candidates=4,
-    initial=initial, objective=["maximize", "minimize", "minimize"], seed=7,
+    gradient_model, length=200, initial=initial,
+    objective=["maximize", "minimize", "minimize"], num_candidates=4, budget=1000, seed=7,
 )
 fast_seqprop_result = fast_seqprop_optimize(
-    gradient_model, length=200, budget=1000, num_candidates=4,
-    initial=initial, objective=["maximize", "minimize", "minimize"], seed=7,
+    gradient_model, length=200, initial=initial,
+    objective=["maximize", "minimize", "minimize"], num_candidates=4, budget=1000, seed=7,
 )
 ledidi_result = ledidi_optimize(
-    gradient_model, length=200, budget=1000, num_candidates=4,
-    initial=initial, objective=["maximize", "minimize", "minimize"], seed=7,
+    gradient_model, length=200, initial=initial,
+    objective=["maximize", "minimize", "minimize"], num_candidates=4, budget=1000, seed=7,
 )
 den_result = den_optimize(
-    gradient_model, length=200, budget=1000, num_candidates=4,
-    initial=initial, objective=["maximize", "minimize", "minimize"], seed=7,
+    gradient_model, length=200, initial=initial,
+    objective=["maximize", "minimize", "minimize"], num_candidates=4, budget=1000, seed=7,
 )
 ```
 

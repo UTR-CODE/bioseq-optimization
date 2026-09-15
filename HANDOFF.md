@@ -191,7 +191,6 @@ optimizer 提供的标准软输入形状为 `[N, L, 4]`，通道顺序为 A/C/G/
 - 有限数值：该输出的 raw activity 下限；达到后成为后续筛选门槛。
 
 方向列表内部转换为 `MultiTaskObjective`，默认使用 active signed outputs 的等权平均。
-`model_weights` 可按模型输出顺序设置正的相对权重，并使用归一化加权平均。
 只有数值目标和 `ignore` 时，同一候选达到全部数值目标即停止；数值目标不与
 `saturation` 同时使用。
 
@@ -298,21 +297,18 @@ backward 不计入离散 `query_count`。`budget` 至少为 `num_candidates`；�
 
 ## 11. 同义 CDS 优化
 
-同义 CDS 搜索只允许 `genetic_algorithm_optimize`。设置：
-
-- `reference_cds`：完整、frame 内的 ACGT CDS；
-- `synonymous_codons`：可选的氨基酸到允许密码子列表；
-- `initial`：明确准备的唯一同义 CDS 列表。
+同义 CDS 搜索只允许 `genetic_algorithm_optimize`。设置
+`is_CDS_optimized=True`，并通过 `initial` 提供一条或多条完整 CDS。
 
 `SynonymousCodonSpace` 使用 NCBI 标准遗传密码表 1，并校验：
 
 - 首密码子是 `ATG`；
 - 末密码子是 `TAA`、`TAG` 或 `TGA`；
 - 内部无终止密码子；
-- 初始和生成候选与 reference 翻译结果一致；
-- 自定义 codon 表不改变氨基酸身份。
+- 每个生成候选与对应 initial 的翻译结果一致。
 
-交叉和突变以完整密码子为单位。其他 optimizer 收到 `reference_cds` 时主动报错。
+每条 initial 独立建立标准遗传密码表下的同义空间并独立优化；多条输入按顺序返回
+多个结果。交叉和突变以完整密码子为单位。其他 optimizer 在 CDS 模式下主动报错。
 详见[同义 CDS 文档](docs/tasks/synonymous_cds.md)。
 
 ## 12. 结果契约

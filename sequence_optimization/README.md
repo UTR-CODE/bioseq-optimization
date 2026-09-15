@@ -1,7 +1,7 @@
 # `sequence_optimization`
 
 This package contains model-agnostic DNA/RNA optimization algorithms. Models
-are external scorer objects; ready-to-use implementations and checkpoints are
+provide sequence predictions; ready-to-use implementations and checkpoints are
 provided separately by
 [`bioseq-models`](https://github.com/UTR-CODE/bioseq-models).
 
@@ -17,6 +17,7 @@ result = genetic_algorithm_optimize(
     model,
     length=50,
     initial=initial,
+    objective=["maximize"],  # or [0.6] to stop after reaching score 0.6
     num_candidates=16,
     budget=1000,
     seed=7,
@@ -27,8 +28,8 @@ Two complete runnable examples are included:
 
 - [`examples/custom_cnn.py`](examples/custom_cnn.py) defines and optimizes a
   minimal one-output CNN.
-- [`examples/external_model.py`](examples/external_model.py) loads Optimus
-  5-Prime from `bioseq-models` and passes it directly to a black-box optimizer.
+- [`examples/external_model.py`](examples/external_model.py) loads and optimizes
+  Optimus 5-Prime from `bioseq-models`.
 
 For variable biological lengths, configure the scorer with
 `pad_to_length=<fixed model length>` and `padding_side="left"` or `"right"`.

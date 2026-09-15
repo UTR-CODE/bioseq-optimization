@@ -6,6 +6,7 @@ from torch import nn
 from sequence_optimization import (
     SequencePredictor,
     genetic_algorithm_optimize,
+    random_seed_sequences,
 )
 
 
@@ -34,6 +35,8 @@ def main() -> None:
     result = genetic_algorithm_optimize(
         scorer,
         length=20,
+        initial=random_seed_sequences(20, 4, seed=7),
+        objective=["maximize"],
         num_candidates=4,
         budget=40,
         mutation_rate=0.1,

@@ -7,6 +7,7 @@ from sequence_optimization import (
     CombinedScorer,
     SequencePredictor,
     genetic_algorithm_optimize,
+    random_seed_sequences,
 )
 from .multitask_cnn import ThreeOutputCNN
 
@@ -28,6 +29,7 @@ def single_task():
     return genetic_algorithm_optimize(
         SequencePredictor(SingleOutputCNN()),
         length=20,
+        initial=random_seed_sequences(20, 4, seed=7),
         objective=["maximize"],
         num_candidates=4,
         budget=80,
@@ -39,6 +41,7 @@ def multi_task():
     return genetic_algorithm_optimize(
         SequencePredictor(ThreeOutputCNN()),
         length=20,
+        initial=random_seed_sequences(20, 4, seed=7),
         objective=["maximize", "minimize", "ignore"],
         num_candidates=4,
         budget=80,
@@ -54,6 +57,7 @@ def independent_models():
     return genetic_algorithm_optimize(
         predictor,
         length=20,
+        initial=random_seed_sequences(20, 4, seed=7),
         objective=["maximize", "minimize", "minimize"],
         num_candidates=4,
         budget=80,

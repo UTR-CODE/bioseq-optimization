@@ -21,6 +21,7 @@ def main() -> None:
             "TGCATTTTTTTCACATCTATTTGCGTTTCACATCTTTTCTTACCTCTTGA",
             "CTCATTTTTCACCTCCCTTTTATCTCTCTGCTTACGTTTCGATCCCATCA",
         ],
+        objective=["maximize"],
         seed=0,
     )
     print(result.sequences)
