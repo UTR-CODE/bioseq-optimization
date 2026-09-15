@@ -1,0 +1,32 @@
+{
+  "reference_utr5": "ACATTTGCTTCTGACACAACTGTGTTCACTAGCAACCTCAAACAGACACC",
+  "fixed_tail": "GACACC",
+  "cds_length": 558,
+  "utr3_length": 111,
+  "initial": [
+    "ACATTTGCTTCTGACACAACTGAGTACACTATCAACCTCGAACAGACACC",
+    "ACATTTGCTTCTGTCACCACTGTGGTCACTAGCAACCTCACACAGACACC",
+    "CAATTTGCTTCTGACATAACAGTGTTCACTAGCAACCTCAAACAGACACC",
+    "GCATTTGCTTCTGCCACAACTGTGTTTACCAGCAACCTCAAACAGACACC"
+  ],
+  "constraints": [
+    "no_atg",
+    "fixed_kozak_tail",
+    "gc_fraction",
+    "no_homopolymer_of_six",
+    "no_extreme_repeats",
+    "no_simple_repeats"
+  ],
+  "objective": [
+    "maximize",
+    "minimize",
+    "maximize"
+  ],
+  "saturation": {
+    "fraction": 0.9,
+    "minimum_queries": 40,
+    "plateau_patience_queries": 80,
+    "maximum_queries": null,
+    "material_improvement": 0.0001
+  }
+}
