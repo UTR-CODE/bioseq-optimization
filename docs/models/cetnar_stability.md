@@ -21,7 +21,7 @@ complete-transcript stability model.
 
 ## Cetnar decay alone
 
-Optimized region: **5′UTR**.
+Optimized region: **3′UTR**.
 
 The nine black-box optimizers can minimize the decay output. Each call below
 uses the same explicit four-sequence 80-nt seed set.

@@ -5,7 +5,7 @@
 - **CDS** — [Optimize CDS stability by CDS Stability](../models/cds_stability.md)
 - **Enhancer** — [Optimize housekeeping activity and reduce developmental activity by DeepSTARR](../models/deepstarr.md)
 - **Promoter** — [Optimize promoter activity by DREAM LegNet](../models/dream_legnet.md)
-- **5′UTR** — [Optimize predicted mRNA stability by Cetnar](../models/cetnar_stability.md)
+- **3′UTR** — [Optimize predicted mRNA stability by Cetnar](../models/cetnar_stability.md)
 - **Enhancer** — [Optimize K562 specificity against HepG2 and WTC11 by Agarwal lentiMPRA](../models/agarwal.md)
 - **Enhancer** — [Optimize heart specificity across mouse tissues by DeepSTARR Mouse](../models/deepstarr_mouse.md)
 - **Enhancer** — [Optimize brain/VNC specificity across embryonic tissues by DeepSTARR-Embryo](../models/deepstarr_embryo.md)
