@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from numbers import Real
 
 import numpy as np
 
@@ -149,26 +150,41 @@ class MultiTaskObjective:
     scales: Sequence[float] | None = None
     model_weights: Sequence[float] | None = None
     temperature: float = 0.1
-    directions: Sequence[str] | None = None
+    directions: Sequence[str | float] | None = None
 
     def __post_init__(self):
         if self.directions is not None:
             if isinstance(self.directions, str) or not self.directions:
                 raise ValueError(
-                    "directions must be a nonempty list of maximize, minimize, ignore"
+                    "directions must be a nonempty list of numeric targets, "
+                    "maximize, minimize, or ignore"
                 )
-            directions = tuple(self.directions)
-            if any(
-                value not in {"maximize", "minimize", "ignore"} for value in directions
-            ):
-                raise ValueError(
-                    "directions entries must be maximize, minimize, or ignore"
-                )
+            directions = []
+            for value in self.directions:
+                if isinstance(value, str):
+                    normalized = value.strip().lower()
+                    if normalized not in {"maximize", "minimize", "ignore"}:
+                        raise ValueError(
+                            "directions entries must be finite numeric targets, "
+                            "maximize, minimize, or ignore"
+                        )
+                    directions.append(normalized)
+                elif (
+                    isinstance(value, bool)
+                    or not isinstance(value, Real)
+                    or not np.isfinite(value)
+                ):
+                    raise ValueError(
+                        "directions entries must be finite numeric targets, "
+                        "maximize, minimize, or ignore"
+                    )
+                else:
+                    directions.append(float(value))
             if all(value == "ignore" for value in directions):
                 raise ValueError("at least one output must be optimized")
             if len(self.high) or len(self.low):
                 raise ValueError("use directions or high/low, not both")
-            object.__setattr__(self, "directions", directions)
+            object.__setattr__(self, "directions", tuple(directions))
         if self.aggregation not in {"worst", "mean", "smoothmin"}:
             raise ValueError("aggregation must be worst, mean, or smoothmin")
         if not np.isfinite(self.temperature) or self.temperature <= 0:
@@ -209,7 +225,11 @@ class MultiTaskObjective:
             index(k) for k in ([self.low] if isinstance(self.low, str) else self.low)
         ]
         if self.directions is not None:
-            high = [i for i, value in enumerate(self.directions) if value == "maximize"]
+            high = [
+                i
+                for i, value in enumerate(self.directions)
+                if value == "maximize" or not isinstance(value, str)
+            ]
             low = [i for i, value in enumerate(self.directions) if value == "minimize"]
         selected = high + low
         if not selected or len(set(selected)) != len(selected):
@@ -246,6 +266,12 @@ class MultiTaskObjective:
         if np.any(weights[selected] <= 0):
             raise ValueError("model_weights for active tasks must be positive")
         bounded = self.lower_bounds is not None or self.upper_bounds is not None
+        direction_targets = self.target_thresholds(n_tasks)
+        if direction_targets and bounded:
+            raise ValueError(
+                "numeric objective targets cannot be combined with lower_bounds "
+                "or upper_bounds"
+            )
         if bounded:
             lower = {index(k): float(v) for k, v in (self.lower_bounds or {}).items()}
             upper = {index(k): float(v) for k, v in (self.upper_bounds or {}).items()}
@@ -258,8 +284,44 @@ class MultiTaskObjective:
                 if not np.isfinite(value):
                     raise ValueError("bounds must be finite")
                 center[k] = value
+        elif direction_targets:
+            center = center.copy()
+            for k, value in direction_targets.items():
+                center[k] = value
+            bounded = True
         signs = np.asarray([1.0] * len(high) + [-1.0] * len(low))
         return selected, signs, center, scale, bounded, weights[selected]
+
+    def target_thresholds(self, n_tasks: int | None = None) -> dict[int, float]:
+        """Return numeric direction-list entries as raw-output lower targets."""
+        if self.directions is None:
+            return {}
+        if n_tasks is not None and len(self.directions) != n_tasks:
+            raise ValueError(
+                "directions must contain exactly one entry per model output"
+            )
+        return {
+            index: float(value)
+            for index, value in enumerate(self.directions)
+            if not isinstance(value, str)
+        }
+
+    def has_open_objectives(self) -> bool:
+        return bool(
+            self.directions
+            and any(value in {"maximize", "minimize"} for value in self.directions)
+        )
+
+    def _active_positions(
+        self,
+        ids: Sequence[int],
+        reached_targets: set[int] | frozenset[int] | None,
+    ) -> np.ndarray:
+        reached = set() if reached_targets is None else set(reached_targets)
+        return np.asarray(
+            [position for position, task in enumerate(ids) if task not in reached],
+            dtype=int,
+        )
 
     def margins(self, activities, task_names=None):
         values = np.asarray(activities, dtype=float)
@@ -270,11 +332,16 @@ class MultiTaskObjective:
         ids, signs, center, scale, _, _ = self._resolve(values.shape[1], task_names)
         return (values[:, ids] - center[ids]) / scale[ids] * signs
 
-    def scalarize(self, activities, task_names=None):
+    def scalarize(self, activities, task_names=None, reached_targets=None):
         margins = self.margins(activities, task_names)
         ids, _, _, _, _, weights = self._resolve(
             np.asarray(activities).shape[1], task_names
         )
+        active = self._active_positions(ids, reached_targets)
+        if not len(active):
+            return np.zeros(len(margins), dtype=np.float64)
+        margins = margins[:, active]
+        weights = weights[active]
         if self.aggregation == "mean":
             return np.average(margins, axis=1, weights=weights)
         weighted_margins = margins * weights
@@ -285,7 +352,7 @@ class MultiTaskObjective:
             np.exp(-(weighted_margins - worst[:, None]) / self.temperature).mean(axis=1)
         )
 
-    def scalarize_soft(self, activities, task_names=None):
+    def scalarize_soft(self, activities, task_names=None, reached_targets=None):
         import torch
 
         ids, signs, center, scale, _, weights = self._resolve(
@@ -302,6 +369,11 @@ class MultiTaskObjective:
             / tensor(scale[ids])
             * tensor(signs)
         )
+        active = self._active_positions(ids, reached_targets)
+        if not len(active):
+            return activities[:, 0] * 0.0
+        margins = margins[:, active]
+        weights = weights[active]
         if self.aggregation == "mean":
             return (margins * tensor(weights)).sum(dim=1) / float(weights.sum())
         weighted_margins = margins * tensor(weights)
@@ -309,15 +381,23 @@ class MultiTaskObjective:
             return weighted_margins.amin(dim=1)
         return -self.temperature * (
             torch.logsumexp(-weighted_margins / self.temperature, dim=1)
-            - np.log(len(ids))
+            - np.log(len(active))
         )
 
-    def uncertainty(self, activities, uncertainties, task_names=None):
+    def uncertainty(
+        self, activities, uncertainties, task_names=None, reached_targets=None
+    ):
         # First-order independent-output approximation, not joint confidence.
         margins = self.margins(activities, task_names)
         ids, _, _, scale, _, model_weights = self._resolve(
             np.asarray(activities).shape[1], task_names
         )
+        active = self._active_positions(ids, reached_targets)
+        if not len(active):
+            return np.zeros(len(margins), dtype=np.float64)
+        margins = margins[:, active]
+        ids = np.asarray(ids)[active].tolist()
+        model_weights = model_weights[active]
         weighted_margins = margins * model_weights
         if self.aggregation == "mean":
             aggregation_weights = np.broadcast_to(
@@ -350,23 +430,41 @@ class MultiTaskObjective:
             "aggregation": self.aggregation,
             "task_indices": ids,
             "directions": signs.tolist(),
+            "requested_directions": (
+                None if self.directions is None else list(self.directions)
+            ),
             "centers_or_bounds": center.tolist(),
             "scales": scale.tolist(),
             "model_weights": weights.tolist(),
             "thresholded": bounded,
             "temperature": self.temperature,
             "uncertainty_method": "independent_first_order",
+            "target_thresholds": {
+                (task_names[index] if task_names else f"task_{index}"): value
+                for index, value in self.target_thresholds(n_tasks).items()
+            },
         }
 
     def evaluate(self, activities, task_names=None):
         ids, _, _, _, bounded, _ = self._resolve(activities.shape[1], task_names)
         margins = self.margins(activities, task_names)
+        targets = self.target_thresholds(activities.shape[1])
+        if targets:
+            positions = [ids.index(index) for index in targets]
+            evaluated_ids = list(targets)
+            evaluated_margins = margins[:, positions]
+        else:
+            evaluated_ids = ids
+            evaluated_margins = margins
+        satisfaction = evaluated_margins >= 0
         return {
-            "task_names": [task_names[i] if task_names else f"task_{i}" for i in ids],
-            "margins": margins.tolist(),
-            "worst_margin": margins.min(axis=1).tolist(),
-            "satisfied": (margins >= 0).tolist() if bounded else None,
-            "all_satisfied": (margins >= 0).all(axis=1).tolist() if bounded else None,
+            "task_names": [
+                task_names[i] if task_names else f"task_{i}" for i in evaluated_ids
+            ],
+            "margins": evaluated_margins.tolist(),
+            "worst_margin": evaluated_margins.min(axis=1).tolist(),
+            "satisfied": satisfaction.tolist() if bounded else None,
+            "all_satisfied": satisfaction.all(axis=1).tolist() if bounded else None,
         }
 
 
@@ -376,7 +474,10 @@ class ObjectiveScorer:
     def __init__(
         self,
         scorer: SequenceScorer,
-        objective: TargetObjective | MultiTaskObjective | list[str] | tuple[str, ...],
+        objective: TargetObjective
+        | MultiTaskObjective
+        | list[str | float]
+        | tuple[str | float, ...],
         model_weights: Sequence[float] | None = None,
     ) -> None:
         self.scorer = scorer
@@ -394,6 +495,142 @@ class ObjectiveScorer:
         names = getattr(scorer, "task_names", None)
         self.task_names = None if names is None else tuple(names)
         self._activities: dict[str, np.ndarray] = {}
+        self._activity_uncertainties: dict[str, np.ndarray] = {}
+        self._reached_targets: set[int] = set()
+        self._objective_version = 0
+
+    @property
+    def objective_version(self) -> int:
+        return self._objective_version
+
+    def _targets(self, n_tasks: int) -> dict[int, float]:
+        if not isinstance(self.objective, MultiTaskObjective):
+            return {}
+        return self.objective.target_thresholds(n_tasks)
+
+    def _update_targets(self, activities: np.ndarray) -> None:
+        targets = self._targets(activities.shape[1])
+        if not targets:
+            return
+        eligible = np.ones(len(activities), dtype=bool)
+        for index in self._reached_targets:
+            eligible &= activities[:, index] >= targets[index]
+        newly_reached: set[int] = set()
+        for index, target in targets.items():
+            if index in self._reached_targets:
+                continue
+            reaches_target = activities[:, index] >= target
+            if np.any(eligible & reaches_target):
+                newly_reached.add(index)
+                eligible &= reaches_target
+        if newly_reached:
+            self._reached_targets.update(newly_reached)
+            self._objective_version += 1
+
+    def _activities_array(self) -> np.ndarray:
+        if not self._activities:
+            return np.empty((0, 0), dtype=np.float64)
+        return np.stack(list(self._activities.values()))
+
+    def _scalarize(self, activities: np.ndarray) -> np.ndarray:
+        if isinstance(self.objective, MultiTaskObjective):
+            return self.objective.scalarize(
+                activities,
+                self.task_names,
+                reached_targets=self._reached_targets,
+            )
+        return self.objective.scalarize(activities, self.task_names)
+
+    def _apply_target_gate(
+        self, activities: np.ndarray, utilities: np.ndarray
+    ) -> np.ndarray:
+        targets = self._targets(activities.shape[1])
+        if not self._reached_targets:
+            return utilities
+        reached = sorted(self._reached_targets)
+        passed = np.ones(len(activities), dtype=bool)
+        gaps = np.zeros(len(activities), dtype=np.float64)
+        for index in reached:
+            gap = np.maximum(targets[index] - activities[:, index], 0.0)
+            passed &= gap == 0
+            gaps += gap
+        if passed.all():
+            return utilities
+        all_activities = self._activities_array()
+        all_utilities = self._scalarize(all_activities)
+        floor = float(all_utilities.min()) - max(
+            1.0, float(np.ptp(all_utilities)) if len(all_utilities) else 1.0
+        )
+        gated = np.asarray(utilities, dtype=np.float64).copy()
+        gated[~passed] = floor - gaps[~passed]
+        return gated
+
+    def scores_for(self, sequences) -> np.ndarray:
+        """Re-evaluate cached activities under the currently reached targets."""
+        activities = self.activities_for(sequences)
+        return self._apply_target_gate(activities, self._scalarize(activities))
+
+    def uncertainties_for(self, sequences) -> np.ndarray | None:
+        """Re-evaluate cached raw uncertainties for the current objective state."""
+        values = np.asarray(sequences, dtype=str).reshape(-1)
+        if not all(str(value) in self._activity_uncertainties for value in values):
+            return None
+        activities = self.activities_for(values)
+        uncertainties = np.stack(
+            [self._activity_uncertainties[str(value)] for value in values]
+        )
+        if isinstance(self.objective, MultiTaskObjective):
+            return self.objective.uncertainty(
+                activities,
+                uncertainties,
+                self.task_names,
+                reached_targets=self._reached_targets,
+            )
+        coefficients = self.objective.coefficients(
+            activities.shape[1], self.task_names
+        )
+        return np.sqrt((uncertainties**2) @ (coefficients**2))
+
+    def thresholds_passed(self, sequences) -> np.ndarray:
+        """Return whether sequences satisfy every target activated so far."""
+        values = np.asarray(sequences, dtype=str).reshape(-1)
+        if not self._reached_targets:
+            return np.ones(len(values), dtype=bool)
+        passed = np.ones(len(values), dtype=bool)
+        present = np.asarray(
+            [str(value) in self._activities for value in values], dtype=bool
+        )
+        if present.any():
+            activities = self.activities_for(values[present])
+            targets = self._targets(activities.shape[1])
+            passed[present] = np.asarray(
+                [
+                    all(
+                        row[index] >= targets[index]
+                        for index in self._reached_targets
+                    )
+                    for row in activities
+                ],
+                dtype=bool,
+            )
+        return passed
+
+    @property
+    def target_stop_reached(self) -> bool:
+        """Whether a target-only objective has reached all thresholds jointly."""
+        if not isinstance(self.objective, MultiTaskObjective):
+            return False
+        targets = self.objective.target_thresholds()
+        if not targets or self.objective.has_open_objectives() or not self._activities:
+            return False
+        activities = self._activities_array()
+        return bool(
+            np.any(
+                np.logical_and.reduce(
+                    [activities[:, index] >= target for index, target in targets.items()]
+                )
+            )
+        )
 
     def score(self, sequences) -> ScoreBatch:
         values = np.asarray(sequences, dtype=str).reshape(-1)
@@ -401,25 +638,22 @@ class ObjectiveScorer:
         activities = _activity_matrix(result.scores, len(values))
         if self.task_names is not None and len(self.task_names) != activities.shape[1]:
             raise ValueError("task_names must match the number of model outputs")
-        utilities = self.objective.scalarize(activities, self.task_names)
+        for sequence, activity in zip(values, activities):
+            self._activities[str(sequence)] = activity.copy()
+        self._update_targets(activities)
+        utilities = self.scores_for(values)
 
         utility_uncertainties = None
         if result.uncertainties is not None:
             uncertainty = _activity_matrix(result.uncertainties, len(values))
             if uncertainty.shape != activities.shape:
                 raise ValueError("activity uncertainties must match activity outputs")
-            if isinstance(self.objective, MultiTaskObjective):
-                utility_uncertainties = self.objective.uncertainty(
-                    activities, uncertainty, self.task_names
+            for sequence, values_uncertainty in zip(values, uncertainty):
+                self._activity_uncertainties[str(sequence)] = (
+                    values_uncertainty.copy()
                 )
-            else:
-                coefficients = self.objective.coefficients(
-                    activities.shape[1], self.task_names
-                )
-                utility_uncertainties = np.sqrt((uncertainty**2) @ (coefficients**2))
+            utility_uncertainties = self.uncertainties_for(values)
 
-        for sequence, activity in zip(values, activities):
-            self._activities[str(sequence)] = activity.copy()
         return ScoreBatch(utilities, utility_uncertainties)
 
     def score_soft(self, probabilities):
@@ -437,7 +671,11 @@ class ObjectiveScorer:
         if self.task_names is not None and len(self.task_names) != activities.shape[1]:
             raise ValueError("task_names must match the number of model outputs")
         if isinstance(self.objective, MultiTaskObjective):
-            utilities = self.objective.scalarize_soft(activities, self.task_names)
+            utilities = self.objective.scalarize_soft(
+                activities,
+                self.task_names,
+                reached_targets=self._reached_targets,
+            )
             uncertainty = None
             if uncertainties is not None:
                 if uncertainties.shape != activities.shape:
@@ -447,6 +685,14 @@ class ObjectiveScorer:
                 ids, signs, center, scale, _, model_weights = self.objective._resolve(
                     activities.shape[1], self.task_names
                 )
+                active = self.objective._active_positions(
+                    ids, self._reached_targets
+                )
+                if not len(active):
+                    return utilities, torch.zeros_like(utilities)
+                ids = np.asarray(ids)[active].tolist()
+                signs = signs[active]
+                model_weights = model_weights[active]
 
                 def tensor(value):
                     return torch.as_tensor(

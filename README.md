@@ -80,9 +80,34 @@ print(single_result.to_frame())
 | sequence | score | activity_task_0 |
 |---|---:|---:|
 | GCGGGGGGGGGGGGGGGGGG | 0.70 | 0.70 |
-| GGAGGGGGGGGGGGGGGGGG | 0.70 | 0.70 |
-| GGGGGGGGAGGGGGGGGGGG | 0.70 | 0.70 |
-| GGGGGGGGGGGGGGGTGGGG | 0.70 | 0.70 |
+| GGAGGCGGCGGGGGGAGGGG | 0.55 | 0.55 |
+| GGGAGGAGGGGGTGGGGTGG | 0.55 | 0.55 |
+| GGGGGGGGAGGCGGGAAGGG | 0.55 | 0.55 |
+
+A numeric entry sets a minimum raw-output target. A target-only search stops
+when one scored sequence reaches the target (or one sequence reaches every
+numeric target):
+
+```python
+initial = random_seed_sequences(length=20, count=4, seed=7)
+target_result = genetic_algorithm_optimize(
+    single_model,
+    length=20,
+    initial=initial,
+    objective=[0.60],
+    num_candidates=4,
+    budget=1000,
+    mutation_rate=0.1,
+    elite_fraction=0.5,
+    seed=7,
+)
+print(target_result.to_frame())
+```
+
+Numeric targets can share a list with directions, for example
+`objective=[0.60, "maximize", "ignore"]`. After a numeric target is reached,
+later rounds select from candidates at or above that target while continuing
+to optimize the remaining `maximize` or `minimize` outputs.
 
 [Optimus: compare optimization algorithms](docs/models/optimus.md).
 
@@ -140,11 +165,11 @@ print(specific_result.to_frame())
 | sequence | score | G_activity | C_activity | T_activity |
 |---|---:|---:|---:|---:|
 | AGGGGGGGGGGGGGGGTGGG | 0.45 | 0.65 | -0.25 | -0.20 |
-| GGGGGGGGGGGGGGGTAGGG | 0.45 | 0.65 | -0.25 | -0.20 |
-| GGGGGGGGGGGGGGGTTGGG | 0.45 | 0.65 | -0.25 | -0.15 |
-| AGGAGGGGGGGGGGGGTGGG | 0.425 | 0.60 | -0.25 | -0.20 |
+| GGGCGGGGGGGGGTGAAGGG | 0.375 | 0.55 | -0.20 | -0.20 |
+| GGGGGCGGGGGGAGGTAGGG | 0.375 | 0.55 | -0.20 | -0.20 |
+| GTGGGGGGTGGGGGGGCGAG | 0.375 | 0.55 | -0.20 | -0.15 |
 
-Directions follow output order. `maximize` raises an output, `minimize` lowers it,
+Entries follow output order. `maximize` raises an output, `minimize` lowers it,
 and `ignore` excludes it from the objective. Ignored outputs are still reported
 in `result.activities`; they are not constrained to remain unchanged.
 
@@ -170,8 +195,8 @@ print(all_high_result.to_frame())
 |---|---:|---:|---:|---:|
 | TCGCTCTCCGGGTCTTCTCT | 0.083 | -0.05 | 0.15 | 0.15 |
 | TCCCTCGCCGGGGTTCGGCT | 0.083 | 0.10 | 0.15 | 0.00 |
-| TCCCTCTCCGGGGCTTGGCT | 0.083 | 0.05 | 0.15 | 0.05 |
-| TCCCTCTCCGGGTCTTCTCT | 0.083 | -0.10 | 0.20 | 0.15 |
+| TCCCTCTCCGGGGCCTGTCG | 0.083 | 0.05 | 0.20 | 0.00 |
+| ACCCCCTCCGGGGTTTGGCG | 0.067 | 0.10 | 0.15 | -0.05 |
 
 The default direction-list score is the equal-weight mean of the signed active
 outputs. `ignore` outputs are excluded from that mean. Set `model_weights` when
@@ -217,9 +242,9 @@ print(combined.model_query_counts)
 | sequence | score | model_a | model_b | model_c |
 |---|---:|---:|---:|---:|
 | AGGGGGGGGGGGGGGGGGGG | 0.400 | 0.70 | -0.25 | -0.25 |
-| GGGGGGGGGGGGGGGGGAGG | 0.400 | 0.70 | -0.25 | -0.25 |
-| GCGGGGGGGGGGGGGGGGGG | 0.383 | 0.70 | -0.20 | -0.25 |
-| GGGGGGGGGGGGGGGGGTGG | 0.383 | 0.70 | -0.25 | -0.20 |
+| GAGGGGGGAGGGGGGAGGAG | 0.350 | 0.55 | -0.25 | -0.25 |
+| GAGAGGGGGGGGGAGGAAGG | 0.333 | 0.50 | -0.25 | -0.25 |
+| GGGAGGAGGGGGTGGGGTGG | 0.317 | 0.55 | -0.25 | -0.15 |
 
 The query counters for this run are
 `{'model_a': 262, 'model_b': 262, 'model_c': 262}`.

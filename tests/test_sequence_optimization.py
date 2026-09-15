@@ -53,6 +53,7 @@ def test_builtin_algorithms_share_common_result_contract():
     config = OptimizationConfig(
         budget=40,
         num_candidates=4,
+        diversity=0,
         generator_pretrain_epochs=1,
         generator_update_epochs=1,
         cbas_batch_size=8,
@@ -116,6 +117,7 @@ def test_plain_single_task_model_can_return_numpy_array(column_output):
         SequenceSpace(4),
         budget=4,
         num_candidates=4,
+        diversity=0,
         initial=["AAAA", "CCCC", "GGGG", "TTTT"],
         seed=3,
     )
@@ -139,6 +141,7 @@ def test_plain_model_score_batch_output_remains_supported():
         SequenceSpace(4),
         budget=4,
         num_candidates=4,
+        diversity=0,
         initial=["AAAA", "CCCC", "GGGG", "TTTT"],
         seed=3,
     )
@@ -174,7 +177,7 @@ def test_target_only_and_crested_style_specificity_rank_differently():
         return np.asarray([lookup[str(value)] for value in values])
 
     scorer = CallableScorer(activities, task_names=("target", "other"))
-    config = OptimizationConfig(budget=2, num_candidates=2)
+    config = OptimizationConfig(budget=2, num_candidates=2, diversity=0)
     target_only = run(
         "random",
         scorer,
@@ -211,7 +214,9 @@ def test_named_optimizer_functions_and_rna_space():
     space = SequenceSpace(4, "ACGU")
     initial = np.asarray(["AAAA", "CCCC", "GGGG", "UUUU"])
     scorer = CallableScorer(lambda values: [value.count("U") for value in values])
-    common = dict(budget=4, num_candidates=4, initial=initial, seed=3)
+    common = dict(
+        budget=4, num_candidates=4, diversity=0, initial=initial, seed=3
+    )
     ism = ISM_optimize(scorer, space, **common)
     genetic = genetic_algorithm_optimize(scorer, space, **common)
     assert ism.algorithm == "ism_greedy"
@@ -227,7 +232,7 @@ def test_named_target_requires_scorer_task_names():
             "random",
             scorer,
             SequenceSpace(2),
-            OptimizationConfig(budget=2, num_candidates=2),
+            OptimizationConfig(budget=2, num_candidates=2, diversity=0),
             initial=["AA", "CC"],
             objective=TargetObjective(target="missing"),
         )
@@ -238,7 +243,7 @@ def test_random_initialization_is_unique_even_in_tiny_space():
         "random",
         CallableScorer(lambda values: [value == "C" for value in values]),
         SequenceSpace(1, "AC"),
-        OptimizationConfig(budget=2, num_candidates=2),
+        OptimizationConfig(budget=2, num_candidates=2, diversity=0),
         seed=2,
     )
     assert set(result.sequences) == {"A", "C"}
@@ -320,6 +325,7 @@ def test_differentiable_algorithms_share_the_result_contract():
     config = OptimizationConfig(
         budget=12,
         num_candidates=4,
+        diversity=0,
         learning_rate=0.2,
         den_seed_pretrain_epochs=2,
     )
@@ -379,10 +385,63 @@ def test_saturation_and_budget_are_mutually_exclusive():
 
 def test_omitted_budget_uses_default():
     scorer = CallableScorer(lambda values: [value.count("G") for value in values])
-    result = random_optimize(scorer, length=1, num_candidates=4, seed=4)
+    result = random_optimize(
+        scorer, length=1, num_candidates=4, diversity=0, seed=4
+    )
     assert result.query_count == 4
     with pytest.raises(ValueError, match="budget must be at least num_candidates"):
-        random_optimize(scorer, length=1, num_candidates=10_001, seed=4)
+        random_optimize(
+            scorer, length=1, num_candidates=10_001, diversity=0, seed=4
+        )
+
+
+def test_default_diversity_applies_to_returned_sequences():
+    scorer = CallableScorer(lambda values: [value.count("G") for value in values])
+    result = random_optimize(
+        scorer,
+        length=12,
+        num_candidates=4,
+        budget=200,
+        seed=4,
+    )
+    for index, left in enumerate(result.sequences):
+        for right in result.sequences[index + 1 :]:
+            assert sum(a != b for a, b in zip(left, right)) >= 5
+    assert result.metadata["diversity"] == 5
+
+
+def test_default_diversity_applies_to_saturation_selections():
+    scorer = CallableScorer(lambda values: [value.count("G") for value in values])
+    saturated = random_optimize(
+        scorer,
+        length=12,
+        num_candidates=4,
+        saturation=SaturationConfig(
+            fractions=(0.8,),
+            minimum_queries=4,
+            plateau_patience_queries=4,
+            maximum_queries=12,
+            material_improvement=100,
+        ),
+        seed=4,
+    )
+    selected = saturated[0.8]
+    for index, left in enumerate(selected.sequences):
+        for right in selected.sequences[index + 1 :]:
+            assert sum(a != b for a, b in zip(left, right)) >= 5
+    assert selected.metadata["diversity"] == 5
+
+
+def test_diversity_cannot_exceed_sequence_length_for_multiple_results():
+    scorer = CallableScorer(lambda values: np.zeros(len(values)))
+    with pytest.raises(ValueError, match="exceeds sequence length"):
+        random_optimize(scorer, length=4, num_candidates=2, budget=10)
+
+
+@pytest.mark.parametrize("diversity", [-1, 1.5, True])
+def test_invalid_diversity(diversity):
+    with pytest.raises(ValueError, match="diversity must be a non-negative integer"):
+        OptimizationConfig(10, num_candidates=4, diversity=diversity)
 
 
 def test_public_optimizers_expose_saturation_parameter():
@@ -409,3 +468,4 @@ def test_public_optimizers_expose_saturation_parameter():
         assert signature.parameters["saturation"].default is None
         assert signature.parameters["budget"].default is None
         assert signature.parameters["model_weights"].default is None
+        assert signature.parameters["diversity"].default == 5

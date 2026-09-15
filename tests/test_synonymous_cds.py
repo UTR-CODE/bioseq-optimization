@@ -32,6 +32,7 @@ def test_synonymous_saturation_and_invalid_seeds():
             "ATG" + "GCG" * 3 + "GCC" + "TAA",
         ],
         num_candidates=4,
+        diversity=0,
         saturation=SaturationConfig(
             minimum_queries=4, plateau_patience_queries=4, maximum_queries=12
         ),

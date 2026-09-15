@@ -31,6 +31,7 @@ def test_ledidi_budget_reproducibility_and_loss(budget):
     options = dict(
         initial=["AAAAAAAA", "CCCCCCCC", "TTTTTTTT", "AAAACCCC"],
         num_candidates=4,
+        diversity=0,
         budget=budget,
         seed=7,
         learning_rate=1.0,

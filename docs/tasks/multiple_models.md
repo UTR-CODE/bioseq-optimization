@@ -93,6 +93,10 @@ active signed outputs use an equal-weight mean by default. Pass
 fixed centers, scales, bounds, or another aggregation, use the options in
 [objective parameters](../objectives.md).
 
+A finite number may replace a direction to set a raw-output lower target for
+that model. After the target is reached, later selection keeps candidates at
+or above it while continuing to optimize the remaining directions.
+
 ## Run each optimizer
 
 Choose an optimizer below. Each run starts from `initial`; the first nine use

@@ -66,7 +66,7 @@ def _score(
     scorer: CachedScorer, archive: dict[str, tuple[float, float]], sequences: np.ndarray
 ) -> ScoreBatch:
     batch = scorer.score(sequences)
-    passed = scorer.constraints_passed(sequences)
+    passed = scorer.hard_constraints_passed(sequences)
     if passed.any():
         _record(
             archive,
@@ -77,6 +77,43 @@ def _score(
             ),
         )
     return batch
+
+
+def _hamming_distance(left: str, right: str) -> int:
+    return sum(a != b for a, b in zip(left, right))
+
+
+def _rank_archive(
+    archive: dict[str, tuple[float, float]],
+    scorer: CachedScorer,
+) -> list[tuple[str, tuple[float, float]]]:
+    sequences = np.asarray(list(archive), dtype=str)
+    scores = scorer.current_scores(sequences)
+    uncertainties = scorer.current_uncertainties(sequences)
+    ranked = [
+        (sequence, (float(score), float(uncertainty)))
+        for sequence, score, uncertainty in zip(sequences, scores, uncertainties)
+    ]
+    return sorted(ranked, key=lambda item: (-item[1][0], item[0]))
+
+
+def _select_diverse(
+    ranked: Sequence[tuple[str, tuple[float, float]]],
+    count: int,
+    diversity: int,
+) -> list[tuple[str, tuple[float, float]]]:
+    if count == 1 or diversity == 0:
+        return list(ranked[:count])
+    selected: list[tuple[str, tuple[float, float]]] = []
+    for item in ranked:
+        sequence = item[0]
+        if all(
+            _hamming_distance(sequence, chosen[0]) >= diversity for chosen in selected
+        ):
+            selected.append(item)
+            if len(selected) == count:
+                break
+    return selected
 
 
 def _finalize(
@@ -91,9 +128,25 @@ def _finalize(
         raise RuntimeError(
             f"only {len(archive)} unique sequences were scored; {config.num_candidates} required"
         )
-    ranked = sorted(archive.items(), key=lambda item: (-item[1][0], item[0]))[
-        : config.num_candidates
-    ]
+    ranked = _select_diverse(
+        _rank_archive(archive, scorer),
+        config.num_candidates,
+        config.diversity,
+    )
+    if len(ranked) < config.num_candidates:
+        raise RuntimeError(
+            f"only {len(ranked)} sequences satisfy diversity={config.diversity}; "
+            "increase budget or lower diversity"
+        )
+    metadata = {
+        **metadata,
+        "diversity": config.diversity,
+        "stop_reason": (
+            "target_reached"
+            if bool(getattr(scorer.scorer, "target_stop_reached", False))
+            else metadata.get("stop_reason", "budget")
+        ),
+    }
     return OptimizationResult(
         name,
         np.asarray([item[0] for item in ranked], dtype=str),
@@ -108,6 +161,11 @@ def _finalize(
 def _initial(
     initial, space: SequenceSpace, config: OptimizationConfig, rng: np.random.Generator
 ) -> np.ndarray:
+    if config.num_candidates > 1 and config.diversity > space.length:
+        raise ValueError(
+            f"diversity={config.diversity} exceeds sequence length {space.length}; "
+            "lower diversity or request one candidate"
+        )
     if initial is None:
         capacity = getattr(space, "capacity", space.alphabet_size**space.length)
         if config.num_candidates > capacity:
@@ -115,12 +173,26 @@ def _initial(
                 f"cannot draw {config.num_candidates} unique seeds from a space of size {capacity}"
             )
         seeds: dict[str, None] = {}
-        while len(seeds) < config.num_candidates:
+        draws = 0
+        maximum_draws = max(10_000, 1000 * config.num_candidates)
+        while len(seeds) < config.num_candidates and draws < maximum_draws:
             needed = config.num_candidates - len(seeds)
-            for sequence in space.random(min(max(64, needed), 4096), rng):
-                seeds.setdefault(str(sequence), None)
+            candidates = space.random(min(max(64, needed), 4096), rng)
+            draws += len(candidates)
+            for sequence in candidates:
+                value = str(sequence)
+                if config.num_candidates == 1 or all(
+                    _hamming_distance(value, chosen) >= config.diversity
+                    for chosen in seeds
+                ):
+                    seeds.setdefault(value, None)
                 if len(seeds) == config.num_candidates:
                     break
+        if len(seeds) < config.num_candidates:
+            raise ValueError(
+                f"cannot draw {config.num_candidates} seeds satisfying "
+                f"diversity={config.diversity}; lower diversity or supply initial"
+            )
         values = np.asarray(list(seeds), dtype=str)
     else:
         values = space.validate(initial)
@@ -220,6 +292,7 @@ def ism_greedy(initial, scorer, space, config, rng):
         mutants = space.single_mutants(current[chosen])
         batch = _score(scorer, archive, mutants)
         passed = scorer.constraints_passed(mutants)
+        current_scores = scorer.current_scores(current)
         for offset, index in enumerate(chosen):
             values = batch.scores[offset * block : (offset + 1) * block]
             valid = passed[offset * block : (offset + 1) * block]
@@ -229,6 +302,9 @@ def ism_greedy(initial, scorer, space, config, rng):
             if values[best] > current_scores[index]:
                 current[index] = mutants[offset * block + best]
                 current_scores[index] = values[best]
+        retained = scorer.constraints_passed(current)
+        current = current[retained]
+        current_scores = scorer.current_scores(current)
         trajectory.append(
             {
                 "query_count": scorer.query_count,
@@ -260,15 +336,22 @@ def simulated_annealing(initial, scorer, space, config, rng):
         proposals = space.mutate_one(current, rng)
         values = _score(scorer, archive, proposals).scores
         passed = scorer.constraints_passed(proposals)
+        current_scores = scorer.current_scores(current)
+        current_passed = scorer.constraints_passed(current)
         progress = scorer.query_count / max(config.budget, 1)
         temp = max(temperature * (0.001**progress), 1e-6)
         accept = np.zeros(len(current), dtype=bool)
-        accept[passed] = (values[passed] >= current_scores[passed]) | (
+        accept[passed] = (~current_passed[passed]) | (
+            values[passed] >= current_scores[passed]
+        ) | (
             rng.random(int(passed.sum()))
             < np.exp(np.minimum((values[passed] - current_scores[passed]) / temp, 0))
         )
         current[accept] = proposals[accept]
         current_scores[accept] = values[accept]
+        retained = scorer.constraints_passed(current)
+        current = current[retained]
+        current_scores = scorer.current_scores(current)
         trajectory.append(
             {
                 "query_count": scorer.query_count,
@@ -293,18 +376,24 @@ def genetic_algorithm(initial, scorer, space, config, rng):
     archive: dict[str, tuple[float, float]] = {}
     population = initial.copy()
     scores = _score(scorer, archive, population).scores
-    elite_count = max(1, int(round(len(population) * config.elite_fraction)))
+    population_size = len(population)
+    elite_count = max(1, int(round(population_size * config.elite_fraction)))
     trajectory = []
-    while scorer.remaining is None or scorer.remaining >= len(population):
+    while scorer.remaining is None or scorer.remaining >= population_size:
         before = scorer.query_count
-        elite = population[np.argsort(scores)[-elite_count:]]
+        retained = scorer.constraints_passed(population)
+        population = population[retained]
+        if not len(population):
+            break
+        scores = scorer.current_scores(population)
+        elite = population[np.argsort(scores)[-min(elite_count, len(population)) :]]
         if hasattr(space, "offspring"):
             children = space.offspring(
-                elite, len(population), config.mutation_rate, rng
+                elite, population_size, config.mutation_rate, rng
             )
         else:
-            a = space.encode(elite[rng.integers(len(elite), size=len(population))])
-            b = space.encode(elite[rng.integers(len(elite), size=len(population))])
+            a = space.encode(elite[rng.integers(len(elite), size=population_size)])
+            b = space.encode(elite[rng.integers(len(elite), size=population_size)])
             child = np.where(rng.random(a.shape) < 0.5, a, b)
             mask = rng.random(child.shape) < config.mutation_rate
             child = np.where(
@@ -313,9 +402,12 @@ def genetic_algorithm(initial, scorer, space, config, rng):
             children = space.decode(child)
         child_scores = _score(scorer, archive, children).scores
         passed = scorer.constraints_passed(children)
+        retained = scorer.constraints_passed(population)
+        population = population[retained]
+        scores = scorer.current_scores(population)
         combined = np.concatenate([population, children[passed]])
         combined_scores = np.concatenate([scores, child_scores[passed]])
-        keep = np.argsort(combined_scores)[-len(population) :]
+        keep = np.argsort(combined_scores)[-population_size:]
         population, scores = combined[keep], combined_scores[keep]
         trajectory.append(
             {
@@ -344,15 +436,25 @@ def adalead(initial, scorer, space, config, rng):
     trajectory = []
     while scorer.remaining is None or scorer.remaining >= len(population):
         before = scorer.query_count
+        retained = scorer.constraints_passed(population)
+        population = population[retained]
+        if not len(population):
+            break
+        scores = scorer.current_scores(population)
         elite_count = max(1, int(round(len(population) * config.elite_fraction)))
         elite = population[np.argsort(scores)[-elite_count:]]
         parents = elite[rng.integers(len(elite), size=len(population))]
         proposals = space.mutate_one(parents, rng)
         values = _score(scorer, archive, proposals).scores
         passed = scorer.constraints_passed(proposals)
-        improved = passed & (values > scores)
+        scores = scorer.current_scores(population)
+        current_passed = scorer.constraints_passed(population)
+        improved = passed & ((~current_passed) | (values > scores))
         population[improved] = proposals[improved]
         scores[improved] = values[improved]
+        retained = scorer.constraints_passed(population)
+        population = population[retained]
+        scores = scorer.current_scores(population)
         trajectory.append(
             {
                 "query_count": scorer.query_count,
@@ -393,8 +495,8 @@ def run(
     initial: Sequence[str] | np.ndarray | None = None,
     objective: TargetObjective
     | MultiTaskObjective
-    | list[str]
-    | tuple[str, ...]
+    | list[str | float]
+    | tuple[str | float, ...]
     | None = None,
     model_weights: Sequence[float] | None = None,
     constraint: ConstraintSpec | None = None,
@@ -492,8 +594,8 @@ def run_many(
     initial: Sequence[str] | np.ndarray | None = None,
     objective: TargetObjective
     | MultiTaskObjective
-    | list[str]
-    | tuple[str, ...]
+    | list[str | float]
+    | tuple[str | float, ...]
     | None = None,
     model_weights: Sequence[float] | None = None,
     constraint: ConstraintSpec | None = None,
@@ -525,12 +627,13 @@ def optimize(
     budget: int | None = None,
     saturation: SaturationConfig | None = None,
     num_candidates: int = 100,
+    diversity: int = 5,
     alphabet: str = "ACGT",
     initial: Sequence[str] | np.ndarray | None = None,
     objective: TargetObjective
     | MultiTaskObjective
-    | list[str]
-    | tuple[str, ...]
+    | list[str | float]
+    | tuple[str | float, ...]
     | None = None,
     model_weights: Sequence[float] | None = None,
     constraint: ConstraintSpec | None = None,
@@ -555,9 +658,14 @@ def optimize(
     synonymous_codons: dict[str, Sequence[str]] | None = None,
     count_repeated: bool = False,
 ) -> OptimizationResult | SaturationResult:
-    """Optimize with a fixed budget or saturation and optional model weights."""
+    """Optimize with a fixed budget or saturation and optional model weights.
+
+    ``diversity`` is the minimum pairwise Hamming distance among returned
+    sequences. Numeric objective entries are raw-output lower targets.
+    """
     parameters = dict(
         num_candidates=num_candidates,
+        diversity=diversity,
         mutation_rate=mutation_rate,
         elite_fraction=elite_fraction,
         learning_rate=learning_rate,
@@ -624,6 +732,7 @@ def basesearch_optimize(
     saturation: SaturationConfig | None = None,
     constraint: ConstraintSpec | None = None,
     model_weights: Sequence[float] | None = None,
+    diversity: int = 5,
     **kwargs,
 ) -> OptimizationResult | SaturationResult:
     """Priority-decayed black-box search with unique mutation proposals."""
@@ -635,6 +744,7 @@ def basesearch_optimize(
         saturation=saturation,
         constraint=constraint,
         model_weights=model_weights,
+        diversity=diversity,
         **kwargs,
     )
 
@@ -647,6 +757,7 @@ def random_optimize(
     saturation: SaturationConfig | None = None,
     constraint: ConstraintSpec | None = None,
     model_weights: Sequence[float] | None = None,
+    diversity: int = 5,
     **kwargs,
 ) -> OptimizationResult | SaturationResult:
     return optimize(
@@ -657,6 +768,7 @@ def random_optimize(
         saturation=saturation,
         constraint=constraint,
         model_weights=model_weights,
+        diversity=diversity,
         **kwargs,
     )
 
@@ -669,6 +781,7 @@ def ism_optimize(
     saturation: SaturationConfig | None = None,
     constraint: ConstraintSpec | None = None,
     model_weights: Sequence[float] | None = None,
+    diversity: int = 5,
     **kwargs,
 ) -> OptimizationResult | SaturationResult:
     return optimize(
@@ -679,6 +792,7 @@ def ism_optimize(
         saturation=saturation,
         constraint=constraint,
         model_weights=model_weights,
+        diversity=diversity,
         **kwargs,
     )
 
@@ -691,6 +805,7 @@ def simulated_annealing_optimize(
     saturation: SaturationConfig | None = None,
     constraint: ConstraintSpec | None = None,
     model_weights: Sequence[float] | None = None,
+    diversity: int = 5,
     **kwargs,
 ) -> OptimizationResult | SaturationResult:
     return optimize(
@@ -701,6 +816,7 @@ def simulated_annealing_optimize(
         saturation=saturation,
         constraint=constraint,
         model_weights=model_weights,
+        diversity=diversity,
         **kwargs,
     )
 
@@ -713,6 +829,7 @@ def genetic_algorithm_optimize(
     saturation: SaturationConfig | None = None,
     constraint: ConstraintSpec | None = None,
     model_weights: Sequence[float] | None = None,
+    diversity: int = 5,
     **kwargs,
 ) -> OptimizationResult | SaturationResult:
     return optimize(
@@ -723,6 +840,7 @@ def genetic_algorithm_optimize(
         saturation=saturation,
         constraint=constraint,
         model_weights=model_weights,
+        diversity=diversity,
         **kwargs,
     )
 
@@ -735,6 +853,7 @@ def adalead_optimize(
     saturation: SaturationConfig | None = None,
     constraint: ConstraintSpec | None = None,
     model_weights: Sequence[float] | None = None,
+    diversity: int = 5,
     **kwargs,
 ) -> OptimizationResult | SaturationResult:
     return optimize(
@@ -745,6 +864,7 @@ def adalead_optimize(
         saturation=saturation,
         constraint=constraint,
         model_weights=model_weights,
+        diversity=diversity,
         **kwargs,
     )
 
@@ -757,6 +877,7 @@ def beam_search_optimize(
     saturation: SaturationConfig | None = None,
     constraint: ConstraintSpec | None = None,
     model_weights: Sequence[float] | None = None,
+    diversity: int = 5,
     **kwargs,
 ) -> OptimizationResult | SaturationResult:
     return optimize(
@@ -767,6 +888,7 @@ def beam_search_optimize(
         saturation=saturation,
         constraint=constraint,
         model_weights=model_weights,
+        diversity=diversity,
         **kwargs,
     )
 
@@ -779,6 +901,7 @@ def cross_entropy_optimize(
     saturation: SaturationConfig | None = None,
     constraint: ConstraintSpec | None = None,
     model_weights: Sequence[float] | None = None,
+    diversity: int = 5,
     **kwargs,
 ) -> OptimizationResult | SaturationResult:
     return optimize(
@@ -789,6 +912,7 @@ def cross_entropy_optimize(
         saturation=saturation,
         constraint=constraint,
         model_weights=model_weights,
+        diversity=diversity,
         **kwargs,
     )
 
@@ -801,6 +925,7 @@ def cbas_optimize(
     saturation: SaturationConfig | None = None,
     constraint: ConstraintSpec | None = None,
     model_weights: Sequence[float] | None = None,
+    diversity: int = 5,
     **kwargs,
 ) -> OptimizationResult | SaturationResult:
     return optimize(
@@ -811,6 +936,7 @@ def cbas_optimize(
         saturation=saturation,
         constraint=constraint,
         model_weights=model_weights,
+        diversity=diversity,
         **kwargs,
     )
 
@@ -823,6 +949,7 @@ def vanilla_activation_maximization_optimize(
     saturation: SaturationConfig | None = None,
     constraint: ConstraintSpec | None = None,
     model_weights: Sequence[float] | None = None,
+    diversity: int = 5,
     **kwargs,
 ) -> OptimizationResult | SaturationResult:
     return optimize(
@@ -833,6 +960,7 @@ def vanilla_activation_maximization_optimize(
         saturation=saturation,
         constraint=constraint,
         model_weights=model_weights,
+        diversity=diversity,
         **kwargs,
     )
 
@@ -845,6 +973,7 @@ def fast_seqprop_optimize(
     saturation: SaturationConfig | None = None,
     constraint: ConstraintSpec | None = None,
     model_weights: Sequence[float] | None = None,
+    diversity: int = 5,
     **kwargs,
 ) -> OptimizationResult | SaturationResult:
     return optimize(
@@ -855,6 +984,7 @@ def fast_seqprop_optimize(
         saturation=saturation,
         constraint=constraint,
         model_weights=model_weights,
+        diversity=diversity,
         **kwargs,
     )
 
@@ -867,6 +997,7 @@ def ledidi_optimize(
     saturation: SaturationConfig | None = None,
     constraint: ConstraintSpec | None = None,
     model_weights: Sequence[float] | None = None,
+    diversity: int = 5,
     **kwargs,
 ) -> OptimizationResult | SaturationResult:
     """Ledidi-style single-output maximization with an edit penalty."""
@@ -878,6 +1009,7 @@ def ledidi_optimize(
         saturation=saturation,
         constraint=constraint,
         model_weights=model_weights,
+        diversity=diversity,
         **kwargs,
     )
 
@@ -890,6 +1022,7 @@ def den_optimize(
     saturation: SaturationConfig | None = None,
     constraint: ConstraintSpec | None = None,
     model_weights: Sequence[float] | None = None,
+    diversity: int = 5,
     **kwargs,
 ) -> OptimizationResult | SaturationResult:
     return optimize(
@@ -900,6 +1033,7 @@ def den_optimize(
         saturation=saturation,
         constraint=constraint,
         model_weights=model_weights,
+        diversity=diversity,
         **kwargs,
     )
 

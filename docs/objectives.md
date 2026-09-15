@@ -1,15 +1,37 @@
 # Objectives
 
-Pass one direction per output: `maximize`, `minimize`, or `ignore`.
-At least one output must be active. Direction lists use the normalized weighted
-mean of active signed outputs. Pass `model_weights` directly to an optimizer;
-omitting it gives every active output equal weight.
+Pass one entry per output. Each entry may be `maximize`, `minimize`, `ignore`,
+or a finite numeric target. A numeric entry is a minimum in raw model-output
+units. At least one output must be active.
+
+Before a numeric target is reached, its margin contributes to the normalized
+weighted objective. Once a candidate reaches it, later selection keeps that
+output at or above the target and continues optimizing the other entries. With
+only numeric targets and `ignore` entries, the search stops when one scored
+candidate satisfies every numeric target. A fixed budget remains the safety
+ceiling. Numeric targets cannot be combined with saturation stopping.
+
+Direction lists use the normalized weighted mean of active signed outputs.
+Pass `model_weights` directly to an optimizer; omitting it gives every active
+output equal weight.
+
+```python
+from sequence_optimization import genetic_algorithm_optimize
+
+targeted = genetic_algorithm_optimize(
+    scorer,
+    length=50,
+    objective=[0.8, "maximize", "ignore"],
+    num_candidates=100,
+    budget=10_000,
+)
+```
 
 `MultiTaskObjective` accepts:
 
 | Parameter | Default | Meaning |
 |---|---|---|
-| directions | None | Per-output direction list |
+| directions | None | Per-output numeric target or maximize, minimize, and ignore entry |
 | high / low | empty | Selected output indices or task names; alternative to directions; high="all" selects all |
 | aggregation | "mean" | mean, worst, or smoothmin |
 | centers | None | Fixed per-output reference centers; default zero |
@@ -25,6 +47,9 @@ Bounds must cover all selected outputs and replace centers. Margins are
 when `worst_margin >= 0`. Mean and smoothmin scores do not certify this.
 Without bounds, directions guide search but do not define absolute success.
 Compute normalization from a fixed reference dataset, not each candidate batch.
+Numeric entries are a compact alternative for raw-output lower targets and
+cannot be combined with `lower_bounds` or `upper_bounds` in the same
+`MultiTaskObjective`.
 
 ## Relative task or model weights
 

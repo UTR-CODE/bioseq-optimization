@@ -8,7 +8,7 @@ import math
 
 import numpy as np
 
-from .algorithms import _finalize, _score, register_algorithm
+from .algorithms import _finalize, _rank_archive, _score, register_algorithm
 from .api import CachedScorer, ScoreBatch, SequenceSpace
 from .objectives import ObjectiveScorer
 
@@ -27,8 +27,11 @@ def basesearch(initial, scorer, space, config, rng):
     """
     archive: dict[str, tuple[float, float]] = {}
     batch = _score(scorer, archive, initial)
+    passed = scorer.constraints_passed(initial)
     queue = [
-        (-float(value), str(sequence)) for sequence, value in zip(initial, batch.scores)
+        (-float(value), str(sequence))
+        for sequence, value, keep in zip(initial, batch.scores, passed)
+        if keep
     ]
     queue = heapq.nsmallest(config.basesearch_queue_size, queue)
     heapq.heapify(queue)
@@ -37,7 +40,11 @@ def basesearch(initial, scorer, space, config, rng):
     best_score = float(batch.scores.max())
     capacity = space.alphabet_size**space.length
     stop_reason = "budget"
+    objective_version = scorer.objective_version
     while scorer.remaining is None or scorer.remaining > 0:
+        if not queue:
+            stop_reason = "target_gate_exhausted"
+            break
         if len(archive) == capacity:
             stop_reason = "space_exhausted"
             break
@@ -68,6 +75,17 @@ def basesearch(initial, scorer, space, config, rng):
         best_score = max(best_score, float(current.scores[0]))
         stalled = 0
         heapq.heappush(queue, (-float(current.scores[0]), str(candidate[0])))
+        if scorer.objective_version != objective_version:
+            parents = np.asarray([sequence for _, sequence in queue], dtype=str)
+            current_scores = scorer.current_scores(parents)
+            passed = scorer.constraints_passed(parents)
+            queue = [
+                (-float(score), str(sequence))
+                for sequence, score, keep in zip(parents, current_scores, passed)
+                if keep
+            ]
+            heapq.heapify(queue)
+            objective_version = scorer.objective_version
         if len(queue) > 2 * config.basesearch_queue_size:
             pruned += len(queue) - config.basesearch_queue_size
             queue = heapq.nsmallest(config.basesearch_queue_size, queue)
@@ -101,8 +119,13 @@ def basesearch(initial, scorer, space, config, rng):
 def _top_archive(
     archive: dict[str, tuple[float, float]],
     count: int,
+    scorer: CachedScorer,
 ) -> tuple[np.ndarray, np.ndarray]:
-    ranked = sorted(archive.items(), key=lambda item: (-item[1][0], item[0]))[:count]
+    ranked = _rank_archive(archive, scorer)
+    if ranked:
+        passed = scorer.constraints_passed([item[0] for item in ranked])
+        ranked = [item for item, keep in zip(ranked, passed) if keep]
+    ranked = ranked[:count]
     return (
         np.asarray([item[0] for item in ranked], dtype=str),
         np.asarray([item[1][0] for item in ranked], dtype=np.float64),
@@ -129,7 +152,7 @@ def beam_search(initial, scorer, space, config, rng):
         before = scorer.query_count
         _score(scorer, archive, proposals)
         rounds += 1
-        beam, beam_scores = _top_archive(archive, beam_width)
+        beam, beam_scores = _top_archive(archive, beam_width, scorer)
         trajectory.append(
             {
                 "query_count": scorer.query_count,
@@ -198,7 +221,9 @@ def cross_entropy_method(initial, scorer, space, config, rng):
         fitted /= fitted.sum(axis=1, keepdims=True)
         probabilities = (1.0 - smoothing) * probabilities + smoothing * fitted
         rounds += 1
-        top_sequences, top_scores = _top_archive(archive, config.num_candidates)
+        top_sequences, top_scores = _top_archive(
+            archive, config.num_candidates, scorer
+        )
         trajectory.append(
             {
                 "query_count": scorer.query_count,
@@ -373,7 +398,9 @@ def cbas(initial, scorer, space, config, rng):
             weights=weights,
         )
         rounds += 1
-        top_sequences, top_scores = _top_archive(archive, config.num_candidates)
+        top_sequences, top_scores = _top_archive(
+            archive, config.num_candidates, scorer
+        )
         trajectory.append(
             {
                 "query_count": scorer.query_count,

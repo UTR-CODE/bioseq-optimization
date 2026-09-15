@@ -76,7 +76,7 @@ def test_length_seed_and_saturation_interfaces(tmp_path):
         ["random", "basesearch"],
         scorer,
         length=4,
-        config=so.OptimizationConfig(8, num_candidates=4),
+        config=so.OptimizationConfig(8, num_candidates=4, diversity=0),
         alphabet="AC",
     )
     assert all(set("".join(result.sequences)) <= set("AC") for result in many.values())
@@ -85,6 +85,7 @@ def test_length_seed_and_saturation_interfaces(tmp_path):
         length=4,
         alphabet="AC",
         num_candidates=4,
+        diversity=0,
         saturation=so.SaturationConfig(
             minimum_queries=4, plateau_patience_queries=4, maximum_queries=12
         ),

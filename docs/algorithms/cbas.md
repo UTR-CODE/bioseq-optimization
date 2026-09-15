@@ -10,8 +10,9 @@ Fit an autoregressive proposal generator using discrete predictor scores. Repeat
 | `saturation` | None | SaturationConfig for plateau-based stopping; omit budget when set |
 | `constraint` | None | One constraint callable or a list of independently intersected constraint callables |
 | `num_candidates` | 100 | Number of unique seeds and retained results |
+| `diversity` | 5 | Minimum pairwise Hamming distance among returned sequences; zero disables it |
 | `initial` | None | Exactly num_candidates unique starting sequences; otherwise random |
-| `objective` | None | Output directions or objective object; default maximizes output zero |
+| `objective` | None | Per-output numeric targets or maximize, minimize, and ignore directions; an objective object is also accepted |
 | `model_weights` | None | Positive relative weights for direction-list outputs; default equal weights |
 | `alphabet` | "ACGT" | Candidate alphabet |
 | `seed` | 0 | Random seed |

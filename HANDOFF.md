@@ -171,6 +171,9 @@ optimizer 提供的标准软输入形状为 `[N, L, 4]`，通道顺序为 A/C/G/
 `pad_nucleotide_sequences` 支持左侧或右侧补 `N`。离散 one-hot 中 `N` 为全零；
 软输入 padding 使用等价的全零向量。
 
+`diversity` 默认为 5，规定多个返回序列之间的最小两两 Hamming distance；设为 0
+可关闭该筛选。无法从已评分 archive 选足 `num_candidates` 时，optimizer 明确报错。
+
 ## 7. 目标函数
 
 ### 7.1 方向列表
@@ -180,9 +183,12 @@ optimizer 提供的标准软输入形状为 `[N, L, 4]`，通道顺序为 A/C/G/
 - `maximize`：提高该输出；
 - `minimize`：降低该输出；
 - `ignore`：不参与优化，但仍预测并返回。
+- 有限数值：该输出的 raw activity 下限；达到后成为后续筛选门槛。
 
 方向列表内部转换为 `MultiTaskObjective`，默认使用 active signed outputs 的等权平均。
 `model_weights` 可按模型输出顺序设置正的相对权重，并使用归一化加权平均。
+只有数值目标和 `ignore` 时，同一候选达到全部数值目标即停止；数值目标不与
+`saturation` 同时使用。
 
 ### 7.2 `TargetObjective`
 

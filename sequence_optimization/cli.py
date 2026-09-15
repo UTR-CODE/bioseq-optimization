@@ -77,6 +77,7 @@ def main() -> None:
         ),
     )
     parser.add_argument("--num-candidates", type=int, default=100)
+    parser.add_argument("--diversity", type=int, default=5)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--seed-file", help="Optional one-sequence-per-line seed file")
     parser.add_argument(
@@ -159,6 +160,7 @@ def main() -> None:
             args.length,
             algorithm=args.algorithm,
             num_candidates=args.num_candidates,
+            diversity=args.diversity,
             alphabet=args.alphabet,
             initial=initial,
             objective=objective,
@@ -194,7 +196,11 @@ def main() -> None:
             args.algorithm,
             scorer,
             args.length,
-            OptimizationConfig(args.budget, num_candidates=args.num_candidates),
+            OptimizationConfig(
+                args.budget,
+                num_candidates=args.num_candidates,
+                diversity=args.diversity,
+            ),
             alphabet=args.alphabet,
             initial=initial,
             objective=objective,

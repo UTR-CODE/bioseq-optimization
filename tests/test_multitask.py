@@ -3,6 +3,7 @@ import pytest
 import torch
 
 from sequence_optimization import (
+    CachedScorer,
     CallableScorer,
     MultiTaskObjective,
     SaturationConfig,
@@ -141,6 +142,7 @@ def test_model_weights_apply_during_saturation():
         model_weights=[3.0, 1.0],
         initial=["AAAA", "CCCC", "GGGG", "TTTT"],
         num_candidates=4,
+        diversity=0,
         saturation=SaturationConfig(
             fractions=(0.8,),
             minimum_queries=4,
@@ -171,9 +173,105 @@ def test_invalid_direction_lists(directions):
 def test_single_output_list():
     scorer = CallableScorer(lambda values: np.array([s.count("G") for s in values]))
     result = basesearch_optimize(
-        scorer, SequenceSpace(8), objective=["maximize"], budget=12, num_candidates=4
+        scorer,
+        SequenceSpace(8),
+        objective=["maximize"],
+        budget=12,
+        num_candidates=4,
+        diversity=0,
     )
     np.testing.assert_array_equal(result.scores, result.activities[:, 0])
+
+
+def test_numeric_objective_target_stops_and_is_reported():
+    scorer = CallableScorer(
+        lambda values: np.asarray([value.count("G") for value in values]),
+        task_names=("activity",),
+    )
+    result = genetic_algorithm_optimize(
+        scorer,
+        SequenceSpace(4),
+        objective=[4.0],
+        initial=["AAAA", "CCCC", "GGGG", "TTTT"],
+        budget=40,
+        num_candidates=4,
+        diversity=0,
+        seed=3,
+    )
+    assert result.query_count == 4
+    assert result.metadata["stop_reason"] == "target_reached"
+    assert result.metadata["objective"]["target_thresholds"] == {"activity": 4.0}
+    frame = result.to_frame()
+    assert frame.iloc[0].activity_activity == 4
+    assert frame.iloc[0].satisfied_activity
+
+
+def test_numeric_target_becomes_a_gate_for_remaining_objectives():
+    scorer = CallableScorer(
+        lambda values: np.asarray(
+            [[value.count("G"), value.count("C")] for value in values]
+        )
+    )
+    wrapped = ObjectiveScorer(scorer, [2.0, "maximize"])
+    before = wrapped.score(["AAAA", "GCCC", "CCCC"])
+    np.testing.assert_allclose(before.scores[:2], [-1.0, 1.0])
+    wrapped.score(["GGAA", "GGCC"])
+    rescored = wrapped.scores_for(["CCCC", "GGAA", "GGCC"])
+    assert rescored[0] < rescored[1] < rescored[2]
+    assert wrapped.thresholds_passed(["CCCC", "GGAA", "GGCC"]).tolist() == [
+        False,
+        True,
+        True,
+    ]
+    assert not wrapped.target_stop_reached
+
+
+def test_numeric_target_rescores_cached_uncertainty():
+    scorer = CallableScorer(
+        lambda values: (
+            np.asarray([[value.count("G"), value.count("C")] for value in values]),
+            np.ones((len(values), 2)),
+        )
+    )
+    cached = CachedScorer(ObjectiveScorer(scorer, [2.0, "maximize"]), budget=2)
+    first = cached.score(["CCCC"])
+    np.testing.assert_allclose(first.uncertainties, [np.sqrt(0.5)])
+    cached.score(["GGCC"])
+    rescored = cached.score(["CCCC"])
+    np.testing.assert_allclose(rescored.uncertainties, [1.0])
+
+
+def test_numeric_targets_lock_only_a_jointly_feasible_prefix():
+    activities = {"LEFT": [3.0, 0.0], "RIGHT": [0.0, 3.0]}
+    scorer = CallableScorer(
+        lambda values: np.asarray([activities[str(value)] for value in values])
+    )
+    wrapped = ObjectiveScorer(scorer, [2.0, 2.0])
+    wrapped.score(["left", "right"])
+    assert wrapped.thresholds_passed(["left", "right"]).tolist() == [True, False]
+    assert not wrapped.target_stop_reached
+
+
+def test_numeric_targets_are_incompatible_with_saturation():
+    scorer = CallableScorer(lambda values: np.zeros(len(values)))
+    with pytest.raises(ValueError, match="cannot be combined with saturation"):
+        genetic_algorithm_optimize(
+            scorer,
+            SequenceSpace(8),
+            objective=[1.0],
+            num_candidates=2,
+            diversity=0,
+            saturation=SaturationConfig(maximum_queries=20),
+        )
+
+
+@pytest.mark.parametrize(
+    "directions",
+    [[float("nan")], [float("inf")], [True], ["maximize", object()]],
+)
+def test_invalid_numeric_objective_targets(directions):
+    with pytest.raises(ValueError, match="finite numeric targets"):
+        MultiTaskObjective(directions=directions)
 
 
 @pytest.mark.parametrize("aggregation", ["worst", "mean", "smoothmin"])

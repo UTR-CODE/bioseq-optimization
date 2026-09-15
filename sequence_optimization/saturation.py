@@ -84,11 +84,13 @@ class _SaturationMonitor:
         minimum_queries: int,
         patience_queries: int,
         material_improvement: float,
+        diversity: int,
     ) -> None:
         self.num_candidates = num_candidates
         self.minimum_queries = minimum_queries
         self.patience_queries = patience_queries
         self.material_improvement = material_improvement
+        self.diversity = diversity
         self.archive: dict[str, tuple[float, float]] = {}
         self.snapshots: list[tuple[int, np.ndarray, np.ndarray, np.ndarray]] = []
         self.material_level = -np.inf
@@ -109,9 +111,15 @@ class _SaturationMonitor:
                 self.archive[key] = value
         if len(self.archive) < self.num_candidates:
             return
-        ranked = sorted(self.archive.items(), key=lambda item: (-item[1][0], item[0]))[
-            : self.num_candidates
-        ]
+        from .algorithms import _select_diverse
+
+        ranked = _select_diverse(
+            sorted(self.archive.items(), key=lambda item: (-item[1][0], item[0])),
+            self.num_candidates,
+            self.diversity,
+        )
+        if len(ranked) < self.num_candidates:
+            return
         selected_sequences = np.asarray([item[0] for item in ranked], dtype=str)
         selected_scores = np.asarray([item[1][0] for item in ranked], dtype=np.float64)
         selected_stds = np.asarray([item[1][1] for item in ranked], dtype=np.float64)
@@ -173,6 +181,7 @@ def _selection_result(
     budgeted: CachedScorer,
     trajectory: list[dict[str, float | int]],
     stop_reason: str,
+    diversity: int,
 ) -> OptimizationResult:
     query_count, sequences, scores, uncertainties = snapshot
     result = OptimizationResult(
@@ -189,6 +198,7 @@ def _selection_result(
             "total_convergence_queries": total_queries,
             "knee_query_count": knee_queries,
             "stop_reason": stop_reason,
+            "diversity": diversity,
         },
         trajectory=trajectory,
     )
@@ -228,8 +238,8 @@ def _optimize_with_saturation(
     initial=None,
     objective: TargetObjective
     | MultiTaskObjective
-    | list[str]
-    | tuple[str, ...]
+    | list[str | float]
+    | tuple[str | float, ...]
     | None = None,
     model_weights: Sequence[float] | None = None,
     constraint: ConstraintSpec | None = None,
@@ -269,17 +279,26 @@ def _optimize_with_saturation(
     )
     space = _configured_space(length, alphabet, config, key)
     random.seed(seed)
-    prepared = _initial(initial, space, config, rng)
     objective_scorer = ObjectiveScorer(
         scorer,
         TargetObjective() if objective is None else objective,
         model_weights=model_weights,
     )
+    if (
+        isinstance(objective_scorer.objective, MultiTaskObjective)
+        and objective_scorer.objective.target_thresholds()
+    ):
+        raise ValueError(
+            "numeric objective targets cannot be combined with saturation; "
+            "use the target stopping rule with a fixed safety budget"
+        )
+    prepared = _initial(initial, space, config, rng)
     monitor = _SaturationMonitor(
         num_candidates,
         minimum,
         patience,
         options.material_improvement,
+        config.diversity,
     )
     proposal_count_algorithms = {
         "ledidi",
@@ -347,6 +366,7 @@ def _optimize_with_saturation(
             budgeted=budgeted,
             trajectory=trajectory,
             stop_reason=stop_reason,
+            diversity=config.diversity,
         )
     return SaturationResult(
         selections=selections,

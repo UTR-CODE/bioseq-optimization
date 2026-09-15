@@ -34,6 +34,7 @@ def test_multiple_constraints_filter_by_intersection_before_model_scoring():
         objective=["maximize"],
         constraint=[gc_at_most_half, excludes_aa],
         num_candidates=4,
+        diversity=0,
         budget=80,
         mutation_rate=0.3,
         seed=7,
@@ -100,6 +101,7 @@ def test_soft_constraints_are_reproducible_and_report_probabilities():
         length=5,
         constraint=soft_gc,
         num_candidates=4,
+        diversity=0,
         budget=40,
         seed=11,
     )
@@ -126,6 +128,7 @@ def test_constraint_output_validation(constraint, match):
             length=3,
             constraint=constraint,
             num_candidates=2,
+            diversity=0,
             budget=8,
             seed=3,
         )
@@ -139,6 +142,7 @@ def test_constraint_requires_callable_and_enough_feasible_sequences():
             length=2,
             constraint=[lambda values: np.ones(len(values)), "invalid"],
             num_candidates=2,
+            diversity=0,
             budget=8,
         )
     with pytest.raises(ValueError, match="enough unique initial sequences"):
@@ -147,6 +151,7 @@ def test_constraint_requires_callable_and_enough_feasible_sequences():
             length=2,
             constraint=lambda values: np.zeros(len(values)),
             num_candidates=2,
+            diversity=0,
             budget=8,
         )
 
@@ -165,6 +170,7 @@ def test_saturation_uses_constraint_intersection():
         length=4,
         constraint=[no_t, no_c],
         num_candidates=4,
+        diversity=0,
         saturation=so.SaturationConfig(
             minimum_queries=8,
             plateau_patience_queries=8,

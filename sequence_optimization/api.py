@@ -385,7 +385,43 @@ class CachedScorer:
 
     @property
     def remaining(self) -> int | None:
+        if bool(getattr(self.scorer, "target_stop_reached", False)):
+            return 0
         return None if self.budget is None else self.budget - self.query_count
+
+    @property
+    def objective_version(self) -> int:
+        return int(getattr(self.scorer, "objective_version", 0))
+
+    def current_scores(self, sequences: Sequence[str] | np.ndarray) -> np.ndarray:
+        """Return scores under the current objective state without spending budget."""
+        values = normalize_nucleotide_sequences(sequences)
+        if not len(values):
+            return np.empty(0, dtype=np.float64)
+        rescore = getattr(self.scorer, "scores_for", None)
+        if rescore is not None:
+            return np.asarray(rescore(values), dtype=np.float64)
+        missing = [str(value) for value in values if str(value) not in self._cache]
+        if missing:
+            raise KeyError(f"scores were not cached for {len(missing)} sequences")
+        return np.asarray([self._cache[str(value)][0] for value in values])
+
+    def current_uncertainties(
+        self, sequences: Sequence[str] | np.ndarray
+    ) -> np.ndarray | None:
+        """Return uncertainties under the current objective state."""
+        values = normalize_nucleotide_sequences(sequences)
+        if not len(values):
+            return np.empty(0, dtype=np.float64)
+        rescore = getattr(self.scorer, "uncertainties_for", None)
+        if rescore is not None:
+            current = rescore(values)
+            if current is not None:
+                return np.asarray(current, dtype=np.float64)
+        missing = [str(value) for value in values if str(value) not in self._cache]
+        if missing:
+            raise KeyError(f"scores were not cached for {len(missing)} sequences")
+        return np.asarray([self._cache[str(value)][1] for value in values])
 
     def score(self, sequences: Sequence[str] | np.ndarray) -> ScoreBatch:
         values = normalize_nucleotide_sequences(sequences)
@@ -441,30 +477,51 @@ class CachedScorer:
             self.model_query_count += len(accepted)
         self.query_count += cost
         rejected_score = np.asarray(np.finfo(np.float64).min)
-        return ScoreBatch(
-            np.stack(
-                [
-                    rejected_score
-                    if str(value) in self._rejected
-                    else self._cache[str(value)][0]
-                    for value in values
-                ]
-            ),
-            np.stack(
-                [
-                    np.zeros_like(rejected_score)
-                    if str(value) in self._rejected
-                    else self._cache[str(value)][1]
-                    for value in values
-                ]
-            ),
+        scores = np.stack(
+            [
+                rejected_score
+                if str(value) in self._rejected
+                else self._cache[str(value)][0]
+                for value in values
+            ]
         )
+        accepted_mask = np.asarray(
+            [str(value) not in self._rejected for value in values], dtype=bool
+        )
+        if accepted_mask.any() and hasattr(self.scorer, "scores_for"):
+            scores = np.asarray(scores, dtype=np.float64)
+            scores[accepted_mask] = self.scorer.scores_for(values[accepted_mask])
+        uncertainties = np.stack(
+            [
+                np.zeros_like(rejected_score)
+                if str(value) in self._rejected
+                else self._cache[str(value)][1]
+                for value in values
+            ]
+        )
+        if accepted_mask.any() and hasattr(self.scorer, "uncertainties_for"):
+            current = self.scorer.uncertainties_for(values[accepted_mask])
+            if current is not None:
+                uncertainties = np.asarray(uncertainties, dtype=np.float64)
+                uncertainties[accepted_mask] = current
+        return ScoreBatch(scores, uncertainties)
 
     def constraints_passed(self, sequences) -> np.ndarray:
         values = normalize_nucleotide_sequences(sequences)
-        if self.constraint_evaluator is None:
-            return np.ones(len(values), dtype=bool)
-        return self.constraint_evaluator.evaluate(values)
+        passed = self.hard_constraints_passed(values)
+        threshold_filter = getattr(self.scorer, "thresholds_passed", None)
+        if threshold_filter is not None:
+            passed &= np.asarray(threshold_filter(values), dtype=bool)
+        return passed
+
+    def hard_constraints_passed(self, sequences) -> np.ndarray:
+        """Return user-constraint decisions without objective target gates."""
+        values = normalize_nucleotide_sequences(sequences)
+        return (
+            np.ones(len(values), dtype=bool)
+            if self.constraint_evaluator is None
+            else self.constraint_evaluator.evaluate(values)
+        )
 
 
 @dataclass(frozen=True)
@@ -559,6 +616,7 @@ def _sequence_space(length, alphabet="ACGT") -> SequenceSpace:
 class OptimizationConfig:
     budget: int
     num_candidates: int = 100
+    diversity: int = 5
     mutation_rate: float = 0.02
     elite_fraction: float = 0.2
     learning_rate: float = 0.1
@@ -579,6 +637,13 @@ class OptimizationConfig:
     synonymous_codons: dict[str, Sequence[str]] | None = None
 
     def __post_init__(self) -> None:
+        if (
+            isinstance(self.diversity, bool)
+            or not isinstance(self.diversity, (int, np.integer))
+            or self.diversity < 0
+        ):
+            raise ValueError("diversity must be a non-negative integer")
+        object.__setattr__(self, "diversity", int(self.diversity))
         if not 0 < self.basesearch_decay < 1:
             raise ValueError("basesearch_decay must be between zero and one")
         for name in ("basesearch_queue_size", "basesearch_max_stalled"):
