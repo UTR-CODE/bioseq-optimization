@@ -1,6 +1,8 @@
-# bioseq-optimization 开发交接
+# bioseq-optimization 项目总览与开发交接
 
-本文面向接手开发、维护和发布工作的工程人员，描述仓库当前结构与稳定契约。
+本文面向接手开发、维护、实验复现和发布工作的工程人员，汇总仓库当前结构、
+稳定契约、验证入口、实验资产及待处理事项。它是内部交接文档，不是用户指南；
+面向使用者的接口和示例以 [README](README.md) 与 `docs/` 为准。
 
 ## 1. 项目定位
 
@@ -21,6 +23,7 @@
 - 固定长度核酸序列空间及种子序列管理；
 - 单任务、多任务和多个独立模型的目标标量化；
 - 9 个黑盒优化器和 4 个梯度优化器；
+- 从同一初始群体选择并运行多个 optimizer 的套件入口；
 - 固定预算与饱和停止；
 - 硬约束、概率约束及多约束交集筛选；
 - 同义密码子范围内的 CDS 遗传算法；
@@ -41,7 +44,8 @@
 6. [高级算法](sequence_optimization/advanced.py)：生成式、队列式和梯度算法。
 7. [目标函数](sequence_optimization/objectives.py)、[约束](sequence_optimization/constraints.py)和
    [饱和停止](sequence_optimization/saturation.py)。
-8. [测试目录](tests)及[算法参数索引](docs/algorithms.md)。
+8. [多优化器套件](sequence_optimization/suite.py)：共享模型缓存、批量统计和结果汇总。
+9. [测试目录](tests)及[算法参数索引](docs/algorithms.md)。
 
 ## 3. 目录结构
 
@@ -55,6 +59,7 @@ bioseq-optimization/
 │   ├── objectives.py             # TargetObjective、MultiTaskObjective
 │   ├── constraints.py            # 用户约束标准化、筛选和统计
 │   ├── saturation.py             # 饱和监测和 q-fraction 结果
+│   ├── suite.py                  # 多 optimizer 调度、共享缓存和统一导出
 │   ├── combined.py               # 多个独立单输出 scorer 的组合
 │   ├── codons.py                 # 标准遗传密码表和同义 CDS 空间
 │   ├── onehot.py                 # A/C/G/T/U/N 向量化编码
@@ -71,17 +76,24 @@ bioseq-optimization/
 │   └── search_workflow.md
 ├── tests/                        # 单元、契约及可选真实模型测试
 ├── scripts/                      # 开发者兼容性检查脚本
+├── heatshock_sequence_design/    # 已跟踪的 DeepAdapt 热休克设计脚本与基准结果
 ├── pyproject.toml
 ├── requirements.txt
 └── README.md
 ```
 
-`.gitignore` 排除缓存、构建目录、本地结果、临时文件和旧的本地 benchmark
-数据。开发脚本生成的报告应写入 `tmp/` 或其他不提交的工作目录。
+`.gitignore` 排除缓存、构建目录、`tmp/`、`results/` 和旧的本地
+`BioSeqBench/` 数据。`benchmark/` 和 `optimus_mrl_suite_1000x100/` 当前不是已跟踪
+内容；提交前必须根据任务逐项核对，而不能依赖 `.gitignore` 自动排除。
 
 ## 4. 调用链与模块边界
 
 ```text
+optimize_algorithms(...)
+    ├── black-box model ───────┐
+    ├── differentiable_model ──┤──► 每个算法独立 optimize(...) ──► OptimizerSuiteResult
+    └── shared prediction cache┘
+
 *_optimize(...)
     │
     ▼
@@ -109,7 +121,8 @@ SequenceSpace / SynonymousCodonSpace          │
 - `CachedScorer` 负责去重、预算计数、约束筛选和模型调用缓存；
 - 算法只维护候选状态和一维 objective score；
 - `OptimizationResult` 在搜索结束后附加原始 activity、任务名、约束概率和元数据；
-- 饱和模式复用同一算法注册表，仅替换 scorer 的监测与停止行为。
+- 饱和模式复用同一算法注册表，仅替换 scorer 的监测与停止行为；
+- suite 为每个算法建立独立 optimizer 状态和预算，但默认跨算法复用原始模型预测缓存。
 
 ## 5. 公共评分契约
 
@@ -134,17 +147,19 @@ uncertainty 若存在，其形状必须与 score 完全一致。
 ### 5.2 PyTorch 适配器
 
 `SequencePredictor` 默认把字符串转换为 float32 `[N, 4, L]`，通道顺序为
-A/C/G/T。可通过 `encoder` 或 `onehot` 自定义布局和通道顺序。
+A/C/G/T。需要其他编码时应派生子类，覆盖 `encode_sequences` 和/或
+`prepare_input`；后者同时用于离散 one-hot 和可微概率输入，不能 detach 或转成
+NumPy。
 
-`DifferentiableSequencePredictor` 额外提供：
+`SequencePredictor` 同时提供可微入口：
 
 ```python
 activities, uncertainties = scorer.score_soft(probabilities)
 ```
 
 optimizer 提供的标准软输入形状为 `[N, L, 4]`，通道顺序为 A/C/G/T。
-`soft_input_transform` 必须在不 detach、不转 NumPy、不离散化的前提下转换为
-模型需要的布局。包装后模型参数被冻结，但输入梯度保留。
+`prepare_input` 必须在不 detach、不转 NumPy、不离散化的前提下转换为模型需要的
+布局。包装后模型参数被冻结，但输入梯度保留。
 
 ### 5.3 多个独立模型
 
@@ -276,9 +291,41 @@ optimizer 提供的标准软输入形状为 `[N, L, 4]`，通道顺序为 A/C/G/
 backward 不计入离散 `query_count`。`budget` 至少为 `num_candidates`；某些算法可能因
 空间耗尽、重复停滞或不足以展开完整邻域而提前停止。
 
+### 9.3 多 optimizer 套件
+
+`optimize_algorithms(...)` 从同一批 `initial` 独立执行所选算法，且只支持固定预算。
+主要约束和行为如下：
+
+- `initial` 数量可以大于 `num_candidates`，但不得小于它，且 `budget` 不得小于
+  initial 数量；
+- 黑盒算法使用 `model`，四个梯度算法使用 `differentiable_model`；若 `model`
+  自身实现 `score_soft`，可省略后者；
+- `share_model_cache=True` 时，黑盒与梯度 scorer 分别跨算法缓存离散预测；共享的
+  initial 以及重复 proposal 不会重复调用对应模型；
+- `common_kwargs` 传给所有算法，`optimizer_kwargs[name]` 覆盖某一算法的设置；保留的
+  suite 参数不能从这两个入口覆盖；
+- BaseSearch、CbAS 和 CEM 的 suite 默认批大小是 initial 数量与模型推理
+  `batch_size` 的较小值；直接调用单个 optimizer 时默认仍为 256；
+- 算法按输入顺序串行运行，seed 使用 `seed + offset`；suite 当前不并行调度算法；
+- `OptimizerSuiteResult.to_frame()` 合并全部候选，`summary_frame()` 汇总分数、耗时、
+  吞吐、真实模型查询数及最大离散/软 batch，`save_csv()` 写出 combined、summary、
+  initial 和逐算法 CSV。
+
+`query_count` 是 optimizer 的预算口径，`model_query_count` 是 suite 共享缓存后的实际
+离散模型调用数，两者不能混用。梯度算法的 `soft_query_count` 另行统计。
+公开示例和参数见[多优化器套件文档](docs/optimizer_suite.md)。
+
 ## 10. 固定预算和饱和停止
 
-固定预算调用省略 `budget` 时默认使用 10,000，返回 `OptimizationResult`。
+公共 `optimize` 和各 `*_optimize` 的停止语义：
+
+- 显式传入整数 `budget`：固定预算，返回 `OptimizationResult`；
+- 同时省略 `budget` 和 `saturation`：除 random 外，使用默认
+  `SaturationConfig()` 运行并返回 q99 的 `OptimizationResult`；
+- 显式传入 `saturation=SaturationConfig(...)` 并省略 `budget`：返回完整
+  `SaturationResult`；
+- random 不支持 saturation；省略 `budget` 时使用固定预算 10,000；
+- `optimize_algorithms` 始终要求固定整数预算，默认 10,000。
 
 饱和调用提供 `saturation=SaturationConfig(...)` 并省略 `budget`，返回
 `SaturationResult`。两者同时提供会报错。
@@ -379,6 +426,25 @@ python -m pip install git+ssh://git@github.com/UTR-CODE/bioseq-models.git
 模型专用适配逻辑不要写入 optimizer 内核。模型输入约束应记录在
 [模型输入要求](docs/model_input_requirements.md)和对应任务页。
 
+### 14.1 已记录的预训练模型任务
+
+| 模型/任务页 | 优化区域或目标 |
+|---|---|
+| [Optimus 5-Prime](docs/models/optimus.md) | 50 nt 5′UTR，MRL |
+| [UTR-CODE](docs/models/utr_code.md) | 5′UTR、3′UTR 或 CDS，translation output |
+| [CDS Stability](docs/models/cds_stability.md) | CDS stability，可与 RPF 联合 |
+| [DeepSTARR](docs/models/deepstarr.md) | enhancer developmental/housekeeping activity |
+| [DREAM LegNet](docs/models/dream_legnet.md) | promoter activity |
+| [Cetnar](docs/models/cetnar_stability.md) | 3′UTR mRNA stability，可与 translation 联合 |
+| [Agarwal lentiMPRA](docs/models/agarwal.md) | K562/HepG2/WTC11 cell specificity |
+| [DeepSTARR Mouse](docs/models/deepstarr_mouse.md) | mouse tissue specificity |
+| [DeepSTARR-Embryo](docs/models/deepstarr_embryo.md) | embryonic tissue specificity |
+| [Malinois](docs/models/malinois.md) | K562/HepG2/SK-N-SH specificity |
+
+结构化任务另见[任务索引](docs/tasks/index.md)，包括 custom multi-task、多个独立模型、
+同义 CDS，以及 RPF 与 mRNA stability 联合优化。每个模型可用哪些算法取决于输入长度、
+固定上下文、是否具有真实 `score_soft` 路径和任务页中列出的限制。
+
 ## 15. 开发环境和验证
 
 ### 15.1 安装
@@ -397,7 +463,8 @@ python -m venv .venv
 ```bash
 python -m pytest -q \
   --ignore=tests/test_bioseq_models_integration.py \
-  --ignore=tests/test_combined_models_integration.py
+  --ignore=tests/test_combined_models_integration.py \
+  --ignore=tests/test_model_task_recipes.py
 ```
 
 ### 15.3 可选模型契约测试
@@ -419,7 +486,9 @@ python scripts/check_single_task_models.py \
   --output tmp/model_compatibility.json
 ```
 
-该脚本检查接口和结果契约，不评估优化效力。
+该脚本是历史开发工具，当前仍导入已经移除的
+`DifferentiableTorchSequenceScorer`，并使用该旧 adapter 的构造参数；修复并重新验证前
+不要把它作为当前兼容性结论。真实模型的有效契约入口是上述三个 pytest 文件。
 
 ### 15.4 格式和静态检查
 
@@ -443,7 +512,8 @@ git diff --check
 | `test_synonymous_cds.py` | CDS 边界、翻译一致性、codon 表和算法限制 |
 | `test_onehot_and_length.py` | 编码、padding、长度和所有算法的输入边界 |
 | `test_sequence_predictor.py` | PyTorch 离散/软适配器 |
-| `test_basesearch.py` | 优先队列、负分、stall 和 metadata |
+| `test_basesearch.py` | 优先队列、负分、stall、批量 proposal 和 metadata |
+| `test_suite.py` | 多算法选择、共享缓存、参数覆盖、批次统计和 CSV 输出 |
 | `test_ledidi.py` | Ledidi 预算、梯度、编辑惩罚和错误路径 |
 | `test_custom_cnn_tasks.py` | 三种 custom CNN 示例 |
 | `test_multitask_cnn_example.py` | 三输出 CNN 示例 |
@@ -486,7 +556,73 @@ git diff --check
 - constraints 的 screened、counted 和 model query 统计；
 - 黑盒、生成式和梯度算法测试。
 
-## 18. 发布和提交
+## 18. 当前实验资产与工作区状态
+
+以下内容是 2026-09-16 交接时本机工作区的快照。它们不都属于可发布库，接手者应先
+区分已跟踪代码、未提交修改和生成结果。
+
+### 18.1 已跟踪的 DeepAdapt heat-shock 设计
+
+`main` 中的 `heatshock_sequence_design/` 跟踪以下资产：
+
+- `run_all_algorithms.py`：固定 5′UTR 末端 Kozak 区域，组合六项序列约束，以
+  `delta_log2_te` 最大、normal 最小、heat-shock 最大为三输出目标；
+- 13 个 optimizer 的候选 CSV、`summary.json`、`best_by_algorithm.csv`、
+  `pareto_candidates.csv` 和参考预测；
+- 运行依赖本机绝对路径 `/home/hexin/bioseq-models`、
+  `/mnt/data/home/hexin/bioseq-models-weight-cache/0.10.0`、`/home/hexin/Gluc.fasta`
+  和 `/home/hexin/utr3.fasta`，并非可移植示例。
+
+交接检查时，本地工作树已删除该目录全部 20 个已跟踪文件，但删除尚未提交；远端
+`main` 和当前 HEAD 仍保留上述脚本与结果。删除是否为预期清理尚未确认，接手者不得
+擅自恢复或提交，应先向实验所有者确认。
+
+### 18.2 本地 Optimus MRL 套件结果
+
+`optimus_mrl_suite_1000x100/` 是未跟踪的本地生成目录，未推送到 GitHub。配置为
+Optimus 5-Prime、长度 50、1000 条唯一随机 initial、固定预算 10,000、13 个算法、
+每个保留 100 条候选、seed 7。主要文件：
+
+- `initial.csv`：1000 条起始序列；
+- `candidates.csv`：13 个算法合并后的 1300 条结果；
+- `summary.csv`：查询、batch、耗时、吞吐和分数摘要；
+- `<algorithm>.csv`：各算法 100 条候选；
+- `run_config.json`：运行参数。
+
+该次运行最佳单条 MRL 为 DEN `9.345944`、genetic algorithm `9.340545`、BaseSearch
+`9.303939`；候选均值前三为 genetic algorithm `9.180390`、DEN `9.129488`、
+BaseSearch `9.009399`。RTX 4090 上全套约 7 秒；小型 Optimus CNN 即使批量化后也只
+观察到约 22% 峰值 GPU 利用率，因此 batch 统计比单次利用率更适合判断代码路径是否
+合并了模型调用。该目录按当前约定只在本地保留，不加入版本控制。
+
+### 18.3 其他未提交或未跟踪内容
+
+- `analyze_kmer_results.py`：本地分析脚本；
+- `benchmark/`：本地任务配置、绘图脚本和 pickle 结果；其中 `results/` 被忽略，
+  其余文件未跟踪；
+- `BioSeqBench/`：被 `.gitignore` 整体排除的旧 benchmark/data 工作树；
+- `tmp/`、cache 和 Python 构建缓存：可再生本地文件。
+
+处理这些内容前先确认实验所有者和目标；不要批量 add、清理或覆盖。生成结果如需归档，
+应先确定独立 artifact 存储位置、元数据格式和大小策略，而不是直接并入 Python 包提交。
+
+## 19. 已知限制与接手优先级
+
+优先级从高到低：
+
+1. 修复或移除 `scripts/check_single_task_models.py` 的旧 scorer 导入和旧调用签名，随后
+   在安装 `bioseq-models` 的环境重新跑真实 checkpoint 矩阵。
+2. 向实验所有者确认 `heatshock_sequence_design/` 全目录的未提交删除应当恢复、归档
+   还是形成独立提交；在确认前保持原样。
+3. 为仓库确定 LICENSE、CI、版本发布和依赖锁定策略；当前四项都未配置。
+4. 多 optimizer suite 当前串行执行；共享缓存会使后运行算法受益于前序缓存，因此
+   `elapsed_seconds` 和实际模型查询数适合工程诊断，不是严格隔离的算法基准。
+5. suite 的黑盒 scorer 与 differentiable scorer 分别缓存；同时选择两类算法时，同一
+   initial 可能各评估一次。梯度软调用不缓存，也不计入离散 budget。
+6. BaseSearch/CbAS/CEM 的增大 batch 会提高单次 GPU 吞吐，但降低参数/队列更新频率，
+   可能牺牲搜索质量；应在目标模型上同时比较分数和吞吐。
+
+## 20. 发布和提交
 
 仓库使用 setuptools 和 `pyproject.toml`，没有 lockfile、自动版本生成或 console-script
 声明。仓库也未配置 `.github/workflows` 或 `LICENSE`；若需要自动发布或对外分发，先由
@@ -499,7 +635,7 @@ git diff --check
 5. 检查 `git status`，不提交 checkpoint、生成结果、cache、build 或临时数据；
 6. 提交到 `main` 并推送 `origin`。
 
-## 19. 设计限制
+## 21. 设计限制
 
 - 候选空间为固定长度字符串，只实现替换搜索；
 - 基础 optimizer 不负责模型训练或效力评估；
@@ -511,8 +647,11 @@ git diff --check
 - `CombinedScorer` 每个子模型必须是单输出；多输出单模型直接作为一个 scorer 使用；
 - 基础依赖不安装预训练模型包，因此真实模型测试属于可选层；
 - 公共 API 尚未提供向后兼容版本策略，修改导出名称和结果字段时需谨慎。
+- suite 不提供跨算法并行或统计意义上的公平 benchmark 隔离；
+- GPU 利用率由模型规模、batch、proposal 生成和主机/GPU 同步共同决定，不能只通过
+  optimizer 侧批量参数保证持续满载。
 
-## 20. 维护原则
+## 22. 维护原则
 
 - 通用搜索逻辑留在本仓库，模型和数据逻辑留在各自项目；
 - 所有算法共享 scorer、objective、constraint、budget 和 result 契约；
