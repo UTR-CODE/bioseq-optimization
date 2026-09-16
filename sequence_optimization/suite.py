@@ -81,7 +81,7 @@ class _SharedScorer:
         return self.scorer.score_soft(probabilities)
 
 
-def optimize_algorithms(
+def generate_designs(
     model: SequenceScorer,
     length: int,
     initial: Sequence[str] | np.ndarray,

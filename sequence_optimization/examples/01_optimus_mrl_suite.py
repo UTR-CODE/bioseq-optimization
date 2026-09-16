@@ -13,17 +13,13 @@ candidate pool as a pandas DataFrame.
 from __future__ import annotations
 
 import argparse
-import sys
 from pathlib import Path
-
-# Add bioseq-models to path
-sys.path.insert(0, "/home/hexin/bioseq-models")
 
 from bioseq_models import load_model
 
 from sequence_optimization import (
     SequencePredictor,
-    optimize_algorithms,
+    generate_designs,
     random_seed_sequences,
 )
 
@@ -80,7 +76,7 @@ def main() -> None:
     print("- Other algorithms: auto-stop at saturation plateau (0.9)")
     print("- Diversity: minimum Hamming distance = 5")
 
-    result_df = optimize_algorithms(
+    result_df = generate_designs(
         model,
         length=50,
         initial=initial,
