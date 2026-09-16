@@ -7,10 +7,7 @@ A unified multi-algorithm framework for biological sequence design. Run 13 compl
 ## Installation
 
 ```bash
-# Install bioseq-optimization
 python -m pip install git+https://github.com/UTR-CODE/bioseq-optimization.git
-
-# Install pretrained models
 python -m pip install git+https://github.com/UTR-CODE/bioseq-models.git
 ```
 
@@ -24,13 +21,8 @@ Optimize 5'UTR sequences to maximize mean ribosome load (MRL):
 from bioseq_models import load_model
 from sequence_optimization import generate_designs, random_seed_sequences
 
-# Load model
 model = load_model("optimus5prime", device="cuda", batch_size=256)
-
-# Generate initial sequences
 initial = random_seed_sequences(length=50, count=100, seed=42)
-
-# Run all 13 algorithms
 result_df = generate_designs(
     model,
     length=50,
@@ -39,7 +31,6 @@ result_df = generate_designs(
     seed=42,
 )
 
-# result_df is a pandas DataFrame with columns: sequence, algorithm, score
 print(result_df.head(20))
 print(f"\nTotal candidates: {len(result_df)}")
 print(f"Best score: {result_df['score'].max():.4f}")
@@ -65,14 +56,8 @@ Optimize enhancer sequences for tissue specificity:
 from bioseq_models import load_model
 from sequence_optimization import generate_designs, random_seed_sequences
 
-# Load model
 model = load_model("deepstarr", device="cuda", batch_size=128)
-
-# Generate initial sequences
 initial = random_seed_sequences(length=249, count=100, seed=42)
-
-# Run all 13 algorithms
-# Objective: minimize developmental activity, maximize housekeeping activity
 result_df = generate_designs(
     model,
     length=249,
@@ -81,7 +66,6 @@ result_df = generate_designs(
     seed=42,
 )
 
-# DataFrame includes activity columns for both model outputs
 print(
     result_df[
         ["algorithm", "score", "activity_developmental", "activity_housekeeping"]
@@ -105,22 +89,16 @@ Optimize for cell-type specificity across three cell lines:
 from bioseq_models import load_model
 from sequence_optimization import CombinedScorer, generate_designs, random_seed_sequences
 
-# Load three cell-type models
 model_k562 = load_model("agarwal_k562", device="cuda", batch_size=128)
 model_hepg2 = load_model("agarwal_hepg2", device="cuda", batch_size=128)
 model_wtc11 = load_model("agarwal_wtc11", device="cuda", batch_size=128)
 
-# Combine models
 combined = CombinedScorer(
     [model_k562, model_hepg2, model_wtc11],
     names=["K562", "HepG2", "WTC11"],
 )
 
-# Generate initial sequences
 initial = random_seed_sequences(length=230, count=100, seed=42)
-
-# Run all 13 algorithms
-# Objective: maximize K562, minimize HepG2 and WTC11 (cell-type specificity)
 result_df = generate_designs(
     combined,
     length=230,
@@ -129,7 +107,6 @@ result_df = generate_designs(
     seed=42,
 )
 
-# DataFrame includes: activity_K562, activity_HepG2, activity_WTC11
 print(result_df[['algorithm', 'score', 'activity_K562', 'activity_HepG2', 'activity_WTC11']].head())
 ```
 
@@ -145,23 +122,6 @@ order used by MPRALegNet in both scoring paths.
 ```
 
 ## More Task Examples
-
-`generate_designs()` names raw output columns from the scorer's `task_names`.
-The pretrained models define these labels, so the DeepSTARR outputs become
-`activity_developmental` and `activity_housekeeping`. For a custom model, pass
-the labels when constructing `SequencePredictor`:
-
-```python
-predictor = SequencePredictor(
-    model,
-    tasks=["developmental", "housekeeping"],
-)
-```
-
-If no labels are supplied, output columns use `activity_task_0`,
-`activity_task_1`, and so on, in the order returned by the model. The labels
-must have one entry per output and determine column names only; the output
-order remains the model's order.
 
 Pretrained models available via `bioseq-models`:
 
@@ -185,7 +145,6 @@ import torch
 from torch import nn
 from sequence_optimization import SequencePredictor, generate_designs, random_seed_sequences
 
-# Define a simple CNN
 class SimpleCNN(nn.Module):
     def __init__(self):
         super().__init__()
@@ -194,17 +153,14 @@ class SimpleCNN(nn.Module):
         self.fc = nn.Linear(64, 1)
 
     def forward(self, x):
-        # x shape: (batch, 4, length) - one-hot encoded DNA
         x = torch.relu(self.conv1(x))
         x = self.pool(x).squeeze(-1)
         x = self.fc(x)
         return x
 
-# Create predictor
 model = SimpleCNN()
-predictor = SequencePredictor(model, device="cuda")
-
-# Optimize
+predictor = SequencePredictor(model, tasks=["test"], device="cuda")
+# Omit tasks to use task_0, task_1, ... automatically.
 initial = random_seed_sequences(length=50, count=100, seed=42)
 result_df = generate_designs(
     predictor,
