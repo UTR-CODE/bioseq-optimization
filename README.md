@@ -1,6 +1,40 @@
 # Biosequence Optimization
 
-Design DNA/RNA sequences with a predictor and an optimization objective.
+A unified multi-algorithm exploration framework for biological sequence design. Instead of running optimization algorithms in isolation, this framework systematically explores the sequence design landscape through 13 complementary optimization strategies, generating unified candidate pools for quality control, solution-family discovery, and representative selection.
+
+## Framework Philosophy
+
+Traditional approach: "Which single algorithm finds the best sequence?"
+
+**Our approach**: "What design space regions exist, and which solution families are most promising?"
+
+- Run all 13 algorithms from a shared initial population
+- Merge results into a unified candidate pool with shared model caching
+- Analyze convergence, diversity, and solution families
+- Select diverse representatives for experimental validation
+
+## Quick Start: Multi-Algorithm Optimization
+
+Run all 13 algorithms on three representative tasks:
+
+```bash
+# Install package
+python -m pip install -e .
+
+# Run all three example tasks
+python sequence_optimization/examples/run_all_suites.py \
+    --device cuda \
+    --initial-count 100 \
+    --num-candidates 50 \
+    --budget 5000
+```
+
+This generates unified candidate pools in `results/` for:
+1. **Optimus 5-Prime MRL** (single-task, 50 nt)
+2. **DeepSTARR enhancer** (multi-task, 249 nt)
+3. **Agarwal lentiMPRA** (3 models, 230 nt)
+
+See [Multi-Algorithm Framework Guide](docs/multi_algorithm_framework.md) for details.
 
 ## Installation
 
@@ -14,27 +48,52 @@ For pretrained models used in the task guides:
 python -m pip install git+ssh://git@github.com/UTR-CODE/bioseq-models.git
 ```
 
-## Algorithms
+## Multi-Algorithm Suite
 
-| Algorithm | Function | Predictor interface |
-|---|---|---|
-| [random](docs/algorithms/random.md) | `random_optimize` | `score` |
-| [genetic_algorithm](docs/algorithms/genetic_algorithm.md) | `genetic_algorithm_optimize` | `score` |
-| [ism_greedy](docs/algorithms/ism_greedy.md) | `ism_optimize` | `score` |
-| [simulated_annealing](docs/algorithms/simulated_annealing.md) | `simulated_annealing_optimize` | `score` |
-| [adalead](docs/algorithms/adalead.md) | `adalead_optimize` | `score` |
-| [beam_search](docs/algorithms/beam_search.md) | `beam_search_optimize` | `score` |
-| [cross_entropy_method](docs/algorithms/cross_entropy_method.md) | `cross_entropy_optimize` | `score` |
-| [basesearch](docs/algorithms/basesearch.md) | `basesearch_optimize` | `score` |
-| [cbas](docs/algorithms/cbas.md) | `cbas_optimize` | `score` |
-| [vanilla_activation_maximization](docs/algorithms/vanilla_activation_maximization.md) | `vanilla_activation_maximization_optimize` | `score_soft` |
-| [fast_seqprop](docs/algorithms/fast_seqprop.md) | `fast_seqprop_optimize` | `score_soft` |
-| [den](docs/algorithms/den.md) | `den_optimize` | `score_soft` |
-| [ledidi](docs/algorithms/ledidi.md) | `ledidi_optimize` | `score_soft` |
+Run multiple algorithms from a shared initial population and analyze the unified candidate pool:
 
-[Algorithm and model parameters](docs/algorithms.md). Use
-[`optimize_algorithms`](docs/optimizer_suite.md) to run selected optimizers from
-one shared initial population and combine their results.
+```python
+from bioseq_models import load_model
+from sequence_optimization import (
+    CandidatePool,
+    optimize_algorithms,
+    random_seed_sequences,
+)
+
+model = load_model("optimus5prime", device="cuda")
+initial = random_seed_sequences(length=50, count=100, seed=42)
+
+# Run all 13 algorithms
+suite = optimize_algorithms(
+    model,
+    algorithms=["genetic_algorithm", "basesearch", "beam_search", ...],  # or omit for all 13
+    length=50,
+    initial=initial,
+    objective=["maximize"],
+    num_candidates=50,
+    budget=5000,
+    seed=42,
+)
+
+# Analyze unified candidate pool
+pool = CandidatePool.from_suite_result(suite)
+convergence = pool.get_convergence_summary()  # Which sequences found by multiple algorithms?
+unique_pool = pool.deduplicate(keep='best')   # Remove cross-algorithm duplicates
+top_100 = pool.top_n_by_score(100)            # Best candidates overall
+
+# Export results
+suite.save_csv("results/optimus_suite/")
+```
+
+See [Multi-Algorithm Framework Guide](docs/multi_algorithm_framework.md) and [Suite Examples](sequence_optimization/examples/SUITE_EXAMPLES.md).
+
+## 13 Available Algorithms
+
+**Black-box (9):** [random](docs/algorithms/random.md), [genetic_algorithm](docs/algorithms/genetic_algorithm.md), [ism_greedy](docs/algorithms/ism_greedy.md), [simulated_annealing](docs/algorithms/simulated_annealing.md), [adalead](docs/algorithms/adalead.md), [beam_search](docs/algorithms/beam_search.md), [cross_entropy_method](docs/algorithms/cross_entropy_method.md), [basesearch](docs/algorithms/basesearch.md), [cbas](docs/algorithms/cbas.md)
+
+**Gradient-based (4):** [vanilla_activation_maximization](docs/algorithms/vanilla_activation_maximization.md), [fast_seqprop](docs/algorithms/fast_seqprop.md), [den](docs/algorithms/den.md), [ledidi](docs/algorithms/ledidi.md)
+
+All algorithms support: single-task, multi-task, multiple independent models, sequence constraints, fixed regions, and CDS optimization. See [algorithm parameters](docs/algorithms.md).
 
 ## 1. Single task: custom CNN
 
