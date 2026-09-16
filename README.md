@@ -2,7 +2,7 @@
 
 A unified multi-algorithm exploration framework for biological sequence design. Run 13 complementary optimization strategies from a shared initial population and obtain a unified candidate pool for downstream analysis.
 
-[Framework overview figure will be placed here - Main Figure 1]
+[Framework overview figure will be placed here - Main Figure 1 from the paper]
 
 ## Installation
 
@@ -19,6 +19,8 @@ python -m pip install git+ssh://git@github.com/UTR-CODE/bioseq-models.git
 ## Complete Examples
 
 ### Example 1: Single-Task Optimization (Optimus 5-Prime MRL)
+
+Optimize 5'UTR sequences to maximize mean ribosome load (MRL):
 
 ```python
 import sys
@@ -55,6 +57,8 @@ python sequence_optimization/examples/01_optimus_mrl_suite.py --device cuda
 
 ### Example 2: Multi-Task Optimization (DeepSTARR)
 
+Optimize enhancer sequences for tissue specificity (minimize developmental, maximize housekeeping):
+
 ```python
 import sys
 sys.path.insert(0, "/home/hexin/bioseq-models")
@@ -78,6 +82,7 @@ result_df = optimize_algorithms(
     seed=42,
 )
 
+# DataFrame includes activity columns: activity_Dev, activity_Hk
 print(result_df.head(20))
 ```
 
@@ -88,16 +93,14 @@ python sequence_optimization/examples/02_deepstarr_multitask_suite.py --device c
 
 ### Example 3: Multiple Independent Models (Agarwal lentiMPRA)
 
+Optimize for cell-type specificity across three cell lines:
+
 ```python
 import sys
 sys.path.insert(0, "/home/hexin/bioseq-models")
 
 from bioseq_models import load_model
-from sequence_optimization import (
-    CombinedScorer,
-    optimize_algorithms,
-    random_seed_sequences,
-)
+from sequence_optimization import CombinedScorer, optimize_algorithms, random_seed_sequences
 
 # Load three cell-type models
 model_k562 = load_model("agarwal_k562", device="cuda", batch_size=128)
@@ -123,6 +126,7 @@ result_df = optimize_algorithms(
     seed=42,
 )
 
+# DataFrame includes: activity_K562, activity_HepG2, activity_WTC11
 print(result_df.head(20))
 ```
 
@@ -277,10 +281,10 @@ To customize saturation levels or use fixed query budgets, see [search workflow 
 
 **Example output:**
 ```
-     sequence                                          algorithm    score
-0    AGCTTAGCTAGCTAGC...                              genetic_algorithm  9.234
-1    TGCATGCATGCATGCA...                              basesearch        9.156
-2    CGATCGATCGATCGAT...                              beam_search       9.087
+     sequence                                          algorithm    score  activity_task_0
+0    AGCTTAGCTAGCTAGC...                              genetic_algorithm  9.234    9.234
+1    TGCATGCATGCATGCA...                              basesearch        9.156    9.156
+2    CGATCGATCGATCGAT...                              beam_search       9.087    9.087
 ...
 ```
 
