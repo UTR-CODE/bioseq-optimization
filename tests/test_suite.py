@@ -1,8 +1,12 @@
 import numpy as np
 import pytest
+import torch
 
 from sequence_optimization import (
     CallableScorer,
+    CombinedScorer,
+    SaturationConfig,
+    SequencePredictor,
     cross_entropy_optimize,
     generate_designs,
     random_seed_sequences,
@@ -60,6 +64,39 @@ def test_generate_designs_requires_gradient_model_before_running():
             budget=4,
             diversity=0,
         )
+
+
+def test_combined_scorer_only_advertises_soft_scoring_when_all_children_support_it():
+    discrete = CallableScorer(_count_g)
+    differentiable = SequencePredictor(
+        torch.nn.Sequential(
+            torch.nn.Flatten(),
+            torch.nn.Linear(16, 1),
+        )
+    )
+    assert not CombinedScorer([differentiable, discrete]).supports_soft_scoring
+    assert CombinedScorer([differentiable, differentiable]).supports_soft_scoring
+
+
+def test_generate_designs_unwraps_saturation_selection():
+    frame = generate_designs(
+        CallableScorer(_count_g),
+        algorithms=["genetic_algorithm"],
+        length=4,
+        initial=["AAAA", "CCCC", "GGGG", "TTTT"],
+        objective=["maximize"],
+        num_candidates=2,
+        diversity=0,
+        saturation=SaturationConfig(
+            fractions=(0.9,),
+            minimum_queries=2,
+            plateau_patience_queries=1,
+            maximum_queries=8,
+        ),
+        seed=4,
+    )
+    assert len(frame) == 2
+    assert frame["algorithm"].eq("genetic_algorithm").all()
 
 
 def test_generate_designs_shares_model_predictions_between_runs():

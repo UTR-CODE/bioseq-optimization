@@ -173,23 +173,14 @@ print(cbas_result.to_frame())
 
 ## Gradient optimizers
 
-Wrap the loaded PyTorch module once for both discrete and gradient scoring.
-
-```python
-from sequence_optimization import SequencePredictor
-
-gradient_predictor = SequencePredictor(
-    model.model,
-    device="cpu",
-    task_names=model.task_names,
-)
-```
+The loaded model accepts canonical A/C/G/T soft probabilities for gradient
+optimization.
 
 ### Vanilla activation maximization
 
 ```python
 vanilla_result = vanilla_activation_maximization_optimize(
-    gradient_predictor,
+    model,
     length=50,
     initial=initial,
     objective=["maximize"],
@@ -202,7 +193,7 @@ print(vanilla_result.to_frame())
 
 ```python
 fast_seqprop_result = fast_seqprop_optimize(
-    gradient_predictor,
+    model,
     length=50,
     initial=initial,
     objective=["maximize"],
@@ -215,7 +206,7 @@ print(fast_seqprop_result.to_frame())
 
 ```python
 den_result = den_optimize(
-    gradient_predictor,
+    model,
     length=50,
     initial=initial,
     objective=["maximize"],
@@ -228,7 +219,7 @@ print(den_result.to_frame())
 
 ```python
 ledidi_result = ledidi_optimize(
-    gradient_predictor,
+    model,
     length=50,
     initial=initial,
     objective=["maximize"],

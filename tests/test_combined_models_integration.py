@@ -37,19 +37,23 @@ def family(request):
     models = [
         bioseq_models.load_model(name, device="cpu", batch_size=8) for name in names
     ]
-    class InputPredictor(SequencePredictor):
-        def prepare_input(self, values):
-            return transform(values)
+    if request.param == "lentimpra":
+        # Agarwal owns its A/C/G/T -> A/G/C/T conversion in score_soft().
+        soft = models
+    else:
+        class InputPredictor(SequencePredictor):
+            def prepare_input(self, values):
+                return transform(values)
 
-    soft = [
-        InputPredictor(
-            model.model,
-            device="cpu",
-            batch_size=8,
-            task_names=model.task_names,
-        )
-        for model in models
-    ]
+        soft = [
+            InputPredictor(
+                model.model,
+                device="cpu",
+                batch_size=8,
+                task_names=model.task_names,
+            )
+            for model in models
+        ]
     return models, soft, names, length
 
 

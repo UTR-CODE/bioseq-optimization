@@ -2,9 +2,9 @@
 
 import numpy as np
 import pytest
+import torch
 
 from sequence_optimization import (
-    SequencePredictor,
     MultiTaskObjective,
     OptimizationConfig,
     available_algorithms,
@@ -20,6 +20,22 @@ def deepstarr():
     return bioseq_models.load_model("deepstarr", device="cpu")
 
 
+def test_pretrained_deepstarr_soft_path_matches_discrete_path(deepstarr):
+    sequences = ["ACGT" * 62 + "A", "TGCA" * 62 + "T"]
+    lookup = {base: index for index, base in enumerate("ACGT")}
+    encoded = torch.nn.functional.one_hot(
+        torch.as_tensor([[lookup[base] for base in sequence] for sequence in sequences]),
+        num_classes=4,
+    ).float().requires_grad_()
+    observed, uncertainty = deepstarr.score_soft(encoded)
+    np.testing.assert_allclose(
+        observed.detach().numpy(), deepstarr.score(sequences), rtol=1e-6, atol=1e-6
+    )
+    assert uncertainty is None
+    observed.sum().backward()
+    assert encoded.grad is not None
+
+
 @pytest.mark.parametrize("algorithm", available_algorithms())
 @pytest.mark.parametrize("direction", ["both", "developmental", "housekeeping"])
 def test_deepstarr_multitask_all_algorithms(deepstarr, algorithm, direction):
@@ -29,12 +45,6 @@ def test_deepstarr_multitask_all_algorithms(deepstarr, algorithm, direction):
         "housekeeping": ["minimize", "maximize"],
     }[direction]
     scorer = deepstarr
-    if algorithm in DIFFERENTIABLE_ALGORITHMS:
-        scorer = SequencePredictor(
-            deepstarr.model,
-            device=deepstarr.device,
-            task_names=deepstarr.task_names,
-        )
     config = OptimizationConfig(
         budget=751 if algorithm == "ism_greedy" else 12,
         num_candidates=4,
@@ -91,11 +101,7 @@ def optimus():
 
 @pytest.fixture(scope="module")
 def differentiable_optimus(optimus):
-    return SequencePredictor(
-        optimus.model,
-        device=optimus.device,
-        task_names=optimus.task_names,
-    )
+    return optimus
 
 
 def optimization_config(algorithm):
@@ -142,11 +148,11 @@ def test_optimus_runs_black_box_algorithm_directly(optimus, algorithm):
     assert 4 <= result.query_count <= config.budget
 
 
-def test_differentiable_wrapper_preserves_optimus_predictions(
+def test_differentiable_optimus_preserves_discrete_predictions(
     optimus, differentiable_optimus
 ):
     expected = optimus.score(INITIAL_SEQUENCES)
-    observed = differentiable_optimus.score(INITIAL_SEQUENCES).scores
+    observed = differentiable_optimus.score(INITIAL_SEQUENCES)
     np.testing.assert_allclose(observed, expected, rtol=1e-6)
 
 

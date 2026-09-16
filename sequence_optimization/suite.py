@@ -19,7 +19,7 @@ from .api import (
 )
 from .constraints import ConstraintSpec
 from .objectives import MultiTaskObjective, TargetObjective
-from .saturation import SaturationConfig
+from .saturation import SaturationConfig, SaturationResult
 
 DIFFERENTIABLE_ALGORITHMS = frozenset(
     {
@@ -29,6 +29,12 @@ DIFFERENTIABLE_ALGORITHMS = frozenset(
         "vanilla_activation_maximization",
     }
 )
+
+
+def _supports_soft_scoring(model: SequenceScorer | None) -> bool:
+    if model is None or not callable(getattr(model, "score_soft", None)):
+        return False
+    return bool(getattr(model, "supports_soft_scoring", True))
 
 
 class _SharedScorer:
@@ -100,7 +106,7 @@ def generate_designs(
     seed: int = 0,
     **common_kwargs: Any,
 ):
-    """Run all 13 algorithms and return unified candidate pool as pandas DataFrame.
+    """Run all 13 optimization algorithms and return one candidate DataFrame.
 
     Args:
         model: Predictor model for sequence scoring
@@ -125,9 +131,13 @@ def generate_designs(
         - Other algorithms: auto-stop at saturation plateau (0.9)
         - Diversity control: ensures minimum Hamming distance of 5 within each algorithm
     """
-    import pandas as pd
+    gradient_model = differentiable_model
+    if gradient_model is None and _supports_soft_scoring(model):
+        gradient_model = model
+    if gradient_model is not None and not _supports_soft_scoring(gradient_model):
+        raise TypeError("differentiable_model must implement score_soft(probabilities)")
 
-    # Default to all 13 algorithms
+    # The suite is the complete comparison unless the caller selects a subset.
     if algorithms is None:
         algorithms = tuple(available_algorithms())
 
@@ -165,9 +175,6 @@ def generate_designs(
 
     # Set up gradient model for differentiable algorithms
     needs_differentiable = sorted(set(names) & DIFFERENTIABLE_ALGORITHMS)
-    gradient_model = differentiable_model
-    if gradient_model is None and hasattr(model, "score_soft"):
-        gradient_model = model
     if needs_differentiable and gradient_model is None:
         raise TypeError(
             "differentiable_model is required for gradient algorithms: "
@@ -224,6 +231,8 @@ def generate_designs(
             **algo_options,
         )
 
+        if isinstance(result, SaturationResult):
+            result = result[max(result.selections)]
         if not isinstance(result, OptimizationResult):
             raise TypeError(
                 "generate_designs requires fixed-budget optimizer results"
@@ -246,4 +255,3 @@ def generate_designs(
 
     # Convert to DataFrame
     return pd.DataFrame(all_rows)
-

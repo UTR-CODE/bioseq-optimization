@@ -174,9 +174,13 @@ class SequencePredictor:
     """Wrap a PyTorch model for discrete and gradient sequence optimization.
 
     The default model input is float32 one-hot ``[batch, 4, length]`` in A/C/G/T
-    order. Subclasses can override :meth:`prepare_input` for another layout or
-    feature representation while retaining both scoring paths.
+    order. Models with another nucleotide-channel order or another input
+    representation should expose their own ``score`` and ``score_soft`` methods.
+    ``score`` receives nucleotide strings, while ``score_soft`` receives the
+    optimizer's canonical ``[batch, length, A/C/G/T]`` probabilities.
     """
+
+    supports_soft_scoring = True
 
     def __init__(
         self,

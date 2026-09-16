@@ -14,6 +14,30 @@ python -m pip install git+https://github.com/UTR-CODE/bioseq-optimization.git
 python -m pip install git+https://github.com/UTR-CODE/bioseq-models.git
 ```
 
+## Algorithms
+
+| Algorithm | Type | Model interface |
+|---|---|---|
+| `random` | Black-box | `score()` |
+| `genetic_algorithm` | Black-box | `score()` |
+| `ism_greedy` | Black-box | `score()` |
+| `simulated_annealing` | Black-box | `score()` |
+| `adalead` | Black-box | `score()` |
+| `basesearch` | Black-box | `score()` |
+| `beam_search` | Black-box | `score()` |
+| `cross_entropy_method` | Black-box | `score()` |
+| `cbas` | Black-box | `score()` |
+| `vanilla_activation_maximization` | Gradient | `score()` and `score_soft()` |
+| `fast_seqprop` | Gradient | `score()` and `score_soft()` |
+| `den` | Gradient | `score()` and `score_soft()` |
+| `ledidi` | Gradient | `score()` and `score_soft()` |
+
+`onehot()` and `SequencePredictor` use A/C/G/T channel order. A custom scorer's
+`score()` method receives sequence strings, and `score_soft()` receives canonical
+`[batch, length, A/C/G/T]` probabilities. Models with another channel order or
+input representation perform their conversion inside those methods. A model that
+only provides `score()` can be used by explicitly selecting black-box algorithms.
+
 ## Complete Examples
 
 ### Example 1: Single-Task Optimization (Optimus 5-Prime MRL)
@@ -47,14 +71,14 @@ print(f"Best score: {result_df['score'].max():.4f}")
 
 **Output:**
 ```
-                                            sequence           algorithm     score
-0    AGCTTAGCTAGCTAGCTAGCTAGCTAGCTAGCTAGCTAGCTAGCTA  genetic_algorithm    9.2347
-1    TGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCAT       basesearch    9.1562
-2    CGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATC      beam_search    9.0871
+                                            sequence algorithm     score  activity_mrl
+0  TTGAGATTTTATTAATTTCTGAATTTTTAACTTTTAGATTTAAGAT...   adalead  9.523573      9.523573
+1  TTGTGATTTTATTAATTTTTGATTTTTTAACTTTTAGAGTTAGAAT...   adalead  9.510443      9.510443
+2  TAGTGTTTTGATTAATTTTTGAATTATTAACTTTTAGATTTAAGAT...   adalead  9.502789      9.502789
 ...
 
 Total candidates: 1300
-Best score: 9.4987
+Best score: 9.5539
 ```
 
 ### Example 2: Multi-Task Optimization (DeepSTARR)
@@ -81,16 +105,20 @@ result_df = generate_designs(
     seed=42,
 )
 
-# DataFrame includes activity columns: activity_Dev, activity_Hk
-print(result_df[['algorithm', 'score', 'activity_Dev', 'activity_Hk']].head())
+# DataFrame includes activity columns for both model outputs
+print(
+    result_df[
+        ["algorithm", "score", "activity_developmental", "activity_housekeeping"]
+    ].head()
+)
 ```
 
 **Output:**
 ```
-           algorithm     score  activity_Dev  activity_Hk
-0  genetic_algorithm    2.3456        1.2341       3.5797
-1       basesearch    2.2891        1.3452       3.6343
-2      beam_search    2.2103        1.4234       3.6337
+  algorithm     score  activity_developmental  activity_housekeeping
+0   adalead  1.730678                1.192306               4.653661
+1   adalead  1.729318                1.161735               4.620370
+2   adalead  1.723419                1.374944               4.821783
 ```
 
 ### Example 3: Multiple Independent Models (Agarwal lentiMPRA)
@@ -129,12 +157,15 @@ result_df = generate_designs(
 print(result_df[['algorithm', 'score', 'activity_K562', 'activity_HepG2', 'activity_WTC11']].head())
 ```
 
+The Agarwal adapters convert canonical A/C/G/T inputs to the A/G/C/T channel
+order used by MPRALegNet in both scoring paths.
+
 **Output:**
 ```
-           algorithm     score  activity_K562  activity_HepG2  activity_WTC11
-0  genetic_algorithm    4.5623         5.6734          1.2341          0.8976
-1       basesearch    4.4891         5.5234          1.3452          0.9234
-2      beam_search    4.3912         5.4123          1.4012          0.9789
+  algorithm     score  activity_K562  activity_HepG2  activity_WTC11
+0   adalead  2.942906       6.026797       -1.372510       -1.429412
+1   adalead  2.941358       5.981269       -1.401444       -1.441360
+2   adalead  2.932116       6.054406       -1.337788       -1.404153
 ```
 
 ## Model-Specific Tasks
@@ -217,7 +248,7 @@ See the [advanced features guide](docs/advanced_features.md) for details and exa
 
 **Default settings:**
 - **13 algorithms**: 9 black-box + 4 gradient-based
-- **100 candidates** per algorithm (1300 total maximum)
+- **100 candidates** per algorithm
 - **Random search**: 100,000 samples → top 100
 - **Other algorithms**: auto-stop at saturation 0.9
 - **Diversity**: minimum Hamming distance of 5 within each algorithm

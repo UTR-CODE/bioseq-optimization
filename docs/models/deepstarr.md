@@ -98,38 +98,31 @@ Algorithm details: [random](../algorithms/random.md),
 
 ## Gradient optimization
 
-The bundled PyTorch model uses channels-first `[batch, 4, length]` tensors, so
-the default `SequencePredictor` input applies to both scoring paths.
+The loaded model accepts canonical A/C/G/T soft probabilities for gradient
+optimization.
 
 ```python
 from sequence_optimization import (
-    SequencePredictor,
     den_optimize,
     fast_seqprop_optimize,
     ledidi_optimize,
     vanilla_activation_maximization_optimize,
 )
 
-gradient_model = SequencePredictor(
-    model.model,
-    device="cpu",
-    task_names=model.task_names,
-)
-
 vanilla_result = vanilla_activation_maximization_optimize(
-    gradient_model, length=249, initial=initial,
+    model, length=249, initial=initial,
     objective=["minimize", "maximize"], num_candidates=4,
 )
 fast_seqprop_result = fast_seqprop_optimize(
-    gradient_model, length=249, initial=initial,
+    model, length=249, initial=initial,
     objective=["minimize", "maximize"], num_candidates=4,
 )
 ledidi_result = ledidi_optimize(
-    gradient_model, length=249, initial=initial,
+    model, length=249, initial=initial,
     objective=["minimize", "maximize"], num_candidates=4,
 )
 den_result = den_optimize(
-    gradient_model, length=249, initial=initial,
+    model, length=249, initial=initial,
     objective=["minimize", "maximize"], num_candidates=4,
 )
 ```

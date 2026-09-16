@@ -105,58 +105,31 @@ Algorithm details: [random](../algorithms/random.md),
 
 ## Gradient optimization
 
-The Agarwal modules use channels-first tensors in `A/G/C/T` order. Subclass
-`SequencePredictor` to apply that channel order to both scoring paths. Each
-ensemble's `.model` is the differentiable ten-fold, forward/reverse averaging
-module.
+The loaded models accept canonical A/C/G/T soft probabilities and apply the
+A/G/C/T channel order used by MPRALegNet.
 
 ```python
 from sequence_optimization import (
-    SequencePredictor,
     den_optimize,
     fast_seqprop_optimize,
     ledidi_optimize,
     vanilla_activation_maximization_optimize,
 )
 
-class AgarwalPredictor(SequencePredictor):
-    def prepare_input(self, values):
-        return values[..., [0, 2, 1, 3]].transpose(1, 2)
-
-k562_gradient = AgarwalPredictor(
-    k562.model,
-    device="cpu",
-    task_names=k562.task_names,
-)
-hepg2_gradient = AgarwalPredictor(
-    hepg2.model,
-    device="cpu",
-    task_names=hepg2.task_names,
-)
-wtc11_gradient = AgarwalPredictor(
-    wtc11.model,
-    device="cpu",
-    task_names=wtc11.task_names,
-)
-gradient_model = CombinedScorer(
-    [k562_gradient, hepg2_gradient, wtc11_gradient],
-    names=["K562", "HepG2", "WTC11"],
-)
-
 vanilla_result = vanilla_activation_maximization_optimize(
-    gradient_model, length=230, initial=initial,
+    model, length=230, initial=initial,
     objective=["maximize", "minimize", "minimize"], num_candidates=4,
 )
 fast_seqprop_result = fast_seqprop_optimize(
-    gradient_model, length=230, initial=initial,
+    model, length=230, initial=initial,
     objective=["maximize", "minimize", "minimize"], num_candidates=4,
 )
 ledidi_result = ledidi_optimize(
-    gradient_model, length=230, initial=initial,
+    model, length=230, initial=initial,
     objective=["maximize", "minimize", "minimize"], num_candidates=4,
 )
 den_result = den_optimize(
-    gradient_model, length=230, initial=initial,
+    model, length=230, initial=initial,
     objective=["maximize", "minimize", "minimize"], num_candidates=4,
 )
 ```

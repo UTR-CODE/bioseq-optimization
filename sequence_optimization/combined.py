@@ -45,6 +45,15 @@ class CombinedScorer:
         self.model_query_counts = dict.fromkeys(self.task_names, 0)
         self.model_soft_query_counts = dict.fromkeys(self.task_names, 0)
 
+    @property
+    def supports_soft_scoring(self) -> bool:
+        """Whether every child accepts canonical A/C/G/T soft probabilities."""
+        return all(
+            callable(getattr(model, "score_soft", None))
+            and bool(getattr(model, "supports_soft_scoring", True))
+            for model in self.models
+        )
+
     @staticmethod
     def _column(values, rows, name):
         if values.ndim == 1:
