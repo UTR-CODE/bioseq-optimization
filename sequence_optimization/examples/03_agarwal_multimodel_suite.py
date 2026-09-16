@@ -3,7 +3,7 @@
 
 Task: Multiple independent models (cell-type specificity)
 Models: Agarwal K562, HepG2, WTC11
-Region: 3'UTR (230 nt)
+Region: Enhancer (230 nt)
 Objective: Maximize K562, minimize HepG2 and WTC11
 
 This script runs all 13 optimization algorithms and returns a unified
@@ -22,6 +22,14 @@ from sequence_optimization import (
     generate_designs,
     random_seed_sequences,
 )
+
+
+def _fmt(value) -> str:
+    """Format an activity value, tolerating a missing column."""
+    try:
+        return f"{float(value):.4f}"
+    except (TypeError, ValueError):
+        return str(value)
 
 
 def main() -> None:
@@ -118,7 +126,7 @@ def main() -> None:
         k562 = row.get('activity_K562', 'N/A')
         hepg2 = row.get('activity_HepG2', 'N/A')
         wtc11 = row.get('activity_WTC11', 'N/A')
-        print(f"{row['algorithm']:25s} score={row['score']:.4f}  K562={k562:.4f if k562 != 'N/A' else k562}  HepG2={hepg2:.4f if hepg2 != 'N/A' else hepg2}  WTC11={wtc11:.4f if wtc11 != 'N/A' else wtc11}")
+        print(f"{row['algorithm']:25s} score={row['score']:.4f}  K562={_fmt(k562)}  HepG2={_fmt(hepg2)}  WTC11={_fmt(wtc11)}")
         print(f"  {row['sequence'][:60]}...")
 
     # Show sample sequences from each algorithm
@@ -133,7 +141,7 @@ def main() -> None:
             k562 = row.get('activity_K562', 'N/A')
             hepg2 = row.get('activity_HepG2', 'N/A')
             wtc11 = row.get('activity_WTC11', 'N/A')
-            print(f"  score={row['score']:.4f} K562={k562:.4f if k562 != 'N/A' else k562} HepG2={hepg2:.4f if hepg2 != 'N/A' else hepg2} WTC11={wtc11:.4f if wtc11 != 'N/A' else wtc11}")
+            print(f"  score={row['score']:.4f} K562={_fmt(k562)} HepG2={_fmt(hepg2)} WTC11={_fmt(wtc11)}")
             print(f"  {row['sequence'][:60]}...")
 
     # Save results

@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import time
-from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
-from pathlib import Path
+from collections.abc import Sequence
+from dataclasses import replace
 from typing import Any
 
 import numpy as np
@@ -21,6 +19,7 @@ from .api import (
 )
 from .constraints import ConstraintSpec
 from .objectives import MultiTaskObjective, TargetObjective
+from .saturation import SaturationConfig
 
 DIFFERENTIABLE_ALGORITHMS = frozenset(
     {
@@ -94,6 +93,7 @@ def generate_designs(
     algorithms: Sequence[str] | None = None,
     num_candidates: int = 100,
     diversity: int = 5,
+    weights: Sequence[float] | None = None,
     differentiable_model: SequenceScorer | None = None,
     alphabet: str = "ACGT",
     constraint: ConstraintSpec | None = None,
@@ -110,6 +110,7 @@ def generate_designs(
         algorithms: Algorithm names to run (default: all 13)
         num_candidates: Candidates per algorithm (default: 100)
         diversity: Minimum Hamming distance between candidates (default: 5)
+        weights: Relative importance per model output (default: equal weighting)
         differentiable_model: Model for gradient algorithms (optional)
         alphabet: DNA/RNA alphabet (default: "ACGT")
         constraint: Sequence constraints (optional)
@@ -150,6 +151,18 @@ def generate_designs(
             f"received {len(initial_values)}"
         )
 
+    # Objective weights: attach to the objective so every algorithm shares them.
+    if weights is not None:
+        if isinstance(objective, (list, tuple)):
+            objective = MultiTaskObjective(directions=objective, weights=weights)
+        elif isinstance(objective, MultiTaskObjective):
+            objective = replace(objective, weights=weights)
+        else:
+            raise TypeError(
+                "weights require an objective given as a directions list or "
+                "MultiTaskObjective"
+            )
+
     # Set up gradient model for differentiable algorithms
     needs_differentiable = sorted(set(names) & DIFFERENTIABLE_ALGORITHMS)
     gradient_model = differentiable_model
@@ -182,12 +195,14 @@ def generate_designs(
         # Set algorithm-specific options
         algo_options = dict(shared_options)
 
-        # Random search: generate 100,000 sequences, return top 100
-        if name == "random":
+        # An explicit budget or saturation config overrides the suite defaults.
+        if "budget" in algo_options or "saturation" in algo_options:
+            pass
+        elif name == "random":
+            # Random search: generate 100,000 sequences, return top 100
             algo_options["budget"] = 100_000
         else:
-            # Other algorithms: use saturation at 0.9
-            from .search import SaturationConfig
+            # Other algorithms: stop at the 0.9 saturation plateau
             algo_options["saturation"] = SaturationConfig(
                 fractions=(0.9,),
                 minimum_queries=len(initial_values),
@@ -211,7 +226,7 @@ def generate_designs(
 
         if not isinstance(result, OptimizationResult):
             raise TypeError(
-                "optimize_algorithms requires fixed-budget optimizer results"
+                "generate_designs requires fixed-budget optimizer results"
             )
 
         # Extract data from result

@@ -644,7 +644,9 @@ def test_fixed_region_limits_possible_diversity():
         ([slice(1, 3, 2)], "do not support a step"),
         (["3:3"], "is empty"),
         ([10], "outside length"),
-        ([[1, 2]], "integers or slices"),
+        ([[1, 2, 3]], "must contain exactly"),
+        ([[1, "a"]], "interval bounds must be integers"),
+        ([{1, 2}], "integers or slices"),
     ],
 )
 def test_invalid_fixed_region_entries(fixed_region, match):

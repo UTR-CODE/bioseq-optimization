@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from numbers import Real
 
 import numpy as np
@@ -150,6 +150,7 @@ class MultiTaskObjective:
     scales: Sequence[float] | None = None
     temperature: float = 0.1
     directions: Sequence[str | float] | None = None
+    weights: Sequence[float] | None = None
 
     def __post_init__(self):
         if self.directions is not None:
@@ -188,6 +189,15 @@ class MultiTaskObjective:
             raise ValueError("aggregation must be worst, mean, or smoothmin")
         if not np.isfinite(self.temperature) or self.temperature <= 0:
             raise ValueError("temperature must be finite and positive")
+        if self.weights is not None:
+            weights = np.asarray(self.weights, dtype=np.float64)
+            if weights.ndim != 1 or not len(weights):
+                raise ValueError("weights must be a nonempty per-output vector")
+            if not np.isfinite(weights).all() or np.any(weights < 0):
+                raise ValueError("weights must be finite and non-negative")
+            if weights.sum() <= 0:
+                raise ValueError("at least one weight must be positive")
+            object.__setattr__(self, "weights", tuple(float(w) for w in weights))
 
     def _resolve(self, n_tasks, task_names):
         if self.directions is not None and len(self.directions) != n_tasks:
@@ -312,6 +322,25 @@ class MultiTaskObjective:
             dtype=int,
         )
 
+    def _active_weights(
+        self, ids: Sequence[int], active: np.ndarray, n_tasks: int
+    ) -> np.ndarray | None:
+        """Normalized weights over the active margin positions, or None if uniform."""
+        if self.weights is None:
+            return None
+        if len(self.weights) != n_tasks:
+            raise ValueError("weights must contain exactly one entry per model output")
+        if self.aggregation == "worst":
+            raise ValueError(
+                "weights cannot be combined with aggregation='worst'; the minimum "
+                "margin is invariant to positive weights, use 'mean' or 'smoothmin'"
+            )
+        selected = np.asarray([self.weights[ids[position]] for position in active])
+        total = selected.sum()
+        if total <= 0:
+            raise ValueError("at least one active output must have a positive weight")
+        return selected / total
+
     def margins(self, activities, task_names=None):
         values = np.asarray(activities, dtype=float)
         if values.ndim == 1:
@@ -328,14 +357,19 @@ class MultiTaskObjective:
         if not len(active):
             return np.zeros(len(margins), dtype=np.float64)
         margins = margins[:, active]
+        weights = self._active_weights(ids, active, np.asarray(activities).shape[1])
         if self.aggregation == "mean":
-            return margins.mean(axis=1)
+            if weights is None:
+                return margins.mean(axis=1)
+            return margins @ weights
         worst = margins.min(axis=1)
         if self.aggregation == "worst":
             return worst
-        return worst - self.temperature * np.log(
-            np.exp(-(margins - worst[:, None]) / self.temperature).mean(axis=1)
+        shifted = np.exp(-(margins - worst[:, None]) / self.temperature)
+        pooled = (
+            shifted.mean(axis=1) if weights is None else shifted @ weights
         )
+        return worst - self.temperature * np.log(pooled)
 
     def scalarize_soft(self, activities, task_names=None, reached_targets=None):
         import torch
@@ -356,12 +390,22 @@ class MultiTaskObjective:
         if not len(active):
             return activities[:, 0] * 0.0
         margins = margins[:, active]
+        weights = self._active_weights(ids, active, activities.shape[1])
         if self.aggregation == "mean":
-            return margins.mean(dim=1)
+            if weights is None:
+                return margins.mean(dim=1)
+            return margins @ tensor(weights)
         if self.aggregation == "worst":
             return margins.amin(dim=1)
-        return -self.temperature * (
-            torch.logsumexp(-margins / self.temperature, dim=1) - np.log(len(active))
+        if weights is None:
+            return -self.temperature * (
+                torch.logsumexp(-margins / self.temperature, dim=1)
+                - np.log(len(active))
+            )
+        # Weighted smoothmin: log-sum-exp with per-output log-weight offsets.
+        log_weights = torch.log(tensor(weights).clamp_min(1e-12))
+        return -self.temperature * torch.logsumexp(
+            -margins / self.temperature + log_weights, dim=1
         )
 
     def uncertainty(
@@ -374,11 +418,17 @@ class MultiTaskObjective:
         if not len(active):
             return np.zeros(len(margins), dtype=np.float64)
         margins = margins[:, active]
+        objective_weights = self._active_weights(
+            ids, active, np.asarray(activities).shape[1]
+        )
         ids = np.asarray(ids)[active].tolist()
         if self.aggregation == "mean":
-            aggregation_weights = np.broadcast_to(
-                np.full(len(active), 1 / len(active)), margins.shape
+            row = (
+                np.full(len(active), 1 / len(active))
+                if objective_weights is None
+                else objective_weights
             )
+            aggregation_weights = np.broadcast_to(row, margins.shape)
         elif self.aggregation == "worst":
             aggregation_weights = (
                 margins == margins.min(axis=1, keepdims=True)
@@ -388,6 +438,8 @@ class MultiTaskObjective:
             aggregation_weights = np.exp(
                 -(margins - margins.min(axis=1, keepdims=True)) / self.temperature
             )
+            if objective_weights is not None:
+                aggregation_weights = aggregation_weights * objective_weights
             aggregation_weights /= aggregation_weights.sum(axis=1, keepdims=True)
         return np.sqrt(
             (
@@ -450,16 +502,23 @@ class ObjectiveScorer:
         | MultiTaskObjective
         | list[str | float]
         | tuple[str | float, ...],
+        weights: Sequence[float] | None = None,
     ) -> None:
         self.scorer = scorer
-        self.objective = (
-            MultiTaskObjective(
+        if isinstance(objective, (list, tuple)):
+            self.objective = MultiTaskObjective(
                 directions=objective,
                 aggregation="mean",
+                weights=weights,
             )
-            if isinstance(objective, (list, tuple))
-            else objective
-        )
+        else:
+            if weights is not None:
+                if not isinstance(objective, MultiTaskObjective):
+                    raise TypeError(
+                        "weights require a directions list or MultiTaskObjective"
+                    )
+                objective = replace(objective, weights=weights)
+            self.objective = objective
         names = getattr(scorer, "task_names", None)
         self.task_names = None if names is None else tuple(names)
         self._activities: dict[str, np.ndarray] = {}

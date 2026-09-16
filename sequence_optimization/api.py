@@ -187,9 +187,15 @@ class SequencePredictor:
         tasks: Sequence[str] | None = None,
         pad_to_length: int | None = None,
         padding_side: str = "right",
+        task_names: Sequence[str] | None = None,
     ) -> None:
         if batch_size < 1:
             raise ValueError("batch_size must be positive")
+        if task_names is not None:
+            # Deprecated alias retained for callers written against the old name.
+            if tasks is not None:
+                raise TypeError("pass tasks or task_names, not both")
+            tasks = task_names
         self.model, self.device, self.batch_size = (
             model,
             device,
@@ -631,6 +637,27 @@ def resolve_fixed_positions(
             if entry.step not in {None, 1}:
                 raise ValueError("fixed_region slices do not support a step")
             region = entry
+        elif isinstance(entry, (Sequence, np.ndarray)):
+            # [start, stop] interval pairs, with Python slice semantics.
+            bounds = list(entry)
+            if len(bounds) != 2:
+                raise ValueError(
+                    "fixed_region interval entries must contain exactly "
+                    "[start, stop]"
+                )
+            parsed: list[int | None] = []
+            for bound in bounds:
+                if bound is None:
+                    parsed.append(None)
+                elif isinstance(bound, bool) or not isinstance(
+                    bound, (int, np.integer)
+                ):
+                    raise ValueError(
+                        "fixed_region interval bounds must be integers or None"
+                    )
+                else:
+                    parsed.append(int(bound))
+            region = slice(parsed[0], parsed[1])
         else:
             raise ValueError("fixed_region entries must be integers or slices")
 

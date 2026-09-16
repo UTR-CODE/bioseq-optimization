@@ -18,10 +18,17 @@ from pathlib import Path
 from bioseq_models import load_model
 
 from sequence_optimization import (
-    SequencePredictor,
     generate_designs,
     random_seed_sequences,
 )
+
+
+def _fmt(value) -> str:
+    """Format an activity value, tolerating a missing column."""
+    try:
+        return f"{float(value):.4f}"
+    except (TypeError, ValueError):
+        return str(value)
 
 
 def main() -> None:
@@ -109,7 +116,7 @@ def main() -> None:
     for idx, row in top_10.iterrows():
         dev_act = row.get('activity_Dev', 'N/A')
         hk_act = row.get('activity_Hk', 'N/A')
-        print(f"{row['algorithm']:25s} score={row['score']:.4f}  Dev={dev_act:.4f if dev_act != 'N/A' else dev_act}  Hk={hk_act:.4f if hk_act != 'N/A' else hk_act}")
+        print(f"{row['algorithm']:25s} score={row['score']:.4f}  Dev={_fmt(dev_act)}  Hk={_fmt(hk_act)}")
         print(f"  {row['sequence'][:60]}...")
 
     # Show sample sequences from each algorithm
@@ -123,7 +130,7 @@ def main() -> None:
         for idx, row in top_3.iterrows():
             dev_act = row.get('activity_Dev', 'N/A')
             hk_act = row.get('activity_Hk', 'N/A')
-            print(f"  score={row['score']:.4f} Dev={dev_act:.4f if dev_act != 'N/A' else dev_act} Hk={hk_act:.4f if hk_act != 'N/A' else hk_act}")
+            print(f"  score={row['score']:.4f} Dev={_fmt(dev_act)} Hk={_fmt(hk_act)}")
             print(f"  {row['sequence'][:60]}...")
 
     # Save results
