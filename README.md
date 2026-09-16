@@ -347,173 +347,130 @@ predictor = MultiChannelPredictor(
     model,
     conservation_scores=conservation_track,
     device="cuda",
-    tasks=["stability"]
-)
 
-# Optimize
-initial = random_seed_sequences(length=50, count=100, seed=42)
-result_df = generate_designs(
-    predictor,
-    length=50,
-    initial=initial,
-    objective=["maximize"],
-    seed=42,
-)
-```
+## Advanced Features
 
-**Key methods to override:**
-- `encode_sequences()`: Convert string sequences to tensor with custom channels
-- `prepare_input()`: Reshape tensor for your model's expected input format
-- `score()` and `score_soft()`: Only if you need custom batching or post-processing
+### Sequence Constraints
 
-See [custom models guide](docs/custom_models.md) for more examples.
-
-### CDS Optimization (Synonymous Mutations Only)
-
-Optimize coding sequences while preserving the protein:
+Apply custom constraint functions to filter sequences during optimization. Each constraint function accepts a batch of sequences and returns probabilities (0-1):
 
 ```python
-from sequence_optimization import generate_designs
+from sequence_optimization import generate_designs, random_seed_sequences
+import numpy as np
 
-# Your CDS sequence (must be divisible by 3)
-cds_sequence = "ATGGCTAGC..." * 20  # 180 nt example
+def gc_soft_threshold(sequences):
+    """Soft constraint: prefer 40-60% GC content."""
+    gc_contents = np.array([(seq.count('G') + seq.count('C')) / len(seq) for seq in sequences])
+    return np.exp(-((gc_contents - 0.5) ** 2) / (2 * 0.1 ** 2))
 
+def exclude_homopolymers(sequences):
+    """Hard constraint: reject sequences with 5+ consecutive identical bases."""
+    import re
+    return np.array([0.0 if re.search(r'([ACGT])\1{4,}', seq) else 1.0 for seq in sequences])
+
+# Combine multiple constraints
 result_df = generate_designs(
-    model,
-    length=len(cds_sequence),
-    initial=[cds_sequence],
-    objective=["maximize"],
-    cds_mode=True,  # Enable codon-preserving mutations
+    model, length=50, initial=initial, objective=["maximize"],
+    constraint=[gc_soft_threshold, exclude_homopolymers],
     seed=42,
 )
-
-# All returned sequences encode the same protein
-print(result_df.head(20))
 ```
 
-See [CDS optimization guide](docs/cds_optimization.md) for details.
+See [constraint examples](docs/constraints_examples.md) for more patterns including GC content, motif exclusion, homopolymer filtering, sequence complexity, RNA secondary structure, codon usage, and diffusion model naturalness scoring.
+
+### Fixed Regions
+
+Specify multiple regions to keep unchanged during optimization:
+
+```python
+result_df = generate_designs(
+    model, length=230, initial=initial, objective=["maximize"],
+    fixed_region=[[0, 10], [50, 60], [-20, -1]],  # Preserve positions 0-9, 50-59, 210-229
+    seed=42,
+)
+```
+
+### Diversity Threshold
+
+Control minimum Hamming distance between candidates (default=5):
+
+```python
+result_df = generate_designs(
+    model, length=50, initial=initial, objective=["maximize"],
+    diversity=10,  # Higher diversity = broader exploration
+    seed=42,
+)
+```
 
 ### Saturation Screening
 
-By default, algorithms automatically stop when progress plateaus. The framework uses **saturation-based early stopping** to balance exploration thoroughness with computational efficiency, while also **preventing out-of-distribution (OOD) sequences** that may not be experimentally reliable.
-
-**Default behavior (saturation at 0.9):**
+By default, algorithms stop at **0.9 saturation** (90% of max gain), balancing efficiency with exploration and preventing out-of-distribution sequences.
 
 ![Saturation Screening](docs/figures/saturation_optimus_example.png)
 
-The figure shows optimization progress for Optimus 5-Prime MRL task with genetic algorithm:
-- **Saturation 0.8** (80% of max gain): 3,247 queries → score 9.234
-- **Saturation 0.9** (90% of max gain): 4,892 queries → score 9.456 ✓ **Default**
-- **Saturation 0.99** (99% of max gain): 12,341 queries → score 9.498
+**Example** (Optimus 5-Prime, genetic algorithm):
+- 0.8: 3,247 queries → score 9.234
+- **0.9** (default): 4,892 queries → score 9.456 ✓
+- 0.99: 12,341 queries → score 9.498
 
-**Key advantages:**
-- Default saturation=0.9 provides good balance (used by 12 algorithms)
-- **Prevents OOD**: Early stopping avoids generating sequences too far from training distribution, reducing risk of inaccurate predictions
-- **Improves reliability**: Sequences closer to training data are more likely to have valid experimental outcomes
-- Random search uses fixed 100,000 samples
-- Each algorithm returns 100 candidates with diversity ≥ 5
-
-**Custom saturation levels:**
+Early stopping at 0.9 reduces cost by 60% while keeping sequences closer to training distribution.
 
 ```python
-from sequence_optimization import generate_designs
 from sequence_optimization.search import SaturationConfig
 
-# Use stricter saturation
 result_df = generate_designs(
-    model,
-    length=50,
-    initial=initial,
-    objective=["maximize"],
-    saturation=SaturationConfig(
-        fractions=(0.95,),  # Stop at 95% of max gain
-        minimum_queries=1000,
-        plateau_patience_queries=500,
-        maximum_queries=50000,
-    ),
+    model, length=50, initial=initial, objective=["maximize"],
+    saturation=SaturationConfig(fractions=(0.95,), minimum_queries=1000, maximum_queries=50000),
     seed=42,
 )
 ```
 
 ### Threshold-Based Multi-Task Optimization
 
-For multi-task objectives, you can specify thresholds to focus optimization dynamically:
+Specify thresholds to focus optimization dynamically:
 
 ```python
-# Example: Optimize K562 expression while keeping HepG2 below threshold
+# Once task_0 reaches 0.9, maintain ≥ 0.9 and focus on maximizing task_1
 result_df = generate_designs(
-    model,
-    length=230,
-    initial=initial,
-    objective=[0.9, "maximize"],  # Once task_0 reaches 0.9, only optimize task_1
+    model, length=230, initial=initial,
+    objective=[0.9, "maximize"],  # Mixed: threshold + directive
     seed=42,
 )
 ```
 
-**How it works:**
-- `[0.9, "maximize"]` means: optimize task_0 until it reaches 0.9
-- After reaching the threshold, task_0 only needs to maintain ≥ 0.9
-- Algorithm then focuses exclusively on maximizing task_1
-- This is useful for sequential optimization with constraints
-
-**Mixed specification:**
-- Numbers: thresholds (e.g., `0.9`, `-0.5`)
-- Strings: `"maximize"`, `"minimize"`, `"ignore"`
-- Example: `[0.9, "maximize", "ignore"]` - reach 0.9 for task_0, maximize task_1, ignore task_2
+Supports numbers (thresholds), `"maximize"`, `"minimize"`, and `"ignore"`.
 
 ### Objective Weights
 
-Specify different weights for multi-task objectives (default is 1:1):
+Specify importance ratios for multi-task objectives (default 1:1):
 
 ```python
-# Example: Prioritize developmental suppression 2x over housekeeping activation
+# Prioritize developmental suppression 2x over housekeeping activation
 result_df = generate_designs(
-    model,
-    length=249,
-    initial=initial,
+    model, length=249, initial=initial,
     objective=["minimize", "maximize"],
-    weights=[2.0, 1.0],  # 2:1 weight ratio
+    weights=[2.0, 1.0],
     seed=42,
 )
 ```
 
-**Use cases:**
-- **Unbalanced objectives**: When one task is more important than another
-- **Scale normalization**: Compensate for different value ranges across tasks
-- **Domain priorities**: Reflect biological or experimental constraints
+### Custom Model Input Channels
 
-**Example with cell-type specificity:**
-```python
-# Strongly prioritize K562 expression over suppressing other cell types
-result_df = generate_designs(
-    combined,
-    length=230,
-    initial=initial,
-    objective=["maximize", "minimize", "minimize"],
-    weights=[3.0, 1.0, 1.0],  # 3x weight on K562
-    seed=42,
-)
-```
+For models with non-standard inputs (epigenetic marks, conservation scores, etc.), see [custom input channels guide](docs/custom_input_channels.md).
 
 ### Fixed Budget Limit
 
 Override saturation with fixed query budget:
 
 ```python
-# Run with fixed budget per algorithm
 result_df = generate_designs(
-    model,
-    length=50,
-    initial=initial,
-    objective=["maximize"],
+    model, length=50, initial=initial, objective=["maximize"],
     budget=10000,  # Fixed 10k queries per algorithm
     seed=42,
 )
 ```
 
-See [search workflow documentation](docs/search_workflow.md) for more details on saturation and budget control.
-
-## Output Format
+See [search workflow documentation](docs/search_workflow.md) for more details.
 
 `generate_designs()` returns a pandas DataFrame with:
 
