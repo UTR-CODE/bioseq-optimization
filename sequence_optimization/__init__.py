@@ -46,8 +46,7 @@ from .onehot import onehot
 from .objectives import MultiTaskObjective, TargetObjective
 from .saturation import SaturationConfig, SaturationResult
 from .seeds import load_seed_sequences, random_seed_sequences
-from .suite import DIFFERENTIABLE_ALGORITHMS, OptimizerSuiteResult, optimize_algorithms
-from .pool import CandidatePool
+from .suite import DIFFERENTIABLE_ALGORITHMS, optimize_algorithms
 
 __all__ = [
     "BudgetExceeded",
@@ -92,7 +91,5 @@ __all__ = [
     "load_seed_sequences",
     "random_seed_sequences",
     "DIFFERENTIABLE_ALGORITHMS",
-    "OptimizerSuiteResult",
     "optimize_algorithms",
-    "CandidatePool",
 ]

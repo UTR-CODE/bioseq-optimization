@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+import pandas as pd
 
 from .algorithms import available_algorithms, optimize
 from .api import (
@@ -32,12 +33,10 @@ DIFFERENTIABLE_ALGORITHMS = frozenset(
 
 
 class _SharedScorer:
+    """Shared model scorer with caching across algorithms."""
+
     def __init__(self, scorer: SequenceScorer) -> None:
         self.scorer = scorer
-        self.model_query_count = 0
-        self.model_batch_sizes: list[int] = []
-        self.soft_query_count = 0
-        self.soft_batch_sizes: list[int] = []
         self._cache: dict[str, tuple[np.ndarray, np.ndarray | None]] = {}
 
     def __getattr__(self, name: str):
@@ -64,11 +63,6 @@ class _SharedScorer:
                     np.asarray(batch.scores[index]).copy(),
                     uncertainty,
                 )
-            self.model_query_count += len(missing)
-            configured_batch_size = int(
-                getattr(self.scorer, "batch_size", len(missing))
-            )
-            self.model_batch_sizes.append(min(len(missing), configured_batch_size))
         scores = np.stack([self._cache[str(value)][0] for value in values])
         cached_uncertainties = [self._cache[str(value)][1] for value in values]
         uncertainties = (
@@ -84,90 +78,7 @@ class _SharedScorer:
         return ScoreBatch(scores, uncertainties)
 
     def score_soft(self, probabilities):
-        batch_size = len(probabilities)
-        self.soft_query_count += batch_size
-        self.soft_batch_sizes.append(batch_size)
         return self.scorer.score_soft(probabilities)
-
-
-@dataclass
-class OptimizerSuiteResult:
-    """Results and timing for a group of independently executed optimizers."""
-
-    results: dict[str, OptimizationResult]
-    elapsed_seconds: dict[str, float]
-    model_query_counts: dict[str, int]
-    max_model_batch_sizes: dict[str, int]
-    soft_query_counts: dict[str, int]
-    max_soft_batch_sizes: dict[str, int]
-    initial_sequences: np.ndarray
-    initial_count: int
-
-    def to_frame(self):
-        """Return every retained candidate in one rank-annotated table."""
-        import pandas as pd
-
-        frames = []
-        for algorithm, result in self.results.items():
-            frame = result.to_frame().copy()
-            frame.insert(0, "rank", np.arange(1, len(frame) + 1))
-            frame.insert(0, "algorithm", algorithm)
-            frame["query_count"] = result.query_count
-            frame["model_query_count"] = self.model_query_counts[algorithm]
-            frame["max_discrete_batch_size"] = self.max_model_batch_sizes[algorithm]
-            frame["soft_query_count"] = self.soft_query_counts[algorithm]
-            frame["max_soft_batch_size"] = self.max_soft_batch_sizes[algorithm]
-            frame["elapsed_seconds"] = self.elapsed_seconds[algorithm]
-            frames.append(frame)
-        return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
-
-    def summary_frame(self):
-        """Return one performance and score summary row per optimizer."""
-        import pandas as pd
-
-        rows = []
-        for algorithm, result in self.results.items():
-            elapsed = self.elapsed_seconds[algorithm]
-            rows.append(
-                {
-                    "algorithm": algorithm,
-                    "initial_count": self.initial_count,
-                    "candidate_count": len(result.sequences),
-                    "query_count": result.query_count,
-                    "model_query_count": self.model_query_counts[algorithm],
-                    "max_discrete_batch_size": self.max_model_batch_sizes[algorithm],
-                    "soft_query_count": self.soft_query_counts[algorithm],
-                    "max_soft_batch_size": self.max_soft_batch_sizes[algorithm],
-                    "elapsed_seconds": elapsed,
-                    "queries_per_second": result.query_count / max(elapsed, 1e-12),
-                    "best_score": float(result.scores.max()),
-                    "mean_score": float(result.scores.mean()),
-                    "stop_reason": result.metadata.get("stop_reason", "budget"),
-                }
-            )
-        return pd.DataFrame(rows)
-
-    def save_csv(self, output_dir: str | Path) -> dict[str, Path]:
-        """Write combined, summary, and per-optimizer CSV files."""
-        import pandas as pd
-
-        directory = Path(output_dir)
-        directory.mkdir(parents=True, exist_ok=True)
-        paths = {
-            "candidates": directory / "candidates.csv",
-            "summary": directory / "summary.csv",
-            "initial": directory / "initial.csv",
-        }
-        self.to_frame().to_csv(paths["candidates"], index=False)
-        self.summary_frame().to_csv(paths["summary"], index=False)
-        pd.DataFrame({"sequence": self.initial_sequences}).to_csv(
-            paths["initial"], index=False
-        )
-        for algorithm, result in self.results.items():
-            path = directory / f"{algorithm}.csv"
-            result.to_frame().to_csv(path, index=False)
-            paths[algorithm] = path
-        return paths
 
 
 def optimize_algorithms(
@@ -183,22 +94,42 @@ def optimize_algorithms(
     algorithms: Sequence[str] | None = None,
     num_candidates: int = 100,
     diversity: int = 5,
-    budget: int | None = None,
     differentiable_model: SequenceScorer | None = None,
     alphabet: str = "ACGT",
     constraint: ConstraintSpec | None = None,
     seed: int = 0,
-    optimizer_kwargs: Mapping[str, Mapping[str, Any]] | None = None,
-    share_model_cache: bool = True,
     **common_kwargs: Any,
-) -> OptimizerSuiteResult:
-    """Run selected algorithms independently from one shared initial population.
+):
+    """Run all 13 algorithms and return unified candidate pool as pandas DataFrame.
 
-    Black-box algorithms use ``model``. Gradient algorithms use
-    ``differentiable_model`` when supplied, or ``model`` when it implements
-    ``score_soft``. ``optimizer_kwargs`` overrides common options for a named
-    algorithm.
+    Args:
+        model: Predictor model for sequence scoring
+        length: Sequence length to optimize
+        initial: Initial population sequences
+        objective: Optimization objective (e.g., ["maximize"], ["minimize", "maximize"])
+        algorithms: Algorithm names to run (default: all 13)
+        num_candidates: Candidates per algorithm (default: 100)
+        diversity: Minimum Hamming distance between candidates (default: 5)
+        differentiable_model: Model for gradient algorithms (optional)
+        alphabet: DNA/RNA alphabet (default: "ACGT")
+        constraint: Sequence constraints (optional)
+        seed: Random seed for reproducibility
+        **common_kwargs: Additional options passed to all algorithms
+
+    Returns:
+        pandas DataFrame with columns: sequence, algorithm, score, activity_*
+
+    Notes:
+        - Random search: generates 100,000 sequences, returns top 100
+        - Other algorithms: auto-stop at saturation plateau (0.9)
+        - Diversity control: ensures minimum Hamming distance of 5 within each algorithm
     """
+    import pandas as pd
+
+    # Default to all 13 algorithms
+    if algorithms is None:
+        algorithms = tuple(available_algorithms())
+
     if isinstance(algorithms, (str, bytes)):
         raise TypeError("algorithms must be a sequence of algorithm names")
     names = tuple(str(name).strip().lower() for name in algorithms)
@@ -211,23 +142,15 @@ def optimize_algorithms(
         raise KeyError(
             f"unknown algorithms {unknown}; choose from {', '.join(available_algorithms())}"
         )
+
     initial_values = normalize_nucleotide_sequences(initial)
     if len(initial_values) < num_candidates:
         raise ValueError(
             f"initial must contain at least {num_candidates} sequences; "
             f"received {len(initial_values)}"
         )
-    if budget < len(initial_values):
-        raise ValueError(
-            f"budget must be at least the initial population size {len(initial_values)}"
-        )
-    if not isinstance(share_model_cache, bool):
-        raise TypeError("share_model_cache must be a boolean")
-    per_algorithm = {} if optimizer_kwargs is None else dict(optimizer_kwargs)
-    unused = sorted(set(per_algorithm) - set(names))
-    if unused:
-        raise KeyError(f"optimizer_kwargs contains unselected algorithms: {unused}")
 
+    # Set up gradient model for differentiable algorithms
     needs_differentiable = sorted(set(names) & DIFFERENTIABLE_ALGORITHMS)
     gradient_model = differentiable_model
     if gradient_model is None and hasattr(model, "score_soft"):
@@ -238,60 +161,41 @@ def optimize_algorithms(
             + ", ".join(needs_differentiable)
         )
 
-    black_box_scorer = _SharedScorer(model) if share_model_cache else None
-    gradient_scorer = (
-        _SharedScorer(gradient_model)
-        if share_model_cache and gradient_model is not None
-        else None
-    )
+    # Shared model caching across algorithms
+    black_box_scorer = _SharedScorer(model)
+    gradient_scorer = _SharedScorer(gradient_model) if gradient_model is not None else None
 
+    # Common options for all algorithms
     shared_options = dict(common_kwargs)
-    inference_batch_size = int(
-        getattr(model, "batch_size", min(max(len(initial_values), 256), 4096))
-    )
-    population_batch_size = min(len(initial_values), inference_batch_size)
-    shared_options.setdefault("basesearch_batch_size", population_batch_size)
-    shared_options.setdefault("cbas_batch_size", population_batch_size)
-    shared_options.setdefault("cross_entropy_batch_size", population_batch_size)
-    options_by_name: dict[str, dict[str, Any]] = {}
-    reserved_names = {
-        "algorithm",
-        "alphabet",
-        "budget",
-        "constraint",
-        "initial",
-        "length",
-        "model",
-        "num_candidates",
-        "objective",
-        "seed",
-    }
-    for name in names:
-        options = {**shared_options, **dict(per_algorithm.get(name, {}))}
-        reserved = sorted(set(options) & reserved_names)
-        if reserved:
-            raise TypeError(
-                "optimizer options cannot override suite arguments: "
-                + ", ".join(reserved)
-            )
-        options_by_name[name] = options
+    shared_options["diversity"] = diversity
 
-    results: dict[str, OptimizationResult] = {}
-    elapsed_seconds: dict[str, float] = {}
-    model_query_counts: dict[str, int] = {}
-    max_model_batch_sizes: dict[str, int] = {}
-    soft_query_counts: dict[str, int] = {}
-    max_soft_batch_sizes: dict[str, int] = {}
+    # Collect results from all algorithms
+    all_rows = []
+
     for offset, name in enumerate(names):
+        # Select appropriate scorer
         if name in DIFFERENTIABLE_ALGORITHMS:
-            scorer = gradient_scorer or _SharedScorer(gradient_model)
+            scorer = gradient_scorer
         else:
-            scorer = black_box_scorer or _SharedScorer(model)
-        model_queries_before = getattr(scorer, "model_query_count", 0)
-        batch_index = len(getattr(scorer, "model_batch_sizes", ()))
-        soft_queries_before = getattr(scorer, "soft_query_count", 0)
-        soft_batch_index = len(getattr(scorer, "soft_batch_sizes", ()))
-        started = time.perf_counter()
+            scorer = black_box_scorer
+
+        # Set algorithm-specific options
+        algo_options = dict(shared_options)
+
+        # Random search: generate 100,000 sequences, return top 100
+        if name == "random":
+            algo_options["budget"] = 100_000
+        else:
+            # Other algorithms: use saturation at 0.9
+            from .search import SaturationConfig
+            algo_options["saturation"] = SaturationConfig(
+                fractions=(0.9,),
+                minimum_queries=len(initial_values),
+                plateau_patience_queries=len(initial_values) * 2,
+                maximum_queries=100_000,
+            )
+
+        # Run optimization
         result = optimize(
             scorer,
             length,
@@ -299,39 +203,32 @@ def optimize_algorithms(
             objective,
             num_candidates,
             algorithm=name,
-            budget=budget,
             alphabet=alphabet,
             constraint=constraint,
             seed=seed + offset,
-            **options_by_name[name],
+            **algo_options,
         )
+
         if not isinstance(result, OptimizationResult):
             raise TypeError(
                 "optimize_algorithms requires fixed-budget optimizer results"
             )
-        elapsed_seconds[name] = time.perf_counter() - started
-        model_queries_after = getattr(scorer, "model_query_count", result.query_count)
-        model_query_counts[name] = int(model_queries_after - model_queries_before)
-        current_batch_sizes = getattr(scorer, "model_batch_sizes", ())[batch_index:]
-        max_model_batch_sizes[name] = max(current_batch_sizes, default=0)
-        soft_queries_after = getattr(scorer, "soft_query_count", soft_queries_before)
-        soft_query_counts[name] = int(soft_queries_after - soft_queries_before)
-        current_soft_batch_sizes = getattr(scorer, "soft_batch_sizes", ())[
-            soft_batch_index:
-        ]
-        max_soft_batch_sizes[name] = max(current_soft_batch_sizes, default=0)
-        result.metadata["suite_model_query_count"] = model_query_counts[name]
-        result.metadata["suite_max_model_batch_size"] = max_model_batch_sizes[name]
-        result.metadata["suite_soft_query_count"] = soft_query_counts[name]
-        result.metadata["suite_max_soft_batch_size"] = max_soft_batch_sizes[name]
-        results[name] = result
-    return OptimizerSuiteResult(
-        results,
-        elapsed_seconds,
-        model_query_counts,
-        max_model_batch_sizes,
-        soft_query_counts,
-        max_soft_batch_sizes,
-        initial_values.copy(),
-        len(initial_values),
-    )
+
+        # Extract data from result
+        for i, sequence in enumerate(result.sequences):
+            row = {
+                "sequence": sequence,
+                "algorithm": name,
+                "score": float(result.scores[i]),
+            }
+
+            # Add activity columns if available
+            if result.activities is not None and result.task_names:
+                for j, task_name in enumerate(result.task_names):
+                    row[f"activity_{task_name}"] = float(result.activities[i, j])
+
+            all_rows.append(row)
+
+    # Convert to DataFrame
+    return pd.DataFrame(all_rows)
+
