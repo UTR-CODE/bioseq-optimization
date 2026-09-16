@@ -93,6 +93,56 @@ class AGCTPredictor(SequencePredictor):
         return values[:, :, [0, 2, 1, 3]].transpose(1, 2)
 ```
 
+### Non-standard input shapes
+
+`prepare_input` can also add dimensions or derive a differentiable feature
+representation. It receives the canonical tensor before every model call, so
+the same conversion is applied to both `score` and `score_soft`.
+
+For example, a model that expects `[batch, 4, sequence_length, 1]` can add a
+singleton dimension while preserving the sequence gradients:
+
+```python
+class FourDimensionalPredictor(SequencePredictor):
+    def prepare_input(self, values):
+        return values.transpose(1, 2).unsqueeze(-1)
+```
+
+A model that expects a learned vector at each position can use a weighted
+embedding instead of converting the probabilities to integer token IDs:
+
+```python
+class EmbeddedPredictor(SequencePredictor):
+    def prepare_input(self, values):
+        # values: [batch, sequence_length, 4]
+        # embedding.weight: [4, embedding_size]
+        return values @ self.model.embedding.weight
+```
+
+The model in this example should accept `[batch, sequence_length,
+embedding_size]`. Matrix multiplication keeps `score_soft` differentiable;
+`argmax`, integer casts, and NumPy conversions do not.
+
+If a model only accepts integer token IDs (for example, `[batch,
+sequence_length]`), mark the adapter as discrete-only and select only
+black-box algorithms:
+
+```python
+class TokenIdPredictor(SequencePredictor):
+    supports_soft_scoring = False
+
+    def prepare_input(self, values):
+        return values.argmax(dim=-1).long()
+```
+
+This conversion is appropriate for `score`, but integer IDs are not
+differentiable. The adapter cannot be used with gradient optimizers unless the
+model is changed or wrapped with a float representation such as the weighted
+embedding above.
+
+For models requiring multiple inputs, wrap them in a module whose `forward`
+accepts the single object returned by `prepare_input` and unpacks it internally.
+
 `batch_size` controls discrete inference batches. `pad_to_length` and
 `padding_side` can pad shorter strings with `N`; the equivalent soft input uses
 all-zero vectors at padded positions.
