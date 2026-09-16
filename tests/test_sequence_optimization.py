@@ -23,6 +23,7 @@ from sequence_optimization import (
     run,
 )
 from sequence_optimization.api import resolve_fixed_positions
+from sequence_optimization.algorithms import _select_diverse
 from sequence_optimization.cli import main as cli_main
 
 
@@ -33,6 +34,15 @@ def test_sequence_space_and_seed_sources(tmp_path):
     path = tmp_path / "seeds.txt"
     path.write_text("# comments\nACGT\nTGCA\n")
     assert load_seed_sequences(path, space).tolist() == ["ACGT", "TGCA"]
+
+
+def test_diversity_selection_recovers_from_a_blocking_top_sequence():
+    ranked = [
+        ("AA", (3.0, 0.0)),
+        ("AC", (2.0, 0.0)),
+        ("CA", (1.0, 0.0)),
+    ]
+    assert [item[0] for item in _select_diverse(ranked, 2, 2)] == ["AC", "CA"]
 
 
 def test_cached_scorer_enforces_unique_budget():

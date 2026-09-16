@@ -1,6 +1,9 @@
 # basesearch_optimize
 
-Priority-decayed parent selection alternates broad and single-base mutation. Duplicates are not rescored. Stop on budget exhaustion, exhausted space or duplicate stall. Queue priority does not change returned objective scores.
+Priority-decayed parent selection alternates broad and single-base mutation.
+Mutated candidates are scored in batches. Duplicates are not rescored. Stop on
+budget exhaustion, exhausted space or duplicate stall. Queue priority does not
+change returned objective scores.
 
 | Parameter | Default | Meaning |
 |---|---|---|
@@ -22,6 +25,7 @@ Priority-decayed parent selection alternates broad and single-base mutation. Dup
 | `basesearch_decay` | 0.995 | Parent priority decay, strictly between 0 and 1 |
 | `basesearch_queue_size` | 1024 | Positive queue pruning target; prune when size exceeds twice this |
 | `basesearch_max_stalled` | 1024 | Stop after this many consecutive duplicate proposals |
+| `basesearch_batch_size` | 256 | Maximum number of mutated candidates scored together |
 
 ```python
 from sequence_optimization import basesearch_optimize, random_seed_sequences

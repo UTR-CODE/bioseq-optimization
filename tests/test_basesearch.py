@@ -76,6 +76,8 @@ def test_priority_decay_demotes_all_score_signs(score):
         ("basesearch_queue_size", 0),
         ("basesearch_queue_size", 1.5),
         ("basesearch_max_stalled", 0),
+        ("basesearch_batch_size", 0),
+        ("cross_entropy_batch_size", 0),
     ],
 )
 def test_invalid_config(key, value):
@@ -101,3 +103,32 @@ def test_initial_only_budget_and_saturation():
         ),
     )
     assert saturated.total_query_count <= 40
+
+
+def test_basesearch_scores_mutations_in_batches():
+    class BatchModel:
+        task_names = ("activity",)
+
+        def __init__(self):
+            self.batch_sizes = []
+
+        def score(self, sequences):
+            self.batch_sizes.append(len(sequences))
+            return np.asarray([[sequence.count("G")] for sequence in sequences])
+
+    model = BatchModel()
+    initial = ["AAAAAA", "CCCCCC", "ACACAC", "CACACA"]
+    result = basesearch_optimize(
+        model,
+        length=6,
+        initial=initial,
+        objective=["maximize"],
+        num_candidates=2,
+        budget=20,
+        diversity=0,
+        basesearch_batch_size=8,
+        seed=7,
+    )
+    assert model.batch_sizes[0] == len(initial)
+    assert max(model.batch_sizes[1:]) > 1
+    assert result.metadata["batch_size"] == 8

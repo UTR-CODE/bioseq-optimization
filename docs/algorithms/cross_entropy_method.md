@@ -18,6 +18,7 @@ Fit positional categorical distributions to elites. Here learning_rate is the sm
 | `seed` | 0 | Random seed |
 | `count_repeated` | False | Charge repeated proposals even when cached |
 | `is_CDS_optimized` | False | Independently optimize each initial sequence as a protein-preserving CDS |
+| `cross_entropy_batch_size` | 256 | Minimum number of categorical samples proposed per round |
 | `elite_fraction` | 0.2 | Elite proportion (0 < value <= 1) |
 | `learning_rate` | 0.1 | Positive optimization step size |
 

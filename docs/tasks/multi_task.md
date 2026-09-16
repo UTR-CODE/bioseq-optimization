@@ -72,8 +72,8 @@ Create the same four reproducible 20-base sequences for each comparison:
 initial = random_seed_sequences(length=20, count=4, seed=7)
 ```
 
-`initial` must contain exactly `num_candidates` unique sequences. Omitting it
-lets the optimizer draw its own random starts.
+`initial` must contain at least `num_candidates` unique sequences. Omitting it
+lets the optimizer draw `num_candidates` random starts.
 
 ## Goals and objective directions
 

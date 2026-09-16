@@ -7,10 +7,10 @@ loaded from a text file.
 
 ## Starting sequences
 
-When `initial` is supplied, it must contain exactly `num_candidates` unique
+When `initial` is supplied, it must contain at least `num_candidates` unique
 sequences. Every sequence must use the requested alphabet and have the
-requested length. The optimizer returns that same number of unique retained
-candidates.
+requested length. The optimizer scores the complete initial population and
+returns `num_candidates` unique retained candidates.
 
 ```python
 from bioseq_models import load_model
@@ -133,8 +133,12 @@ result columns, and screening counts.
 
 ## Candidate count and budgets
 
-`num_candidates` controls both the number of starting sequences and the number
-of sequences retained in the result. For every optimizer except random search,
+`num_candidates` controls the number of sequences retained in the result. When
+`initial=None`, it also controls the number of generated starting sequences. A
+supplied initial population may be larger than `num_candidates`, which allows
+population-based optimizers to score and update more sequences in parallel.
+Every initial sequence consumes query budget, so `budget` must be at least the
+initial population size. For every optimizer except random search,
 the default `budget=None` places no fixed limit on candidate queries: the
 optimizer stops from observed plateau progress and returns the q99 selection.
 Set `budget` to a positive integer for a fixed-budget run; it must be at least

@@ -805,6 +805,7 @@ class OptimizationConfig:
     generator_update_epochs: int = 5
     cbas_quantile: float = 0.8
     cbas_batch_size: int = 256
+    cross_entropy_batch_size: int = 256
     den_seed_pretrain_epochs: int = 100
     den_diversity_weight: float = 0.1
     ledidi_edit_penalty: float = 0.1
@@ -813,6 +814,7 @@ class OptimizationConfig:
     basesearch_decay: float = 0.995
     basesearch_queue_size: int = 1024
     basesearch_max_stalled: int = 1024
+    basesearch_batch_size: int = 256
     fixed_region: Sequence[FixedRegionSpec] | None = None
     is_CDS_optimized: bool = False
 
@@ -834,7 +836,11 @@ class OptimizationConfig:
         object.__setattr__(self, "diversity", int(self.diversity))
         if not 0 < self.basesearch_decay < 1:
             raise ValueError("basesearch_decay must be between zero and one")
-        for name in ("basesearch_queue_size", "basesearch_max_stalled"):
+        for name in (
+            "basesearch_queue_size",
+            "basesearch_max_stalled",
+            "basesearch_batch_size",
+        ):
             value = getattr(self, name)
             if (
                 isinstance(value, bool)
@@ -861,6 +867,12 @@ class OptimizationConfig:
             raise ValueError("generator epoch counts must be non-negative")
         if not 0 < self.cbas_quantile < 1 or self.cbas_batch_size < 1:
             raise ValueError("invalid CbAS hyperparameters")
+        if (
+            isinstance(self.cross_entropy_batch_size, bool)
+            or not isinstance(self.cross_entropy_batch_size, (int, np.integer))
+            or self.cross_entropy_batch_size < 1
+        ):
+            raise ValueError("cross_entropy_batch_size must be a positive integer")
         if self.den_seed_pretrain_epochs < 0 or self.den_diversity_weight < 0:
             raise ValueError("invalid DEN hyperparameters")
 

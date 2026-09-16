@@ -117,7 +117,25 @@ def _select_diverse(
             selected.append(item)
             if len(selected) == count:
                 break
-    return selected
+    if len(selected) == count:
+        return selected
+    best = selected
+    for start in range(1, min(len(ranked), 32)):
+        alternative = [ranked[start]]
+        for index, item in enumerate(ranked):
+            if index == start:
+                continue
+            sequence = item[0]
+            if all(
+                _hamming_distance(sequence, chosen[0]) >= diversity
+                for chosen in alternative
+            ):
+                alternative.append(item)
+                if len(alternative) == count:
+                    return alternative
+        if len(alternative) > len(best):
+            best = alternative
+    return best
 
 
 def _finalize(
@@ -210,9 +228,13 @@ def _initial(
         values = np.asarray(list(seeds), dtype=str)
     else:
         values = space.validate(initial)
-    if len(values) != config.num_candidates:
+    if len(values) < config.num_candidates:
         raise ValueError(
-            f"initial must contain exactly {config.num_candidates} sequences"
+            f"initial must contain at least {config.num_candidates} sequences"
+        )
+    if len(values) > config.budget:
+        raise ValueError(
+            f"initial contains {len(values)} sequences but budget is {config.budget}"
         )
     if len(np.unique(values)) != len(values):
         raise ValueError("initial sequences must be unique")
@@ -229,18 +251,19 @@ def _constraint_initial(
     if scorer.constraint_evaluator is None:
         return initial
     passed = scorer.constraints_passed(initial)
+    target_count = len(initial)
     accepted = [str(sequence) for sequence, keep in zip(initial, passed) if keep]
     seen = {str(sequence) for sequence in initial}
     capacity = getattr(space, "capacity", space.alphabet_size**space.length)
-    maximum_unique = min(capacity, max(10_000, 1000 * config.num_candidates))
+    maximum_unique = min(capacity, max(10_000, 1000 * target_count))
     draws = 0
     maximum_draws = max(10_000, 10 * maximum_unique)
     while (
-        len(accepted) < config.num_candidates
+        len(accepted) < target_count
         and len(seen) < maximum_unique
         and draws < maximum_draws
     ):
-        count = min(max(64, config.num_candidates - len(accepted)), 4096)
+        count = min(max(64, target_count - len(accepted)), 4096)
         candidates = space.random(count, rng)
         draws += len(candidates)
         novel = np.asarray(
@@ -258,12 +281,12 @@ def _constraint_initial(
             continue
         keep = scorer.constraints_passed(novel)
         accepted.extend(str(sequence) for sequence, value in zip(novel, keep) if value)
-    if len(accepted) < config.num_candidates:
+    if len(accepted) < target_count:
         raise ValueError(
             "constraints did not admit enough unique initial sequences; "
             "supply less restrictive constraints or feasible initial sequences"
         )
-    return np.asarray(accepted[: config.num_candidates], dtype=str)
+    return np.asarray(accepted[:target_count], dtype=str)
 
 
 @register_algorithm("random")
@@ -698,6 +721,7 @@ def optimize(
     generator_update_epochs: int = 5,
     cbas_quantile: float = 0.8,
     cbas_batch_size: int = 256,
+    cross_entropy_batch_size: int = 256,
     den_seed_pretrain_epochs: int = 100,
     den_diversity_weight: float = 0.1,
     ledidi_edit_penalty: float = 0.1,
@@ -706,6 +730,7 @@ def optimize(
     basesearch_decay: float = 0.995,
     basesearch_queue_size: int = 1024,
     basesearch_max_stalled: int = 1024,
+    basesearch_batch_size: int = 256,
     is_CDS_optimized: bool = False,
     count_repeated: bool = False,
 ) -> (
@@ -730,6 +755,7 @@ def optimize(
         generator_update_epochs=generator_update_epochs,
         cbas_quantile=cbas_quantile,
         cbas_batch_size=cbas_batch_size,
+        cross_entropy_batch_size=cross_entropy_batch_size,
         den_seed_pretrain_epochs=den_seed_pretrain_epochs,
         den_diversity_weight=den_diversity_weight,
         ledidi_edit_penalty=ledidi_edit_penalty,
@@ -738,6 +764,7 @@ def optimize(
         basesearch_decay=basesearch_decay,
         basesearch_queue_size=basesearch_queue_size,
         basesearch_max_stalled=basesearch_max_stalled,
+        basesearch_batch_size=basesearch_batch_size,
         is_CDS_optimized=is_CDS_optimized,
     )
     algorithm_key = str(algorithm).strip().lower()

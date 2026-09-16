@@ -35,6 +35,7 @@ def basesearch(initial, scorer, space, config, rng):
     ]
     queue = heapq.nsmallest(config.basesearch_queue_size, queue)
     heapq.heapify(queue)
+    seen = {str(sequence) for sequence in initial}
     trajectory = []
     attempts = stalled = duplicates = pruned = 0
     best_score = float(batch.scores.max())
@@ -48,42 +49,91 @@ def basesearch(initial, scorer, space, config, rng):
         if not queue:
             stop_reason = "target_gate_exhausted"
             break
-        if len(archive) == capacity:
+        if len(seen) == capacity:
             stop_reason = "space_exhausted"
             break
         if stalled >= config.basesearch_max_stalled:
             stop_reason = "duplicate_stall"
             break
-        negative_priority, parent = heapq.heappop(queue)
-        priority = _decay_base_priority(-negative_priority, config.basesearch_decay)
-        heapq.heappush(queue, (-priority, parent))
-        encoded = space.encode([parent])
         if not len(mutable_positions):
             stop_reason = "fixed_region_exhausted"
             break
-        if attempts % 2 == 0 and len(mutable_positions) > 1:
-            count = max(
-                2, int(rng.binomial(len(mutable_positions), config.mutation_rate))
+        target_batch_size = config.basesearch_batch_size
+        if scorer.remaining is not None:
+            target_batch_size = min(target_batch_size, scorer.remaining)
+        candidates: list[str] = []
+        duplicate_batch = 0
+        maximum_attempts = max(
+            target_batch_size * 10,
+            config.basesearch_max_stalled - stalled,
+        )
+        batch_attempts = 0
+        while len(candidates) < target_batch_size and batch_attempts < maximum_attempts:
+            parent_count = min(
+                target_batch_size - len(candidates),
+                maximum_attempts - batch_attempts,
             )
-            count = min(count, len(mutable_positions))
-            positions = rng.choice(mutable_positions, size=count, replace=False)
+            parents = []
+            for _ in range(parent_count):
+                negative_priority, parent = heapq.heappop(queue)
+                priority = _decay_base_priority(
+                    -negative_priority, config.basesearch_decay
+                )
+                heapq.heappush(queue, (-priority, parent))
+                parents.append(parent)
+            encoded = space.encode(parents)
+            for row in range(parent_count):
+                if (attempts + row) % 2 == 0 and len(mutable_positions) > 1:
+                    mutation_count = max(
+                        2,
+                        int(rng.binomial(len(mutable_positions), config.mutation_rate)),
+                    )
+                    mutation_count = min(mutation_count, len(mutable_positions))
+                    positions = rng.choice(
+                        mutable_positions, size=mutation_count, replace=False
+                    )
+                else:
+                    positions = np.asarray([rng.choice(mutable_positions)])
+                offsets = rng.integers(1, space.alphabet_size, size=len(positions))
+                encoded[row, positions] = (
+                    encoded[row, positions] + offsets
+                ) % space.alphabet_size
+            proposed = space.decode(encoded)
+            attempts += parent_count
+            batch_attempts += parent_count
+            for candidate in proposed:
+                value = str(candidate)
+                if value in seen:
+                    duplicates += 1
+                    duplicate_batch += 1
+                    continue
+                seen.add(value)
+                candidates.append(value)
+                if len(candidates) == target_batch_size:
+                    break
+            if len(seen) == capacity:
+                break
+        if not candidates:
+            stalled += duplicate_batch
+            if len(seen) == capacity:
+                stop_reason = "space_exhausted"
+            elif stalled >= config.basesearch_max_stalled:
+                stop_reason = "duplicate_stall"
+            else:
+                stop_reason = "proposal_stall"
+            break
+        candidate_array = np.asarray(candidates, dtype=str)
+        current = _score(scorer, archive, candidate_array)
+        passed = scorer.constraints_passed(candidate_array)
+        if passed.any():
+            accepted_sequences = candidate_array[passed]
+            accepted_scores = current.scores[passed]
+            best_score = max(best_score, float(accepted_scores.max()))
+            stalled = 0
+            for candidate, score in zip(accepted_sequences, accepted_scores):
+                heapq.heappush(queue, (-float(score), str(candidate)))
         else:
-            positions = np.asarray([rng.choice(mutable_positions)])
-        offsets = rng.integers(1, space.alphabet_size, size=len(positions))
-        encoded[0, positions] = (encoded[0, positions] + offsets) % space.alphabet_size
-        candidate = space.decode(encoded)
-        attempts += 1
-        if str(candidate[0]) in archive:
-            duplicates += 1
-            stalled += 1
-            continue
-        current = _score(scorer, archive, candidate)
-        if not scorer.constraints_passed(candidate)[0]:
-            stalled += 1
-            continue
-        best_score = max(best_score, float(current.scores[0]))
-        stalled = 0
-        heapq.heappush(queue, (-float(current.scores[0]), str(candidate[0])))
+            stalled += duplicate_batch + len(candidate_array)
         if scorer.objective_version != objective_version:
             parents = np.asarray([sequence for _, sequence in queue], dtype=str)
             current_scores = scorer.current_scores(parents)
@@ -103,7 +153,9 @@ def basesearch(initial, scorer, space, config, rng):
             {
                 "query_count": scorer.query_count,
                 "best_score": best_score,
-                "candidate_score": float(current.scores[0]),
+                "candidate_score": float(current.scores.max()),
+                "batch_mean_score": float(current.scores.mean()),
+                "batch_size": len(candidate_array),
                 "queue_size": len(queue),
             }
         )
@@ -118,6 +170,7 @@ def basesearch(initial, scorer, space, config, rng):
             "pruned": pruned,
             "proposal_attempts": attempts,
             "duplicate_proposals": duplicates,
+            "batch_size": config.basesearch_batch_size,
             "stop_reason": stop_reason,
             "implementation": "paper_description_adaptation",
         },
@@ -199,12 +252,18 @@ def cross_entropy_method(initial, scorer, space, config, rng):
         }
     ]
     rounds = 0
+    maximum_scored_batch_size = 0
     smoothing = min(float(config.learning_rate), 1.0)
     while scorer.remaining is None or scorer.remaining > 0:
+        proposal_batch_size = max(
+            config.cross_entropy_batch_size,
+            config.num_candidates,
+            len(initial),
+        )
         count = (
-            config.num_candidates
+            proposal_batch_size
             if scorer.remaining is None
-            else min(config.num_candidates, scorer.remaining)
+            else min(proposal_batch_size, scorer.remaining)
         )
         draws = rng.random((count, space.length, 1))
         cumulative = np.cumsum(probabilities, axis=1)
@@ -214,6 +273,7 @@ def cross_entropy_method(initial, scorer, space, config, rng):
         if constrain_encoded is not None:
             samples = constrain_encoded(samples)
         sequences = space.decode(samples)
+        maximum_scored_batch_size = max(maximum_scored_batch_size, len(sequences))
         before = scorer.query_count
         batch = _score(scorer, archive, sequences)
         passed = scorer.constraints_passed(sequences)
@@ -250,7 +310,11 @@ def cross_entropy_method(initial, scorer, space, config, rng):
         archive,
         config,
         scorer,
-        {"rounds": rounds, "smoothing": smoothing},
+        {
+            "rounds": rounds,
+            "smoothing": smoothing,
+            "batch_size": maximum_scored_batch_size,
+        },
         trajectory,
     )
 
@@ -435,6 +499,7 @@ def cbas(initial, scorer, space, config, rng):
             "conditioning_quantile": config.cbas_quantile,
             "final_threshold": threshold,
             "generator": "autoregressive_gru",
+            "batch_size": config.cbas_batch_size,
         },
         trajectory,
     )

@@ -1,5 +1,7 @@
 # Algorithms and model tasks
 
+[Run selected optimizers and combine their results](optimizer_suite.md).
+
 ## Optimizer parameters
 
 - [random_optimize](algorithms/random.md)

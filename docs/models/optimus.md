@@ -281,4 +281,5 @@ archive and the final observed archive; they are not prediction percentiles.
 See [saturation parameters and stop reasons](../search_workflow.md#stop-at-saturation).
 
 Detailed parameters for each algorithm are available in the
-[algorithm reference](../algorithms.md).
+[algorithm reference](../algorithms.md). To run a selected group from a larger
+shared initial population, use the [optimizer suite](../optimizer_suite.md).

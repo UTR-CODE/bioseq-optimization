@@ -32,7 +32,9 @@ python -m pip install git+ssh://git@github.com/UTR-CODE/bioseq-models.git
 | [den](docs/algorithms/den.md) | `den_optimize` | `score_soft` |
 | [ledidi](docs/algorithms/ledidi.md) | `ledidi_optimize` | `score_soft` |
 
-[Algorithm and model parameters](docs/algorithms.md).
+[Algorithm and model parameters](docs/algorithms.md). Use
+[`optimize_algorithms`](docs/optimizer_suite.md) to run selected optimizers from
+one shared initial population and combine their results.
 
 ## 1. Single task: custom CNN
 
