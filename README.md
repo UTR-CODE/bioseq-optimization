@@ -246,7 +246,7 @@ See [CDS optimization guide](docs/cds_optimization.md) for details.
 
 ### Saturation Screening
 
-By default, algorithms automatically stop when progress plateaus. The framework uses **saturation-based early stopping** to balance exploration thoroughness with computational efficiency.
+By default, algorithms automatically stop when progress plateaus. The framework uses **saturation-based early stopping** to balance exploration thoroughness with computational efficiency, while also **preventing out-of-distribution (OOD) sequences** that may not be experimentally reliable.
 
 **Default behavior (saturation at 0.9):**
 
@@ -257,8 +257,10 @@ The figure shows optimization progress for Optimus 5-Prime MRL task with genetic
 - **Saturation 0.9** (90% of max gain): 4,892 queries → score 9.456 ✓ **Default**
 - **Saturation 0.99** (99% of max gain): 12,341 queries → score 9.498
 
-**Key points:**
+**Key advantages:**
 - Default saturation=0.9 provides good balance (used by 12 algorithms)
+- **Prevents OOD**: Early stopping avoids generating sequences too far from training distribution, reducing risk of inaccurate predictions
+- **Improves reliability**: Sequences closer to training data are more likely to have valid experimental outcomes
 - Random search uses fixed 100,000 samples
 - Each algorithm returns 100 candidates with diversity ≥ 5
 
@@ -280,6 +282,66 @@ result_df = generate_designs(
         plateau_patience_queries=500,
         maximum_queries=50000,
     ),
+    seed=42,
+)
+```
+
+### Threshold-Based Multi-Task Optimization
+
+For multi-task objectives, you can specify thresholds to focus optimization dynamically:
+
+```python
+# Example: Optimize K562 expression while keeping HepG2 below threshold
+result_df = generate_designs(
+    model,
+    length=230,
+    initial=initial,
+    objective=[0.9, "maximize"],  # Once task_0 reaches 0.9, only optimize task_1
+    seed=42,
+)
+```
+
+**How it works:**
+- `[0.9, "maximize"]` means: optimize task_0 until it reaches 0.9
+- After reaching the threshold, task_0 only needs to maintain ≥ 0.9
+- Algorithm then focuses exclusively on maximizing task_1
+- This is useful for sequential optimization with constraints
+
+**Mixed specification:**
+- Numbers: thresholds (e.g., `0.9`, `-0.5`)
+- Strings: `"maximize"`, `"minimize"`, `"ignore"`
+- Example: `[0.9, "maximize", "ignore"]` - reach 0.9 for task_0, maximize task_1, ignore task_2
+
+### Objective Weights
+
+Specify different weights for multi-task objectives (default is 1:1):
+
+```python
+# Example: Prioritize developmental suppression 2x over housekeeping activation
+result_df = generate_designs(
+    model,
+    length=249,
+    initial=initial,
+    objective=["minimize", "maximize"],
+    weights=[2.0, 1.0],  # 2:1 weight ratio
+    seed=42,
+)
+```
+
+**Use cases:**
+- **Unbalanced objectives**: When one task is more important than another
+- **Scale normalization**: Compensate for different value ranges across tasks
+- **Domain priorities**: Reflect biological or experimental constraints
+
+**Example with cell-type specificity:**
+```python
+# Strongly prioritize K562 expression over suppressing other cell types
+result_df = generate_designs(
+    combined,
+    length=230,
+    initial=initial,
+    objective=["maximize", "minimize", "minimize"],
+    weights=[3.0, 1.0, 1.0],  # 3x weight on K562
     seed=42,
 )
 ```

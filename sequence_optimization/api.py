@@ -184,7 +184,7 @@ class SequencePredictor:
         *,
         device: Any = None,
         batch_size: int = 4096,
-        task_names: Sequence[str] | None = None,
+        tasks: Sequence[str] | None = None,
         pad_to_length: int | None = None,
         padding_side: str = "right",
     ) -> None:
@@ -195,7 +195,8 @@ class SequencePredictor:
             device,
             batch_size,
         )
-        self.task_names = _validate_task_names(task_names)
+        self._user_tasks = tasks  # Store user-provided task names
+        self.task_names = _validate_task_names(tasks)  # Will be updated after first prediction
         self.pad_to_length, self.padding_side = _validate_padding(
             pad_to_length, padding_side
         )
@@ -206,6 +207,12 @@ class SequencePredictor:
         if hasattr(model, "parameters"):
             for parameter in model.parameters():
                 parameter.requires_grad_(False)
+
+    def _infer_task_names(self, num_tasks: int) -> tuple[str, ...]:
+        """Generate default task names if not provided by user."""
+        if self._user_tasks is not None:
+            return self.task_names  # Already validated
+        return tuple(f"task_{i}" for i in range(num_tasks))
 
     def encode_sequences(self, sequences: Sequence[str] | np.ndarray) -> Any:
         """Encode strings as canonical float32 ``[batch, length, 4]`` tensors."""
@@ -252,6 +259,12 @@ class SequencePredictor:
             if uncertainties
             else np.zeros_like(combined)
         )
+
+        # Infer task names from first prediction if not provided by user
+        if self._user_tasks is None and combined.ndim > 1:
+            num_tasks = combined.shape[1]
+            self.task_names = self._infer_task_names(num_tasks)
+
         return ScoreBatch(combined, combined_uncertainty)
 
     def score_soft(self, probabilities: Any) -> tuple[Any, Any | None]:
@@ -278,6 +291,12 @@ class SequencePredictor:
                 uncertainties = uncertainties[:, None]
             if uncertainties.shape != activities.shape:
                 raise ValueError("differentiable uncertainties must match activities")
+
+        # Infer task names from first prediction if not provided by user
+        if self._user_tasks is None and activities.shape[1] > 0:
+            num_tasks = activities.shape[1]
+            self.task_names = self._infer_task_names(num_tasks)
+
         return activities, uncertainties
 
 
