@@ -1,17 +1,8 @@
 # Biosequence Optimization
 
-A unified multi-algorithm exploration framework for biological sequence design. Instead of running optimization algorithms in isolation, this framework systematically explores the sequence design landscape through 13 complementary optimization strategies, generating unified candidate pools for quality control, solution-family discovery, and representative selection.
+A unified multi-algorithm exploration framework for biological sequence design. Run 13 complementary optimization strategies from a shared initial population and obtain a unified candidate pool for downstream analysis.
 
-## Framework Philosophy
-
-Traditional approach: "Which single algorithm finds the best sequence?"
-
-**Our approach**: "What design space regions exist, and which solution families are most promising?"
-
-- Run all 13 algorithms from a shared initial population
-- Merge results into a unified candidate pool with shared model caching
-- Analyze convergence, diversity, and solution families
-- Select diverse representatives for experimental validation
+[Framework overview figure will be placed here - Main Figure 1]
 
 ## Installation
 
@@ -25,75 +16,120 @@ For pretrained models:
 python -m pip install git+ssh://git@github.com/UTR-CODE/bioseq-models.git
 ```
 
-## Quick Start
+## Complete Examples
 
-Run all 13 algorithms on three representative tasks:
-
-```bash
-# Install package
-python -m pip install -e .
-
-# Run all three example tasks
-python sequence_optimization/examples/run_all_suites.py \
-    --device cuda \
-    --initial-count 100 \
-    --num-candidates 50 \
-    --budget 5000
-```
-
-This generates unified candidate pools in `results/` for:
-1. **Optimus 5-Prime MRL** (single-task, 50 nt)
-2. **DeepSTARR enhancer** (multi-task, 249 nt)
-3. **Agarwal lentiMPRA** (3 models, 230 nt)
-
-## Multi-Algorithm Optimization Suite
-
-The core workflow uses `optimize_algorithms()` to run multiple complementary optimization strategies from a shared initial population:
+### Example 1: Single-Task Optimization (Optimus 5-Prime MRL)
 
 ```python
-from bioseq_models import load_model
-from sequence_optimization import (
-    CandidatePool,
-    optimize_algorithms,
-    random_seed_sequences,
-)
+import sys
+sys.path.insert(0, "/home/hexin/bioseq-models")
 
-# Load model and generate initial population
-model = load_model("optimus5prime", device="cuda")
+from bioseq_models import load_model
+from sequence_optimization import optimize_algorithms, random_seed_sequences
+
+# Load model
+model = load_model("optimus5prime", device="cuda", batch_size=256)
+
+# Generate initial sequences
 initial = random_seed_sequences(length=50, count=100, seed=42)
 
 # Run all 13 algorithms
-suite = optimize_algorithms(
+result_df = optimize_algorithms(
     model,
     length=50,
     initial=initial,
     objective=["maximize"],
-    num_candidates=50,
-    budget=5000,
     seed=42,
 )
 
-# Analyze unified candidate pool
-pool = CandidatePool.from_suite_result(suite)
-convergence = pool.get_convergence_summary()  # Sequences found by multiple algorithms
-unique_pool = pool.deduplicate(keep='best')   # Remove cross-algorithm duplicates
-top_100 = pool.top_n_by_score(100)            # Best candidates overall
-
-# Export results
-suite.save_csv("results/optimus_suite/")
+# result_df is a pandas DataFrame with columns: sequence, algorithm, score
+print(result_df.head(20))
+print(f"\nTotal candidates: {len(result_df)}")
+print(f"Algorithms: {result_df['algorithm'].unique()}")
 ```
 
-### Complete Examples
+**Run the example:**
+```bash
+python sequence_optimization/examples/01_optimus_mrl_suite.py --device cuda
+```
 
-- [01_optimus_mrl_suite.py](sequence_optimization/examples/01_optimus_mrl_suite.py) - Single-task (50nt)
-- [02_deepstarr_multitask_suite.py](sequence_optimization/examples/02_deepstarr_multitask_suite.py) - Multi-task (249nt)
-- [03_agarwal_multimodel_suite.py](sequence_optimization/examples/03_agarwal_multimodel_suite.py) - Multiple models (230nt)
+### Example 2: Multi-Task Optimization (DeepSTARR)
 
-### Documentation
+```python
+import sys
+sys.path.insert(0, "/home/hexin/bioseq-models")
 
-- [Multi-Algorithm Framework Guide](docs/multi_algorithm_framework.md) - Complete framework overview
-- [Suite Examples Guide](sequence_optimization/examples/SUITE_EXAMPLES.md) - Detailed usage
-- [Quick Start Guide](QUICKSTART.md) - Get started immediately
+from bioseq_models import load_model
+from sequence_optimization import optimize_algorithms, random_seed_sequences
+
+# Load model
+model = load_model("deepstarr", device="cuda", batch_size=128)
+
+# Generate initial sequences
+initial = random_seed_sequences(length=249, count=100, seed=42)
+
+# Run all 13 algorithms
+# Objective: minimize developmental activity, maximize housekeeping activity
+result_df = optimize_algorithms(
+    model,
+    length=249,
+    initial=initial,
+    objective=["minimize", "maximize"],
+    seed=42,
+)
+
+print(result_df.head(20))
+```
+
+**Run the example:**
+```bash
+python sequence_optimization/examples/02_deepstarr_multitask_suite.py --device cuda
+```
+
+### Example 3: Multiple Independent Models (Agarwal lentiMPRA)
+
+```python
+import sys
+sys.path.insert(0, "/home/hexin/bioseq-models")
+
+from bioseq_models import load_model
+from sequence_optimization import (
+    CombinedScorer,
+    optimize_algorithms,
+    random_seed_sequences,
+)
+
+# Load three cell-type models
+model_k562 = load_model("agarwal_k562", device="cuda", batch_size=128)
+model_hepg2 = load_model("agarwal_hepg2", device="cuda", batch_size=128)
+model_wtc11 = load_model("agarwal_wtc11", device="cuda", batch_size=128)
+
+# Combine models
+combined = CombinedScorer(
+    [model_k562, model_hepg2, model_wtc11],
+    names=["K562", "HepG2", "WTC11"],
+)
+
+# Generate initial sequences
+initial = random_seed_sequences(length=230, count=100, seed=42)
+
+# Run all 13 algorithms
+# Objective: maximize K562, minimize HepG2 and WTC11 (cell-type specificity)
+result_df = optimize_algorithms(
+    combined,
+    length=230,
+    initial=initial,
+    objective=["maximize", "minimize", "minimize"],
+    seed=42,
+)
+
+print(result_df.head(20))
+```
+
+**Run the example:**
+```bash
+python sequence_optimization/examples/03_agarwal_multimodel_suite.py --device cuda
+```
 
 ## Algorithm Coverage
 
@@ -101,120 +137,151 @@ suite.save_csv("results/optimus_suite/")
 
 **Gradient-based (4):** vanilla_activation_maximization, fast_seqprop, den, ledidi
 
-All algorithms support single-task, multi-task, multiple independent models, sequence constraints, and fixed regions.
+**Default Settings:**
+- Each algorithm returns **100 candidates**
+- **Random search**: samples 100,000 sequences and returns top 100 by predicted score
+- **All other algorithms**: optimize until saturation plateau at **0.9** (90% of maximum gain)
+- **Diversity control**: minimum Hamming distance of **5** between candidates within each algorithm
 
-### Individual Algorithm Documentation
+[Individual algorithm documentation](docs/algorithms/)
 
-For detailed documentation on each algorithm and single-algorithm usage:
-- [Algorithm Overview](docs/algorithms.md)
-- [Individual Algorithm Guides](docs/algorithms/)
+## Model-Specific Tasks
 
-## Supported Tasks
+Pretrained models available via `bioseq-models`:
 
-### Model-Specific Tasks
-- **5′UTR** — [Optimus 5-Prime MRL optimization](docs/models/optimus.md)
-- **5′UTR, 3′UTR, or CDS** — [UTR-CODE translation optimization](docs/models/utr_code.md)
-- **CDS** — [CDS stability optimization](docs/models/cds_stability.md)
-- **Enhancer** — [DeepSTARR activity optimization](docs/models/deepstarr.md)
-- **Promoter** — [DREAM LegNet promoter optimization](docs/models/dream_legnet.md)
-- **3′UTR** — [Cetnar mRNA stability optimization](docs/models/cetnar_stability.md)
-- **Enhancer** — [Agarwal lentiMPRA cell specificity](docs/models/agarwal.md)
-- **Enhancer** — [DeepSTARR Mouse tissue specificity](docs/models/deepstarr_mouse.md)
-- **Enhancer** — [DeepSTARR-Embryo tissue specificity](docs/models/deepstarr_embryo.md)
-- **Enhancer** — [Malinois cell specificity](docs/models/malinois.md)
-
-### Advanced Tasks
-- [Joint RPF and mRNA stability with synonymous codons](docs/tasks/joint_rpf_stability.md)
-- [Protein-preserving stability optimization](docs/tasks/synonymous_cds.md)
-
-## Additional Features
-
-### Sequence Constraints
-- Fixed regions (preserve specific positions)
-- GC content bounds
-- Motif requirements
-- Edit distance limits
-
-### CDS Optimization
-- Protein-conserving codon optimization
-- Synonymous mutations only
-- Compatible with all algorithms
-
-See [constraints documentation](docs/constraints.md) and [CDS guide](docs/cds_optimization.md) for details.
+- [Optimus 5-Prime](docs/models/optimus.md) - 5′UTR MRL optimization
+- [UTR-CODE](docs/models/utr_code.md) - Translation optimization
+- [CDS Stability](docs/models/cds_stability.md) - CDS stability
+- [DeepSTARR](docs/models/deepstarr.md) - Enhancer activity
+- [DREAM LegNet](docs/models/dream_legnet.md) - Promoter activity
+- [Cetnar](docs/models/cetnar_stability.md) - mRNA stability
+- [Agarwal lentiMPRA](docs/models/agarwal.md) - Cell-type specificity
+- [DeepSTARR Mouse](docs/models/deepstarr_mouse.md) - Tissue specificity (mouse)
+- [DeepSTARR-Embryo](docs/models/deepstarr_embryo.md) - Tissue specificity (embryo)
+- [Malinois](docs/models/malinois.md) - Cell-type specificity
 
 ## Custom Models
 
-The framework supports custom PyTorch models:
+Use your own PyTorch CNN model:
 
 ```python
-from sequence_optimization import SequencePredictor
+import torch
+from torch import nn
+from sequence_optimization import SequencePredictor, optimize_algorithms, random_seed_sequences
 
-predictor = SequencePredictor(
-    your_pytorch_model,
-    device="cuda",
-    task_names=["output1", "output2"],
-)
+# Define a simple CNN
+class SimpleCNN(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.conv1 = nn.Conv1d(4, 64, kernel_size=8)
+        self.pool = nn.AdaptiveMaxPool1d(1)
+        self.fc = nn.Linear(64, 1)
+    
+    def forward(self, x):
+        # x shape: (batch, 4, length) - one-hot encoded DNA
+        x = torch.relu(self.conv1(x))
+        x = self.pool(x).squeeze(-1)
+        x = self.fc(x)
+        return x
 
-suite = optimize_algorithms(
+# Create predictor
+model = SimpleCNN()
+predictor = SequencePredictor(model, device="cuda")
+
+# Optimize
+initial = random_seed_sequences(length=50, count=100, seed=42)
+result_df = optimize_algorithms(
     predictor,
-    length=100,
-    initial=initial_sequences,
-    objective=["maximize", "minimize"],
-    num_candidates=50,
-    budget=5000,
+    length=50,
+    initial=initial,
+    objective=["maximize"],
+    seed=42,
 )
+
+print(result_df.head(20))
 ```
 
-See [custom models guide](docs/custom_models.md) for details on model interfaces and input preparation.
+See [custom models guide](docs/custom_models.md) for input format details.
 
-## Advanced Features
+## Sequence Constraints
 
-### Saturation Screening
-
-Stop optimization when observed progress plateaus instead of using a fixed budget:
+Fix specific positions or enforce GC content bounds:
 
 ```python
-from sequence_optimization import SaturationConfig
+from sequence_optimization import optimize_algorithms, random_seed_sequences
 
-suite = optimize_algorithms(
+initial = random_seed_sequences(length=50, count=100, seed=42)
+
+result_df = optimize_algorithms(
     model,
     length=50,
     initial=initial,
     objective=["maximize"],
-    num_candidates=50,
-    saturation=SaturationConfig(
-        fractions=(0.8, 0.9),
-        minimum_queries=40,
-        plateau_patience_queries=80,
-        maximum_queries=400,
-    ),
+    fixed_region=(10, 20),  # Keep positions 10-19 unchanged
+    gc_bounds=(0.4, 0.6),   # Enforce 40-60% GC content
+    seed=42,
 )
 ```
 
-See [search workflow documentation](docs/search_workflow.md) for details.
+See [constraints documentation](docs/constraints.md) for motif requirements, edit distance limits, and more.
 
-### Result Analysis
+## CDS Optimization (Synonymous Mutations Only)
+
+Optimize coding sequences while preserving the protein:
 
 ```python
-# View summary statistics
-print(suite.summary_frame())
+from sequence_optimization import optimize_algorithms
 
-# Access individual algorithm results
-for algo, result in suite.results.items():
-    print(f"{algo}: {result.query_count} queries, best score: {result.scores.max()}")
+# Your CDS sequence (must be divisible by 3)
+cds_sequence = "ATGGCTAGC..." * 20  # 180 nt example
 
-# Check model query counts (with caching)
-print(suite.model_query_counts)
+result_df = optimize_algorithms(
+    model,
+    length=len(cds_sequence),
+    initial=[cds_sequence],
+    objective=["maximize"],
+    cds_mode=True,  # Enable codon-preserving mutations
+    seed=42,
+)
+
+# All returned sequences encode the same protein
+print(result_df.head(20))
 ```
 
-## Contributing
+See [CDS optimization guide](docs/cds_optimization.md) for details.
 
-See [HANDOFF.md](HANDOFF.md) for development documentation and architecture details.
+## Saturation Screening
 
-## License
+By default, algorithms automatically stop when progress plateaus at the **0.9 saturation point** (90% of maximum observed gain). This balances exploration thoroughness with computational efficiency.
 
-[Add license information]
+[Saturation screening figure will be placed here - showing 0.8, 0.9, 0.99 points with prediction values and query numbers]
 
-## Citation
+**How it works:**
+- Algorithm runs until improvement plateaus
+- Automatically detects when 90% of maximum gain is reached
+- Returns the candidate set at that saturation point
+- Prevents unnecessary queries beyond diminishing returns
 
-[Add citation information]
+To customize saturation levels or use fixed query budgets, see [search workflow documentation](docs/search_workflow.md).
+
+## Output Format
+
+`optimize_algorithms()` returns a pandas DataFrame with:
+
+| Column | Description |
+|--------|-------------|
+| `sequence` | DNA/RNA sequence |
+| `algorithm` | Which algorithm found this sequence |
+| `score` | Scalarized objective score |
+| `activity_0`, `activity_1`, ... | Raw model predictions (for multi-task models) |
+
+**Example output:**
+```
+     sequence                                          algorithm    score
+0    AGCTTAGCTAGCTAGC...                              genetic_algorithm  9.234
+1    TGCATGCATGCATGCA...                              basesearch        9.156
+2    CGATCGATCGATCGAT...                              beam_search       9.087
+...
+```
+
+Each algorithm contributes up to 100 candidates (1300 total maximum).

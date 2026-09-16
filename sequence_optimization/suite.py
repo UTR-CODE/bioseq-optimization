@@ -172,7 +172,6 @@ class OptimizerSuiteResult:
 
 def optimize_algorithms(
     model: SequenceScorer,
-    algorithms: Sequence[str],
     length: int,
     initial: Sequence[str] | np.ndarray,
     objective: TargetObjective
@@ -180,9 +179,11 @@ def optimize_algorithms(
     | list[str | float]
     | tuple[str | float, ...]
     | None,
-    num_candidates: int,
     *,
-    budget: int = 10_000,
+    algorithms: Sequence[str] | None = None,
+    num_candidates: int = 100,
+    diversity: int = 5,
+    budget: int | None = None,
     differentiable_model: SequenceScorer | None = None,
     alphabet: str = "ACGT",
     constraint: ConstraintSpec | None = None,

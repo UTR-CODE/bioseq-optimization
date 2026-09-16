@@ -1,0 +1,27 @@
+{
+  "model": "optimus5prime",
+  "objective": [
+    "maximize"
+  ],
+  "algorithms": [
+    "adalead",
+    "basesearch",
+    "beam_search",
+    "cbas",
+    "cross_entropy_method",
+    "den",
+    "fast_seqprop",
+    "genetic_algorithm",
+    "ism_greedy",
+    "ledidi",
+    "random",
+    "simulated_annealing",
+    "vanilla_activation_maximization"
+  ],
+  "initial_count": 1000,
+  "num_candidates": 100,
+  "budget": 10000,
+  "model_batch_size": 4096,
+  "device": "cuda",
+  "seed": 7
+}
