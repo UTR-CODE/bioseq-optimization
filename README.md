@@ -14,31 +14,7 @@ python -m pip install git+https://github.com/UTR-CODE/bioseq-optimization.git
 python -m pip install git+https://github.com/UTR-CODE/bioseq-models.git
 ```
 
-## Algorithms
-
-| Algorithm | Type | Model interface |
-|---|---|---|
-| `random` | Black-box | `score()` |
-| `genetic_algorithm` | Black-box | `score()` |
-| `ism_greedy` | Black-box | `score()` |
-| `simulated_annealing` | Black-box | `score()` |
-| `adalead` | Black-box | `score()` |
-| `basesearch` | Black-box | `score()` |
-| `beam_search` | Black-box | `score()` |
-| `cross_entropy_method` | Black-box | `score()` |
-| `cbas` | Black-box | `score()` |
-| `vanilla_activation_maximization` | Gradient | `score()` and `score_soft()` |
-| `fast_seqprop` | Gradient | `score()` and `score_soft()` |
-| `den` | Gradient | `score()` and `score_soft()` |
-| `ledidi` | Gradient | `score()` and `score_soft()` |
-
-`onehot()` and `SequencePredictor` use A/C/G/T channel order. A custom scorer's
-`score()` method receives sequence strings, and `score_soft()` receives canonical
-`[batch, length, A/C/G/T]` probabilities. Models with another channel order or
-input representation perform their conversion inside those methods. A model that
-only provides `score()` can be used by explicitly selecting black-box algorithms.
-
-## Complete Examples
+## Examples
 
 ### Example 1: Single-Task Optimization (Optimus 5-Prime MRL)
 
