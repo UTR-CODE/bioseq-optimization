@@ -292,7 +292,5 @@ These capabilities will be added in upcoming modules: `qc.py`, `families.py`, an
 ## References
 
 - Main README: [README.md](../README.md)
-- Example documentation: [SUITE_EXAMPLES.md](SUITE_EXAMPLES.md)
 - Algorithm details: [docs/algorithms.md](../docs/algorithms.md)
 - Model tasks: [docs/models/](../docs/models/)
-- Project handoff: [HANDOFF.md](../HANDOFF.md)
