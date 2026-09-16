@@ -159,14 +159,14 @@ class SimpleCNN(nn.Module):
         return x
 
 model = SimpleCNN()
-predictor = SequencePredictor(model, tasks=["test"], device="cuda")
-# Omit tasks to use task_0, task_1, ... automatically.
+predictor = SequencePredictor(model, device="cuda")
 initial = random_seed_sequences(length=50, count=100, seed=42)
 result_df = generate_designs(
     predictor,
     length=50,
     initial=initial,
     objective=["maximize"],
+    tasks=["test"],  # Omit to use task_0, task_1, ... automatically.
     seed=42,
 )
 

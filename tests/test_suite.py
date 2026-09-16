@@ -227,6 +227,26 @@ def test_generate_designs_adds_activity_columns_for_multi_task_models():
     assert "activity_hk" in frame.columns
 
 
+def test_generate_designs_accepts_task_names_for_custom_scorers():
+    def model(values):
+        return np.asarray(
+            [[sequence.count("G"), sequence.count("C")] for sequence in values]
+        )
+    frame = generate_designs(
+        CallableScorer(model),
+        algorithms=["random"],
+        length=4,
+        initial=["AAAA", "CCCC"],
+        objective=["maximize", "maximize"],
+        tasks=["test", "control"],
+        num_candidates=1,
+        budget=2,
+        diversity=0,
+    )
+    assert "activity_test" in frame.columns
+    assert "activity_control" in frame.columns
+
+
 def test_generate_designs_applies_objective_weights():
     class TwoTaskModel:
         task_names = ("a", "b")

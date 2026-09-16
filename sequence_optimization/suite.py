@@ -37,6 +37,21 @@ def _supports_soft_scoring(model: SequenceScorer | None) -> bool:
     return bool(getattr(model, "supports_soft_scoring", True))
 
 
+class _TaskNamedScorer:
+    def __init__(self, scorer: SequenceScorer, task_names: Sequence[str]) -> None:
+        self.scorer = scorer
+        self.task_names = tuple(str(name).strip() for name in task_names)
+
+    def __getattr__(self, name):
+        return getattr(self.scorer, name)
+
+    def score(self, sequences):
+        return self.scorer.score(sequences)
+
+    def score_soft(self, probabilities):
+        return self.scorer.score_soft(probabilities)
+
+
 class _SharedScorer:
     """Shared model scorer with caching across algorithms."""
 
@@ -101,6 +116,7 @@ def generate_designs(
     diversity: int = 5,
     weights: Sequence[float] | None = None,
     differentiable_model: SequenceScorer | None = None,
+    tasks: Sequence[str] | None = None,
     alphabet: str = "ACGT",
     constraint: ConstraintSpec | None = None,
     seed: int = 0,
@@ -123,6 +139,7 @@ def generate_designs(
         diversity: Minimum Hamming distance between candidates (default: 5)
         weights: Relative importance per model output (default: equal weighting)
         differentiable_model: Model for gradient algorithms (optional)
+        tasks: Optional output names for this generate_designs call
         alphabet: DNA/RNA alphabet (default: "ACGT")
         constraint: Sequence constraints (optional)
         seed: Random seed for reproducibility
@@ -143,12 +160,6 @@ def generate_designs(
         - Other algorithms: auto-stop at saturation plateau (0.9)
         - Diversity control: ensures minimum Hamming distance of 5 within each algorithm
     """
-    gradient_model = differentiable_model
-    if gradient_model is None and _supports_soft_scoring(model):
-        gradient_model = model
-    if gradient_model is not None and not _supports_soft_scoring(gradient_model):
-        raise TypeError("differentiable_model must implement score_soft(probabilities)")
-
     # The suite is the complete comparison unless the caller selects a subset.
     if algorithms is None:
         algorithms = tuple(available_algorithms())
@@ -188,6 +199,22 @@ def generate_designs(
                 "weights require an objective given as a directions list or "
                 "MultiTaskObjective"
             )
+
+    if tasks is not None:
+        task_names = tuple(str(name).strip() for name in tasks)
+        if not task_names or any(not name for name in task_names):
+            raise ValueError("tasks must contain non-empty names")
+        if len(set(task_names)) != len(task_names):
+            raise ValueError("tasks must contain unique names")
+        model = _TaskNamedScorer(model, task_names)
+        if differentiable_model is not None:
+            differentiable_model = _TaskNamedScorer(differentiable_model, task_names)
+
+    gradient_model = differentiable_model
+    if gradient_model is None and _supports_soft_scoring(model):
+        gradient_model = model
+    if gradient_model is not None and not _supports_soft_scoring(gradient_model):
+        raise TypeError("differentiable_model must implement score_soft(probabilities)")
 
     # Set up gradient model for differentiable algorithms
     needs_differentiable = sorted(set(names) & DIFFERENTIABLE_ALGORITHMS)
