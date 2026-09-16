@@ -46,6 +46,11 @@ Every optimizer accepts `is_CDS_optimized=True`. Each one applies its search
 operations within the synonymous codon space and supports fixed-budget or
 saturation stopping.
 
+For `random_optimize`, each sampled candidate contains a random number `N` of
+different synonymous codon substitutions relative to its reference CDS, where
+`0 < N < (length / 3 - 1)`. The initial `ATG` start codon is never changed;
+every candidate remains in frame and preserves the reference protein sequence.
+
 ## Select candidates at saturation
 
 Pass the same CDS constraints when using saturation stopping:

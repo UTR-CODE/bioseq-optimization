@@ -522,7 +522,9 @@ def adalead(initial, scorer, space, config, rng):
     )
 
 
-def _configured_space(length, alphabet, config, algorithm, initial=None):
+def _configured_space(
+    length, alphabet, config, algorithm, initial=None, *, cds_reference=None
+):
     if not config.is_CDS_optimized:
         return _sequence_space(length, alphabet)
     if initial is None:
@@ -532,7 +534,8 @@ def _configured_space(length, alphabet, config, algorithm, initial=None):
     values = normalize_nucleotide_sequences(initial)
     if not len(values):
         raise ValueError("initial must contain at least one CDS")
-    space = SynonymousCodonSpace(str(values[0]))
+    reference = str(values[0]) if cds_reference is None else str(cds_reference)
+    space = SynonymousCodonSpace(reference)
     requested = _sequence_space(length, alphabet)
     if requested.length != space.length or requested.alphabet != "ACGT":
         raise ValueError("length must match the initial CDS and alphabet must be ACGT")
@@ -573,6 +576,7 @@ def run(
     constraint: ConstraintSpec | None = None,
     seed: int = 0,
     count_repeated: bool = False,
+    cds_reference: str | None = None,
 ) -> OptimizationResult:
     """Run one algorithm against a single- or multi-task activity scorer.
 
@@ -581,7 +585,9 @@ def run(
     lists use an equal-weight mean across active outputs.
     """
     key = str(name).strip().lower()
-    space = _configured_space(length, alphabet, config, key, initial)
+    space = _configured_space(
+        length, alphabet, config, key, initial, cds_reference=cds_reference
+    )
     if key not in _REGISTRY:
         raise KeyError(
             f"unknown algorithm {name!r}; choose from {', '.join(available_algorithms())}"
@@ -784,7 +790,7 @@ def optimize(
     if saturation is not None and not isinstance(saturation, SaturationConfig):
         raise TypeError("saturation must be a SaturationConfig or None")
 
-    def execute(one_initial, one_seed):
+    def execute(one_initial, one_seed, *, cds_reference=None):
         if saturation is not None:
             from .saturation import _optimize_with_saturation
 
@@ -799,6 +805,7 @@ def optimize(
                 saturation=saturation,
                 seed=one_seed,
                 count_repeated=count_repeated or automatic_saturation,
+                cds_reference=cds_reference,
                 **parameters,
             )
             return saturated[0.99] if automatic_saturation else saturated
@@ -815,6 +822,7 @@ def optimize(
             constraint=constraint,
             seed=one_seed,
             count_repeated=count_repeated,
+            cds_reference=cds_reference,
         )
 
     if not is_CDS_optimized:
@@ -844,12 +852,12 @@ def optimize(
             space,
             seed_config,
             local_rng,
-            anchor=reference,
+            anchor=None if algorithm_key == "random" else reference,
         )
         prepared_cds.append((reference, population, local_seed))
 
     def optimize_cds(reference, population, local_seed):
-        result = execute(population, local_seed)
+        result = execute(population, local_seed, cds_reference=reference)
         selections = (
             result.selections.values()
             if isinstance(result, SaturationResult)

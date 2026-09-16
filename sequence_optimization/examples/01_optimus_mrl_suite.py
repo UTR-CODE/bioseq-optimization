@@ -72,7 +72,7 @@ def main() -> None:
     # Run all 13 algorithms
     print("\nRunning all 13 optimization algorithms...")
     print("- Default: 100 candidates per algorithm")
-    print("- Random search: 100,000 samples → top 100")
+    print("- Random search: 10,000 samples → top 100 by default")
     print("- Other algorithms: auto-stop at saturation plateau (0.9)")
     print("- Diversity: minimum Hamming distance = 5")
 
@@ -132,4 +132,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

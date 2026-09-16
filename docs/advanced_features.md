@@ -4,6 +4,13 @@ Optional arguments to `generate_designs()` for constraining the search space, co
 the query budget, and shaping multi-task objectives. All of them are optional — the
 defaults described in the [README](../README.md) work without any of these settings.
 
+`generate_designs()` exposes `budget`, `saturation`, `fixed_region`,
+`is_CDS_optimized`, and `count_repeated` directly. With `budget=None`, non-random
+algorithms use saturation stopping at the default 0.9 fraction; random search uses
+its finite proposal budget because it does not support saturation. Set a positive
+`budget` to use the same fixed query limit for every selected algorithm. `budget`
+and `saturation` cannot be combined.
+
 ## Sequence Constraints
 
 Apply custom constraint functions to filter sequences during optimization. Each constraint
@@ -94,6 +101,7 @@ from sequence_optimization import SaturationConfig
 
 result_df = generate_designs(
     model, length=50, initial=initial, objective=["maximize"],
+    algorithms=["genetic_algorithm"],
     saturation=SaturationConfig(fractions=(0.95,), minimum_queries=1000, maximum_queries=50000),
     seed=42,
 )

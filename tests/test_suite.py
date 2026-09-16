@@ -11,6 +11,7 @@ from sequence_optimization import (
     generate_designs,
     random_seed_sequences,
 )
+from sequence_optimization.codons import GENETIC_CODE
 
 
 def _count_g(values):
@@ -136,6 +137,58 @@ def test_generate_designs_returns_requested_candidate_count():
     assert len(frame) == 100
 
 
+def test_generate_designs_random_cds_keeps_start_and_changes_synonymous_codons():
+    reference = "ATG" + "GCT" * 4 + "TAA"
+    frame = generate_designs(
+        CallableScorer(_count_g),
+        algorithms=["random"],
+        length=len(reference),
+        initial=[reference],
+        objective=["maximize"],
+        num_candidates=4,
+        budget=20,
+        diversity=0,
+        is_CDS_optimized=True,
+        seed=19,
+    )
+
+    assert len(frame) == 4
+    for sequence in frame["sequence"]:
+        assert sequence.startswith("ATG")
+        changes = sum(
+            sequence[index : index + 3] != reference[index : index + 3]
+            for index in range(0, len(reference), 3)
+        )
+        assert 0 < changes < len(reference) // 3 - 1
+        assert "".join(
+            GENETIC_CODE[sequence[index : index + 3]]
+            for index in range(0, len(sequence), 3)
+        ) == "".join(
+            GENETIC_CODE[reference[index : index + 3]]
+            for index in range(0, len(reference), 3)
+        )
+
+
+def test_generate_designs_cds_optimizes_each_reference_independently():
+    references = ["ATG" + "GCT" * 2 + "TAA", "ATG" + "GAT" * 2 + "TAG"]
+    frame = generate_designs(
+        CallableScorer(_count_g),
+        algorithms=["random"],
+        length=len(references[0]),
+        initial=references,
+        objective=["maximize"],
+        num_candidates=2,
+        budget=8,
+        diversity=0,
+        is_CDS_optimized=True,
+        seed=23,
+    )
+
+    assert len(frame) == 4
+    assert set(frame["sequence"].str[:3]) == {"ATG"}
+    assert set(frame["sequence"].str[-3:]).issubset({"TAA", "TAG", "TGA"})
+
+
 def test_generate_designs_rejects_initial_smaller_than_candidate_count():
     with pytest.raises(ValueError, match="at least 10 sequences"):
         generate_designs(
@@ -256,6 +309,35 @@ def test_generate_designs_honours_explicit_budget_over_saturation_default():
     )
     # The explicit budget caps queries well below the saturation default.
     assert len(queried) <= 20
+
+
+def test_generate_designs_rejects_conflicting_budget_and_saturation():
+    with pytest.raises(ValueError, match="budget and saturation"):
+        generate_designs(
+            CallableScorer(_count_g),
+            algorithms=["genetic_algorithm"],
+            length=6,
+            initial=["AAAAAA", "CCCCCC"],
+            objective=["maximize"],
+            num_candidates=1,
+            diversity=0,
+            budget=4,
+            saturation=SaturationConfig(fractions=(0.9,)),
+        )
+
+
+def test_generate_designs_rejects_saturation_for_random_search():
+    with pytest.raises(ValueError, match="not supported by random search"):
+        generate_designs(
+            CallableScorer(_count_g),
+            algorithms=["random"],
+            length=6,
+            initial=["AAAAAA"],
+            objective=["maximize"],
+            num_candidates=1,
+            diversity=0,
+            saturation=SaturationConfig(fractions=(0.9,)),
+        )
 
 
 def test_generate_designs_rejects_unknown_algorithm():

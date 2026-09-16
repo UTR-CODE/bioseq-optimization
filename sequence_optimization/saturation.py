@@ -259,6 +259,7 @@ def _optimize_with_saturation(
     saturation: SaturationConfig,
     seed: int = 0,
     count_repeated: bool = False,
+    cds_reference: str | None = None,
     **optimizer_parameters: Any,
 ) -> SaturationResult:
     """Run until a plateau and return q-fraction candidate sets.
@@ -291,7 +292,14 @@ def _optimize_with_saturation(
     constraint_rng = np.random.default_rng(
         np.random.SeedSequence([int(seed), 0xC0DEC0DE])
     )
-    space = _configured_space(length, alphabet, config, key, initial)
+    space = _configured_space(
+        length,
+        alphabet,
+        config,
+        key,
+        initial,
+        cds_reference=cds_reference,
+    )
     random.seed(seed)
     objective_scorer = ObjectiveScorer(
         scorer,

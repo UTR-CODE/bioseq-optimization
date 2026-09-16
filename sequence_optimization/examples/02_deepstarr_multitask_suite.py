@@ -80,7 +80,7 @@ def main() -> None:
     print("\nRunning all 13 optimization algorithms...")
     print("- Objective: minimize developmental, maximize housekeeping")
     print("- Default: 100 candidates per algorithm")
-    print("- Random search: 100,000 samples → top 100")
+    print("- Random search: 10,000 samples → top 100 by default")
     print("- Other algorithms: auto-stop at saturation plateau (0.9)")
     print("- Diversity: minimum Hamming distance = 5")
 

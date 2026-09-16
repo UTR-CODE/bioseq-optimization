@@ -43,6 +43,24 @@ def test_single_cds_saturation_preserves_translation():
         space.validate(selection.sequences)
 
 
+def test_cds_random_candidates_use_bounded_synonymous_substitutions():
+    reference = "ATG" + "GCT" * 8 + "TAA"
+    space = SynonymousCodonSpace(reference)
+    candidates = space.random(200, np.random.default_rng(13))
+    codon_count = len(reference) // 3
+    changes = [
+        sum(
+            candidate[index : index + 3] != reference[index : index + 3]
+            for index in range(0, len(reference), 3)
+        )
+        for candidate in candidates
+    ]
+
+    assert all(0 < count < codon_count - 1 for count in changes)
+    assert all(candidate.startswith("ATG") for candidate in candidates)
+    assert all(_protein(candidate) == _protein(reference) for candidate in candidates)
+
+
 def test_multiple_cds_are_validated_and_optimized_independently():
     initial = ["ATGGCTTAA", "ATGGATTAG"]
     queried = []

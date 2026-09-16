@@ -780,7 +780,52 @@ class FixedRegionSequenceSpace:
 
     def random(self, count: int, rng: np.random.Generator) -> np.ndarray:
         if hasattr(self.base, "choices"):
-            return self.validate(self.base.random(count, rng))
+            # Codon spaces must apply the fixed bases after sampling so that
+            # candidates remain valid. Resample candidates that become
+            # unchanged CDS references after the fixed positions are applied.
+            accepted = []
+            maximum_draws = max(1_000, 100 * count)
+            draws = 0
+            reference = getattr(self.base, "initial_cds", None)
+            while len(accepted) < count and draws < maximum_draws:
+                batch_size = max(64, count - len(accepted))
+                candidates = np.asarray(self.base.random(batch_size, rng), dtype=str).reshape(
+                    -1
+                )
+                draws += len(candidates)
+                if self.fixed_positions:
+                    template = str(self.template)
+                    candidates = np.asarray(
+                        [
+                            "".join(
+                                template[position] if position in self.fixed_positions else base
+                                for position, base in enumerate(value)
+                            )
+                            for value in candidates
+                        ],
+                        dtype=str,
+                    )
+                candidates = self.validate(candidates)
+                if reference is not None:
+                    codon_count = len(reference) // 3
+                    changes = np.asarray(
+                        [
+                            sum(
+                                candidate[index : index + 3]
+                                != reference[index : index + 3]
+                                for index in range(0, len(reference), 3)
+                            )
+                            for candidate in candidates
+                        ]
+                    )
+                    candidates = candidates[(changes > 0) & (changes < codon_count - 1)]
+                accepted.extend(candidates.tolist())
+            if len(accepted) < count:
+                raise ValueError(
+                    "fixed_region leaves too few valid synonymous CDS variants "
+                    "for random search"
+                )
+            return np.asarray(accepted[:count], dtype=str)
         encoded = rng.integers(
             self.alphabet_size, size=(count, self.length), dtype=np.int16
         )

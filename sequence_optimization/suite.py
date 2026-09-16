@@ -104,6 +104,11 @@ def generate_designs(
     alphabet: str = "ACGT",
     constraint: ConstraintSpec | None = None,
     seed: int = 0,
+    budget: int | None = None,
+    saturation: SaturationConfig | None = None,
+    fixed_region: Sequence[int | str | slice] | None = None,
+    is_CDS_optimized: bool = False,
+    count_repeated: bool = False,
     **common_kwargs: Any,
 ):
     """Run all 13 optimization algorithms and return one candidate DataFrame.
@@ -121,13 +126,20 @@ def generate_designs(
         alphabet: DNA/RNA alphabet (default: "ACGT")
         constraint: Sequence constraints (optional)
         seed: Random seed for reproducibility
-        **common_kwargs: Additional options passed to all algorithms
+        budget: Fixed query budget per algorithm; ``None`` uses saturation
+            stopping (random search uses its finite default budget)
+        saturation: Saturation rules for non-random algorithms; cannot be
+            combined with ``budget`` or used with random search
+        fixed_region: Positions or slices held unchanged during optimization
+        is_CDS_optimized: Restrict candidates to synonymous CDS substitutions
+        count_repeated: Count repeated proposals against the query budget
+        **common_kwargs: Algorithm-specific hyperparameters passed to every algorithm
 
     Returns:
         pandas DataFrame with columns: sequence, algorithm, score, activity_*
 
     Notes:
-        - Random search: generates 100,000 sequences, returns top 100
+        - Random search: uses a finite 10,000-query default, returns top 100
         - Other algorithms: auto-stop at saturation plateau (0.9)
         - Diversity control: ensures minimum Hamming distance of 5 within each algorithm
     """
@@ -153,9 +165,13 @@ def generate_designs(
         raise KeyError(
             f"unknown algorithms {unknown}; choose from {', '.join(available_algorithms())}"
         )
+    if budget is not None and saturation is not None:
+        raise ValueError("budget and saturation cannot be used together")
+    if saturation is not None and "random" in names:
+        raise ValueError("saturation is not supported by random search; set budget instead")
 
     initial_values = normalize_nucleotide_sequences(initial)
-    if len(initial_values) < num_candidates:
+    if not is_CDS_optimized and len(initial_values) < num_candidates:
         raise ValueError(
             f"initial must contain at least {num_candidates} sequences; "
             f"received {len(initial_values)}"
@@ -188,6 +204,13 @@ def generate_designs(
     # Common options for all algorithms
     shared_options = dict(common_kwargs)
     shared_options["diversity"] = diversity
+    shared_options["fixed_region"] = fixed_region
+    shared_options["is_CDS_optimized"] = is_CDS_optimized
+    shared_options["count_repeated"] = count_repeated
+    if budget is not None:
+        shared_options["budget"] = budget
+    if saturation is not None:
+        shared_options["saturation"] = saturation
 
     # Collect results from all algorithms
     all_rows = []
@@ -203,13 +226,13 @@ def generate_designs(
         algo_options = dict(shared_options)
 
         # An explicit budget or saturation config overrides the suite defaults.
-        if "budget" in algo_options or "saturation" in algo_options:
+        if budget is not None or saturation is not None:
             pass
         elif name == "random":
-            # Random search: generate 100,000 sequences, return top 100
-            algo_options["budget"] = 100_000
+            # Random search cannot detect saturation; use its finite default.
+            algo_options["budget"] = 10_000
         else:
-            # Other algorithms: stop at the 0.9 saturation plateau
+            # Other algorithms: stop at the 0.9 saturation plateau.
             algo_options["saturation"] = SaturationConfig(
                 fractions=(0.9,),
                 minimum_queries=len(initial_values),
@@ -218,7 +241,7 @@ def generate_designs(
             )
 
         # Run optimization
-        result = optimize(
+        raw_result = optimize(
             scorer,
             length,
             initial_values,
@@ -231,27 +254,29 @@ def generate_designs(
             **algo_options,
         )
 
-        if isinstance(result, SaturationResult):
-            result = result[max(result.selections)]
-        if not isinstance(result, OptimizationResult):
-            raise TypeError(
-                "generate_designs requires fixed-budget optimizer results"
-            )
+        results = raw_result if isinstance(raw_result, list) else [raw_result]
+        for result in results:
+            if isinstance(result, SaturationResult):
+                result = result[max(result.selections)]
+            if not isinstance(result, OptimizationResult):
+                raise TypeError(
+                    "generate_designs requires fixed-budget optimizer results"
+                )
 
-        # Extract data from result
-        for i, sequence in enumerate(result.sequences):
-            row = {
-                "sequence": sequence,
-                "algorithm": name,
-                "score": float(result.scores[i]),
-            }
+            # Extract data from result
+            for i, sequence in enumerate(result.sequences):
+                row = {
+                    "sequence": sequence,
+                    "algorithm": name,
+                    "score": float(result.scores[i]),
+                }
 
-            # Add activity columns if available
-            if result.activities is not None and result.task_names:
-                for j, task_name in enumerate(result.task_names):
-                    row[f"activity_{task_name}"] = float(result.activities[i, j])
+                # Add activity columns if available
+                if result.activities is not None and result.task_names:
+                    for j, task_name in enumerate(result.task_names):
+                        row[f"activity_{task_name}"] = float(result.activities[i, j])
 
-            all_rows.append(row)
+                all_rows.append(row)
 
     # Convert to DataFrame
     return pd.DataFrame(all_rows)

@@ -62,8 +62,41 @@ class SynonymousCodonSpace(SequenceSpace):
         return values
 
     def random(self, count, rng):
-        columns = [rng.choice(choices, size=count) for choices in self.choices]
-        return np.asarray(["".join(row) for row in zip(*columns)])
+        """Draw CDS candidates with a bounded number of synonymous changes.
+
+        The start codon is fixed. Each candidate changes a random number of
+        codons, with ``0 < changes < codon_count - 1``; codons without a
+        synonymous alternative are not selected.
+        """
+        codons = [
+            self.initial_cds[index : index + 3]
+            for index in range(0, self.length, 3)
+        ]
+        mutable = [
+            index
+            for index, choices in enumerate(self.choices[1:], start=1)
+            if len(choices) > 1
+        ]
+        maximum_changes = min(len(mutable), len(codons) - 2)
+        if maximum_changes < 1:
+            raise ValueError(
+                "CDS random search requires at least one synonymous codon "
+                "between the fixed start codon and the sequence-length bound"
+            )
+        result = []
+        for _ in range(count):
+            changes = int(rng.integers(1, maximum_changes + 1))
+            selected = rng.choice(mutable, size=changes, replace=False)
+            candidate = codons.copy()
+            for index in selected:
+                alternatives = [
+                    choice
+                    for choice in self.choices[index]
+                    if choice != self.initial_cds[3 * index : 3 * index + 3]
+                ]
+                candidate[index] = str(rng.choice(alternatives))
+            result.append("".join(candidate))
+        return np.asarray(result, dtype=str)
 
     @property
     def single_mutant_count(self):
