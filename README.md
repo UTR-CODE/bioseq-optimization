@@ -199,11 +199,35 @@ See [custom models guide](docs/custom_models.md) for input format details.
 
 ### Sequence Constraints
 
-Fix specific positions or enforce GC content bounds:
+Apply custom constraint functions to filter sequences during optimization. Each constraint function accepts a batch of sequences and returns probabilities (0-1) for each sequence:
+
+- **0**: Reject sequence (hard constraint)
+- **1**: Accept sequence  
+- **0-1**: Soft threshold - probability of accepting the sequence
 
 ```python
 from sequence_optimization import generate_designs, random_seed_sequences
+import numpy as np
 
+# Define constraint functions
+def gc_soft_threshold(sequences):
+    """Soft constraint: prefer 40-60% GC content."""
+    gc_contents = np.array([
+        (seq.count('G') + seq.count('C')) / len(seq) 
+        for seq in sequences
+    ])
+    # Gaussian soft threshold centered at 50% GC
+    return np.exp(-((gc_contents - 0.5) ** 2) / (2 * 0.1 ** 2))
+
+def exclude_homopolymers(sequences):
+    """Hard constraint: reject sequences with 5+ consecutive identical bases."""
+    import re
+    return np.array([
+        0.0 if re.search(r'([ACGT])\1{4,}', seq) else 1.0
+        for seq in sequences
+    ])
+
+# Combine multiple constraints
 initial = random_seed_sequences(length=50, count=100, seed=42)
 
 result_df = generate_designs(
@@ -211,13 +235,138 @@ result_df = generate_designs(
     length=50,
     initial=initial,
     objective=["maximize"],
-    fixed_region=(10, 20),  # Keep positions 10-19 unchanged
-    gc_bounds=(0.4, 0.6),   # Enforce 40-60% GC content
+    constraint=[gc_soft_threshold, exclude_homopolymers],  # List of constraint functions
     seed=42,
 )
 ```
 
-See [constraints documentation](docs/constraints.md) for motif requirements, edit distance limits, and more.
+**See [constraint examples](docs/constraints_examples.md)** for more patterns including:
+- GC content soft thresholds
+- Motif exclusion (e.g., restriction sites)
+- Homopolymer filtering
+- Sequence naturalness scoring with diffusion models
+
+### Fixed Regions
+
+Specify multiple regions to keep unchanged during optimization. Useful for preserving functional elements:
+
+```python
+# Preserve multiple regions (Python slice notation)
+result_df = generate_designs(
+    model,
+    length=230,
+    initial=initial,
+    objective=["maximize"],
+    fixed_region=[[0, 10], [50, 60], [-20, -1]],  # Keep positions 0-9, 50-59, 210-229 unchanged
+    seed=42,
+)
+```
+
+**Common use cases:**
+- Preserve promoter or enhancer cores
+- Keep primer binding sites unchanged
+- Maintain regulatory element positions
+- Fix linker sequences between optimization regions
+
+### Diversity Threshold
+
+Control sequence diversity within each algorithm's candidate pool:
+
+```python
+# Increase diversity requirement (default=5)
+result_df = generate_designs(
+    model,
+    length=50,
+    initial=initial,
+    objective=["maximize"],
+    diversity=10,  # Minimum Hamming distance of 10 between candidates
+    seed=42,
+)
+```
+
+**Trade-offs:**
+- **Higher diversity** (e.g., 10-15): More exploration, broader design space coverage
+- **Lower diversity** (e.g., 3-5): More exploitation, candidates clustered near optima
+- **Default (5)**: Balanced for most applications
+
+### Custom Model Input Channels
+
+For models requiring non-standard input (e.g., epigenetic marks, conservation scores), inherit `SequencePredictor` and override encoding methods:
+
+```python
+import torch
+from torch import nn
+import numpy as np
+from sequence_optimization import SequencePredictor, generate_designs, random_seed_sequences
+
+class MultiChannelPredictor(SequencePredictor):
+    """Predictor for models with additional input channels beyond ACGT."""
+    
+    def __init__(self, model, conservation_scores, **kwargs):
+        super().__init__(model, **kwargs)
+        self.conservation_scores = conservation_scores  # Pre-computed conservation track
+    
+    def encode_sequences(self, sequences):
+        """Override to add conservation channel."""
+        # Get standard 4-channel one-hot encoding
+        onehot = super().encode_sequences(sequences)  # Shape: [batch, length, 4]
+        
+        # Add conservation scores as 5th channel
+        batch_size = len(sequences)
+        seq_length = len(sequences[0])
+        conservation = torch.from_numpy(
+            self.conservation_scores[:seq_length].reshape(1, seq_length, 1)
+        ).repeat(batch_size, 1, 1)
+        
+        # Concatenate: [batch, length, 5]
+        return torch.cat([onehot, conservation], dim=2)
+    
+    def prepare_input(self, encoded):
+        """Override to handle 5-channel input."""
+        # Model expects [batch, 5, length]
+        return encoded.transpose(1, 2)
+
+# Usage
+class MultiChannelCNN(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.conv1 = nn.Conv1d(5, 64, kernel_size=8)  # 5 input channels
+        self.pool = nn.AdaptiveMaxPool1d(1)
+        self.fc = nn.Linear(64, 1)
+    
+    def forward(self, x):
+        x = torch.relu(self.conv1(x))
+        x = self.pool(x).squeeze(-1)
+        return self.fc(x)
+
+# Create custom predictor
+model = MultiChannelCNN()
+conservation_track = np.random.rand(1000)  # Example conservation scores
+
+predictor = MultiChannelPredictor(
+    model,
+    conservation_scores=conservation_track,
+    device="cuda",
+    tasks=["stability"]
+)
+
+# Optimize
+initial = random_seed_sequences(length=50, count=100, seed=42)
+result_df = generate_designs(
+    predictor,
+    length=50,
+    initial=initial,
+    objective=["maximize"],
+    seed=42,
+)
+```
+
+**Key methods to override:**
+- `encode_sequences()`: Convert string sequences to tensor with custom channels
+- `prepare_input()`: Reshape tensor for your model's expected input format
+- `score()` and `score_soft()`: Only if you need custom batching or post-processing
+
+See [custom models guide](docs/custom_models.md) for more examples.
 
 ### CDS Optimization (Synonymous Mutations Only)
 
