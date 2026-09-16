@@ -144,7 +144,24 @@ order used by MPRALegNet in both scoring paths.
 2   adalead  2.932116       6.054406       -1.337788       -1.404153
 ```
 
-## Model-Specific Tasks
+## More Task Examples
+
+`generate_designs()` names raw output columns from the scorer's `task_names`.
+The pretrained models define these labels, so the DeepSTARR outputs become
+`activity_developmental` and `activity_housekeeping`. For a custom model, pass
+the labels when constructing `SequencePredictor`:
+
+```python
+predictor = SequencePredictor(
+    model,
+    tasks=["developmental", "housekeeping"],
+)
+```
+
+If no labels are supplied, output columns use `activity_task_0`,
+`activity_task_1`, and so on, in the order returned by the model. The labels
+must have one entry per output and determine column names only; the output
+order remains the model's order.
 
 Pretrained models available via `bioseq-models`:
 
