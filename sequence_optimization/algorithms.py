@@ -790,14 +790,23 @@ def adalead(initial, scorer, space, config, rng):
         proposals = space.mutate_one(parents, rng)
         values = _score(scorer, archive, proposals).scores
         passed = scorer.constraints_passed(proposals)
-        scores = scorer.current_scores(population)
-        current_passed = scorer.constraints_passed(population)
-        improved = passed & ((~current_passed) | (values > scores))
-        population[improved] = proposals[improved]
-        scores[improved] = values[improved]
+        # Compare against the actual generating parent, under the current
+        # objective version (scoring proposals may activate stopping lines).
+        parent_scores = scorer.current_scores(parents)
+        parent_passed = scorer.constraints_passed(parents)
+        improved = passed & ((~parent_passed) | (values > parent_scores))
+        population_size = len(population)
         retained = scorer.constraints_passed(population)
-        population = population[retained]
-        scores = scorer.current_scores(population)
+        candidates = np.concatenate([population[retained], proposals[improved]])
+        if not len(candidates):
+            break
+        # Round-robin survival balances families, with score ranking inside
+        # each family. Allow unused slots to flow to other families rather
+        # than shrinking a viable population to the parent-selection cap.
+        population, scores = _cluster_parent_subset(
+            candidates, scorer.current_scores(candidates), population_size,
+            offset=len(trajectory), cap=population_size,
+        )
         trajectory.append(
             {
                 "query_count": scorer.query_count,
@@ -811,6 +820,8 @@ def adalead(initial, scorer, space, config, rng):
         "adalead", archive, config, scorer,
         {"steps": len(trajectory), "parent_pool_multiplier": config.parent_pool_multiplier,
          "parent_selection": "cluster_round_robin", "parent_cluster_cap": 10,
+         "offspring_comparison": "own_parent",
+         "survivor_selection": "family_round_robin",
          "parent_cluster_diameter_fraction": 0.2}, trajectory
     )
 

@@ -924,6 +924,22 @@ def ledidi(initial, scorer, space, config, rng):
     )
 
 
+def _nearest_neighbor_similarity(sequences):
+    """Mean nearest-neighbor base agreement; exclude self, retain gradients.
+
+    Input is [batch, length, alphabet], including straight-through samples.
+    Matrix multiplication avoids a batch-squared-by-length intermediate.
+    """
+    import torch
+
+    if len(sequences) < 2:
+        return sequences.sum() * 0.0
+    flat = sequences.flatten(1)
+    similarity = (flat @ flat.T) / sequences.shape[1]
+    diagonal = torch.eye(len(sequences), dtype=torch.bool, device=sequences.device)
+    return similarity.masked_fill(diagonal, -torch.inf).max(dim=1).values.mean()
+
+
 @register_algorithm("den")
 def den(initial, scorer, space, config, rng):
     """Train a noise-to-sequence generator through a differentiable model."""
@@ -987,13 +1003,7 @@ def den(initial, scorer, space, config, rng):
             mask = torch.as_tensor(passed, dtype=torch.bool, device=device)
             accepted = straight_through[mask]
             utilities, _ = objective.score_soft(accepted)
-            half = len(accepted) // 2
-            if half:
-                pair_similarity = (
-                    (accepted[:half] * accepted[half : 2 * half]).sum(dim=-1).mean()
-                )
-            else:
-                pair_similarity = torch.zeros((), device=device)
+            pair_similarity = _nearest_neighbor_similarity(accepted)
             loss = -utilities.mean() + config.den_diversity_weight * pair_similarity
             optimizer.zero_grad(set_to_none=True)
             loss.backward()
@@ -1020,6 +1030,7 @@ def den(initial, scorer, space, config, rng):
             "generator": "deep_exploration_network",
             "noise_dim": noise_dim,
             "diversity_weight": config.den_diversity_weight,
+            "diversity_penalty": "nearest_neighbor_similarity",
             "seed_reconstruction_accuracy": reconstruction_accuracy,
         },
     )

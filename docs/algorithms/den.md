@@ -2,6 +2,13 @@
 
 Train a sequence generator through a differentiable predictor. Requires score_soft; repeated discrete proposals always consume budget.
 
+The diversity penalty is the batch mean of each feasible sequence's highest
+base-agreement similarity to another feasible sequence. Self comparisons are
+excluded; a singleton batch has zero penalty. It uses straight-through sampled
+sequences, retaining gradients, and the existing `den_diversity_weight` (0.1).
+Initial reconstruction training, fixed latent vectors and generator architecture
+are unchanged. This penalty discourages near duplicates, not shared motif grammar.
+
 | Parameter | Default | Meaning |
 |---|---|---|
 | `model` | required | Parameterized predictor accepting sequence strings |
@@ -30,7 +37,7 @@ result = den_optimize(
     predictor,
     length=50,
     initial=initial,
-    objective=["maximize"],  # or [0.6] to stop after reaching score 0.6
+    objective=["maximize"],  # optionally add stop_values=[0.6]
     num_candidates=4,
 )
 ```

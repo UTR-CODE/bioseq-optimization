@@ -86,7 +86,7 @@ def test_invalid_directions_and_lines(directions, stops):
 
 def test_default_lines_unlimited():
     obj = MultiTaskObjective(directions=["maximize", "minimize", "ignore"])
-    assert obj.stop_values == (None, None, None)
+    assert obj.stop_values is None
     assert obj.target_thresholds(3) == {}
     assert obj.has_open_objectives()
 

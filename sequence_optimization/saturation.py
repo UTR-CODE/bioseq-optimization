@@ -1196,6 +1196,9 @@ def _optimize_with_saturation(
         knee_fraction_tolerance=options.knee_fraction_tolerance,
         diversity_pool_size=options.diversity_pool_size,
         parent_pool_multiplier=config.parent_pool_multiplier,
+        **({"offspring_comparison": "own_parent", "survivor_selection": "family_round_robin"}
+           if key == "adalead" else {}),
+        **({"diversity_penalty": "nearest_neighbor_similarity"} if key == "den" else {}),
         **({"parent_selection": ("quality_progress_weighted_clusters" if key == "basesearch" else "cluster_round_robin"), "parent_cluster_cap": 10,
             "parent_cluster_diameter_fraction": 0.2}
            if key in {"adalead", "beam_search", "basesearch"} else {}),

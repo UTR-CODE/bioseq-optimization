@@ -196,7 +196,8 @@ class MultiTaskObjective:
                     )
                 if direction == "ignore" and value is not None:
                     raise ValueError("ignored outputs must have stop_values=None")
-            object.__setattr__(self, "stop_values", tuple(stops))
+            if self.stop_values is not None:
+                object.__setattr__(self, "stop_values", tuple(stops))
         elif self.stop_values is not None:
             raise ValueError("stop_values requires directions")
         if self.aggregation not in {"worst", "mean", "smoothmin"}:
@@ -310,7 +311,7 @@ class MultiTaskObjective:
             )
         return {
             index: float(value)
-            for index, value in enumerate(self.stop_values)
+            for index, value in enumerate(self.stop_values or ())
             if value is not None
         }
 
@@ -322,7 +323,10 @@ class MultiTaskObjective:
             self.directions
             and any(
                 value != "ignore" and stop is None
-                for value, stop in zip(self.directions, self.stop_values)
+                for value, stop in zip(
+                    self.directions,
+                    self.stop_values or (None,) * len(self.directions),
+                )
             )
         )
 

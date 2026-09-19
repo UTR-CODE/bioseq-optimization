@@ -13,10 +13,16 @@ acceptable; audit the largest and top-two cluster shares for concentration.
 Single-base mutations of selected elite parents.
 
 For N elites, take up to `parent_pool_multiplier * N` highest-scoring population
-members, keep the best as an anchor, then greedily select the most distant
-parents using minimum Hamming distance to those already selected. The default
-multiplier is 5; use 2 for a narrower quality pool or 1 for score-only elites.
-This local AdaLead variant uses single-base proposals and elitist replacement.
+members and select parents by the cluster round-robin rule above. The default
+multiplier is 5; use 2 for a narrower quality pool.
+Each feasible offspring must improve on its own generating parent's current
+score (or restore feasibility if that parent became infeasible).
+Merge improved offspring with feasible members of the old population, deduplicate,
+and retain the next population round-robin across 20%-Hamming-diameter families,
+ranked by score within each family. Spare capacity flows to families with more
+members, maintaining population size when enough unique candidates exist.
+This is an approximate Hamming-family balance, not a motif-family constraint.
+The final archive can still contain evaluated offspring not admitted to the population.
 
 | Parameter | Default | Meaning |
 |---|---|---|
@@ -45,7 +51,7 @@ result = adalead_optimize(
     predictor,
     length=50,
     initial=initial,
-    objective=["maximize"],  # or [0.6] to stop after reaching score 0.6
+    objective=["maximize"],  # optionally add stop_values=[0.6]
     num_candidates=4,
 )
 ```
