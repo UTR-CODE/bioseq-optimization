@@ -1,6 +1,16 @@
 # simulated_annealing_optimize
 
+Default plateau patience is five times the shared population/batch-scaled
+window (20,000 counted proposals for 100 seeds). Explicit
+`plateau_patience_queries` is honored unchanged. The material-improvement
+threshold retains its absolute 0.01 floor; minimum queries and cooling are
+unchanged.
+
 Single-base proposals with a budget-dependent acceptance temperature. The temperature schedule is fixed; no temperature parameter is exposed.
+
+Repeated proposals always advance budget and plateau patience, while cached
+sequences avoid another model inference. An all-cached batch alone does not
+terminate the search. Cooling follows counted proposals, including repeats.
 
 | Parameter | Default | Meaning |
 |---|---|---|

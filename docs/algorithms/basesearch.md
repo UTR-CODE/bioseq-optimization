@@ -1,5 +1,21 @@
 # basesearch_optimize
 
+BaseSearch now allocates 70% of proposal attempts by cluster score and recent
+positive offspring-improvement ranks, and 30% by round-robin exploration.
+Recent gains decay by 0.8 per batch. Each cluster retains at most 10 parents;
+representatives within a selected cluster rotate. A cluster receives at most
+20% of a nominal proposal batch (or 1/cluster_count when fewer than five
+clusters exist, rounded up). Duplicate retries can start another quota cycle.
+This quota constrains attempts, not accepted offspring or final output counts.
+
+Parent scheduling now groups score-ordered candidates into deterministic
+complete-link clusters with maximum Hamming diameter 20% of sequence length
+(10 bases for 50-nt Optimus). Each cluster retains at most 10 expansion
+representatives. The exploration portion rotates its starting cluster across
+rounds. BaseSearch also prunes its queue by this cap. This limits search representatives, not the
+number of final candidates per cluster. Several small output clusters are
+acceptable; audit the largest and top-two cluster shares for concentration.
+
 Priority-decayed parent selection alternates broad and single-base mutation.
 Mutated candidates are scored in batches. Duplicates are not rescored. Stop on
 budget exhaustion, exhausted space or duplicate stall. Queue priority does not

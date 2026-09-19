@@ -198,8 +198,8 @@ See the [advanced features guide](docs/advanced_features.md) for details and exa
 **Default settings:**
 - **13 algorithms**: 9 black-box + 4 gradient-based
 - **100 candidates** per algorithm
-- **Random search**: 10,000 samples → top 100 by default
-- **Other algorithms**: auto-stop at saturation 0.9
+- **Random search**: 100,000 proposals (including initial seeds) → top 100 by default
+- **Other algorithms**: stop on plateau without an implicit query cap; select diverse candidates around a late relaxed knee, with run-relative quality guards
 - **Diversity**: minimum Hamming distance of 5 within each algorithm
 - **Shared model caching** across algorithms for efficiency
 

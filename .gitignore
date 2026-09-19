@@ -13,10 +13,12 @@ dist/
 *.egg-info/
 .ipynb_checkpoints/
 .DS_Store
+.fuse_hidden*
 
 # Local scratch files can be many gigabytes.
 tmp/
 results/
+example/*_candidates.csv
 
 # Legacy local benchmark artifacts are not part of this repository.
 BioSeqBench/

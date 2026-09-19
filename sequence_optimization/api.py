@@ -514,6 +514,8 @@ class CachedScorer:
 
     def hard_constraints_passed(self, sequences) -> np.ndarray:
         """Return user-constraint decisions without objective target gates."""
+        if self.constraint_evaluator is None:
+            return np.ones(len(sequences), dtype=bool)
         values = normalize_nucleotide_sequences(sequences)
         return (
             np.ones(len(values), dtype=bool)
@@ -894,6 +896,7 @@ class OptimizationConfig:
     diversity: int = 5
     mutation_rate: float = 0.02
     elite_fraction: float = 0.2
+    parent_pool_multiplier: int = 5
     learning_rate: float = 0.1
     generator_learning_rate: float = 3e-3
     generator_pretrain_epochs: int = 20
@@ -916,6 +919,10 @@ class OptimizationConfig:
     def __post_init__(self) -> None:
         if not isinstance(self.is_CDS_optimized, bool):
             raise ValueError("is_CDS_optimized must be a boolean")
+        if isinstance(self.parent_pool_multiplier, (bool, np.bool_)) or not isinstance(
+            self.parent_pool_multiplier, (int, np.integer)
+        ) or self.parent_pool_multiplier < 1:
+            raise ValueError("parent_pool_multiplier must be a positive integer")
         if self.fixed_region is not None:
             if isinstance(self.fixed_region, (str, bytes)) or not isinstance(
                 self.fixed_region, Sequence

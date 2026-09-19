@@ -5,9 +5,16 @@ from __future__ import annotations
 import inspect
 import random
 from collections.abc import Callable, Iterable, Sequence
+from functools import lru_cache
 from typing import Any
 
 import numpy as np
+
+try:  # Optional compiled CPU fast path; NumPy/Python remains the fallback.
+    from numba import njit, prange
+except ImportError:  # pragma: no cover - exercised in minimal installations
+    njit = None
+    prange = range
 
 from .api import (
     _sequence_space,
@@ -31,6 +38,7 @@ Optimizer = Callable[
 ]
 _REGISTRY: dict[str, Optimizer] = {}
 _DEFAULT_BUDGET = 10_000
+_DEFAULT_RANDOM_BUDGET = 100_000
 
 
 def register_algorithm(name: str):
@@ -83,8 +91,138 @@ def _score(
     return batch
 
 
+_DNA_CODES = np.full(256, 255, dtype=np.uint8)
+_DNA_CODES[np.frombuffer(b"A", dtype=np.uint8)] = 0
+_DNA_CODES[np.frombuffer(b"C", dtype=np.uint8)] = 1
+_DNA_CODES[np.frombuffer(b"G", dtype=np.uint8)] = 2
+_DNA_CODES[np.frombuffer(b"T", dtype=np.uint8)] = 3
+# For an XOR of two 2-bit DNA symbols, either bit being set means mismatch.
+_PACKED_MISMATCHES = np.asarray(
+    [sum(bool((value >> shift) & 3) for shift in (0, 2, 4, 6)) for value in range(256)],
+    dtype=np.uint8,
+)
+
+
+if njit is not None:
+
+    @njit(cache=True, nogil=True)
+    def _greedy_indices_numba(codes, count, diversity, start):
+        """Sequential greedy selection in compiled native code."""
+        selected = np.full(count, -1, dtype=np.int64)
+        selected[0] = start
+        selected_count = 1
+        for index in range(codes.shape[0]):
+            if index == start:
+                continue
+            accepted = True
+            for selected_offset in range(selected_count):
+                previous = selected[selected_offset]
+                mismatches = 0
+                for position in range(codes.shape[1]):
+                    if codes[index, position] != codes[previous, position]:
+                        mismatches += 1
+                        if mismatches >= diversity:
+                            break
+                if mismatches < diversity:
+                    accepted = False
+                    break
+            if accepted:
+                selected[selected_count] = index
+                selected_count += 1
+                if selected_count == count:
+                    break
+        return selected, selected_count
+
+    @njit(cache=True, nogil=True, parallel=True)
+    def _alternative_indices_numba(codes, count, diversity, starts):
+        """Evaluate independent fallback starts across available CPU cores."""
+        selected = np.full((starts, count), -1, dtype=np.int64)
+        lengths = np.zeros(starts, dtype=np.int64)
+        for offset in prange(starts):
+            start = offset + 1
+            selected[offset, 0] = start
+            selected_count = 1
+            for index in range(codes.shape[0]):
+                if index == start:
+                    continue
+                accepted = True
+                for selected_offset in range(selected_count):
+                    previous = selected[offset, selected_offset]
+                    mismatches = 0
+                    for position in range(codes.shape[1]):
+                        if codes[index, position] != codes[previous, position]:
+                            mismatches += 1
+                            if mismatches >= diversity:
+                                break
+                    if mismatches < diversity:
+                        accepted = False
+                        break
+                if accepted:
+                    selected[offset, selected_count] = index
+                    selected_count += 1
+                    if selected_count == count:
+                        break
+            lengths[offset] = selected_count
+        return selected, lengths
+
+else:
+    _greedy_indices_numba = None
+    _alternative_indices_numba = None
+
+
+def _encode_packed(sequences: Sequence[str]) -> tuple[np.ndarray, int]:
+    """Encode DNA strings as four 2-bit bases per byte."""
+    values = np.frombuffer("".join(str(sequence) for sequence in sequences).encode("ascii"), dtype=np.uint8)
+    length = len(sequences[0]) if sequences else 0
+    codes = _DNA_CODES[values].reshape(len(sequences), length)
+    packed = np.zeros((len(sequences), (length + 3) // 4), dtype=np.uint8)
+    # Pack each offset into its corresponding 2-bit lane.
+    for offset in range(4):
+        columns = codes[:, offset::4]
+        packed[:, : columns.shape[1]] |= columns << np.uint8(2 * offset)
+    return packed, length
+
+
 def _hamming_distance(left: str, right: str) -> int:
-    return sum(a != b for a, b in zip(left, right))
+    """Exact scalar Hamming distance, retained for public/internal callers."""
+    if len(left) != len(right):
+        raise ValueError("Hamming distance requires equal-length sequences")
+    left_bits = _hamming_bits(str(left))
+    right_bits = _hamming_bits(str(right))
+    mask = int.from_bytes(b"\x01" * len(left), "little")
+    xor = left_bits ^ right_bits
+    xor |= xor >> 4
+    xor |= xor >> 2
+    xor |= xor >> 1
+    return (xor & mask).bit_count()
+
+
+def _packed_distance(packed: np.ndarray, index: int, other: np.ndarray) -> np.ndarray:
+    xor = np.bitwise_xor(other, packed[index])
+    return _PACKED_MISMATCHES[xor].sum(axis=1, dtype=np.uint16)
+
+
+def _distance_matrix(sequences: Sequence[str]) -> tuple[np.ndarray, int]:
+    """Compute exact all-pairs distances using benchmark-selected backends."""
+    packed, length = _encode_packed(sequences)
+    n = len(sequences)
+    # GPU matmul wins for resident medium-sized matrices. This path is bounded
+    # to avoid allocating quadratic tensors for large saturation archives.
+    if n >= 512 and n <= 4096 and n * length >= 250_000:
+        try:
+            import torch
+
+            if torch.cuda.is_available():
+                codes = _DNA_CODES[np.frombuffer("".join(sequences).encode("ascii"), dtype=np.uint8)].reshape(n, length)
+                onehot = torch.nn.functional.one_hot(torch.from_numpy(codes.astype(np.int64)), 4).reshape(n, length * 4).to(device="cuda", dtype=torch.float32)
+                distances = (length - onehot @ onehot.T).to(torch.int32).cpu().numpy().astype(np.uint16)
+                return distances, length
+        except (ImportError, RuntimeError):
+            pass
+    distances = np.empty((n, n), dtype=np.uint16)
+    for index in range(n):
+        distances[index] = _packed_distance(packed, index, packed)
+    return distances, length
 
 
 def _rank_archive(
@@ -101,38 +239,108 @@ def _rank_archive(
     return sorted(ranked, key=lambda item: (-item[1][0], item[0]))
 
 
+@lru_cache(maxsize=131072)
+def _hamming_bits(sequence: str) -> int:
+    # Python's arbitrary-width XOR and bit_count run in compiled code. Byte
+    # lanes preserve every ASCII symbol (including non-DNA custom alphabets).
+    return int.from_bytes(sequence.encode("ascii"), "little")
+
+
+def _hamming_at_least(left: str, right: str, minimum: int) -> bool:
+    """Return whether two ASCII sequences meet a Hamming threshold."""
+    if minimum <= 0:
+        return True
+    if len(left) != len(right):
+        raise ValueError("Hamming distance requires equal-length sequences")
+    xor = _hamming_bits(str(left)) ^ _hamming_bits(str(right))
+    xor |= xor >> 4
+    xor |= xor >> 2
+    xor |= xor >> 1
+    mask = int.from_bytes(b"\x01" * len(left), "little")
+    return (xor & mask).bit_count() >= minimum
+
+
 def _select_diverse(
     ranked: Sequence[tuple[str, tuple[float, float]]],
     count: int,
     diversity: int,
+    *,
+    fallback: bool = True,
 ) -> list[tuple[str, tuple[float, float]]]:
     if count == 1 or diversity == 0:
         return list(ranked[:count])
-    selected: list[tuple[str, tuple[float, float]]] = []
-    for item in ranked:
-        sequence = item[0]
-        if all(
-            _hamming_distance(sequence, chosen[0]) >= diversity for chosen in selected
-        ):
-            selected.append(item)
-            if len(selected) == count:
-                break
-    if len(selected) == count:
+    if not ranked:
+        return []
+    length = len(ranked[0][0])
+
+    # Hamming checks dominate long-sequence saturation runs.  Native loops
+    # retain early exits (important for closely related candidates), avoid
+    # quadratic distance matrices, and release the GIL.  Fallback starting
+    # points are independent and therefore evaluated across CPU cores.
+    if (
+        _greedy_indices_numba is not None
+        and len(ranked) * length >= 10_000
+        and all(len(item[0]) == length for item in ranked)
+    ):
+        encoded = np.frombuffer(
+            "".join(str(item[0]) for item in ranked).encode("ascii"),
+            dtype=np.uint8,
+        ).reshape(len(ranked), length)
+        indices, selected_count = _greedy_indices_numba(
+            encoded, count, diversity, 0
+        )
+        selected = [ranked[int(index)] for index in indices[:selected_count]]
+        if selected_count == count or not fallback:
+            return selected
+        starts = min(len(ranked), 32) - 1
+        if starts <= 0:
+            return selected
+        alternatives, lengths = _alternative_indices_numba(
+            encoded, count, diversity, starts
+        )
+        complete = np.flatnonzero(lengths == count)
+        if len(complete):
+            offset = int(complete[0])
+            return [ranked[int(index)] for index in alternatives[offset, :count]]
+        best_offset = int(np.argmax(lengths))
+        if int(lengths[best_offset]) > len(selected):
+            return [
+                ranked[int(index)]
+                for index in alternatives[best_offset, : lengths[best_offset]]
+            ]
         return selected
-    best = selected
-    for start in range(1, min(len(ranked), 32)):
-        alternative = [ranked[start]]
+
+    mask = int.from_bytes(b"\x01" * length, "little")
+
+    def select(start):
+        selected = [ranked[start]]
+        bits = [_hamming_bits(str(ranked[start][0]))]
         for index, item in enumerate(ranked):
             if index == start:
                 continue
-            sequence = item[0]
-            if all(
-                _hamming_distance(sequence, chosen[0]) >= diversity
-                for chosen in alternative
-            ):
-                alternative.append(item)
-                if len(alternative) == count:
-                    return alternative
+            value = _hamming_bits(str(item[0]))
+            for previous in bits:
+                xor = value ^ previous
+                xor |= xor >> 4
+                xor |= xor >> 2
+                xor |= xor >> 1
+                if (xor & mask).bit_count() < diversity:
+                    break
+            else:
+                selected.append(item)
+                bits.append(value)
+                if len(selected) == count:
+                    break
+        return selected
+
+    selected = select(0)
+    if len(selected) == count or not fallback:
+        return selected
+    best = selected
+    for start in range(1, min(len(ranked), 32)):
+        alternative = select(start)
+        if len(alternative) == count:
+            return alternative
         if len(alternative) > len(best):
             best = alternative
     return best
@@ -148,7 +356,8 @@ def _finalize(
 ) -> OptimizationResult:
     if len(archive) < config.num_candidates:
         raise RuntimeError(
-            f"only {len(archive)} unique sequences were scored; {config.num_candidates} required"
+            f"only {len(archive)} unique sequences were scored; {config.num_candidates} required; "
+            "increase the initial population or search budget"
         )
     ranked = _select_diverse(
         _rank_archive(archive, scorer),
@@ -158,7 +367,7 @@ def _finalize(
     if len(ranked) < config.num_candidates:
         raise RuntimeError(
             f"only {len(ranked)} sequences satisfy diversity={config.diversity}; "
-            "increase budget or lower diversity"
+            "increase the initial population or budget, or lower diversity"
         )
     metadata = {
         **metadata,
@@ -189,6 +398,11 @@ def _initial(
     anchor: str | None = None,
 ) -> np.ndarray:
     maximum_distance = int(getattr(space, "max_hamming_distance", space.length))
+    capacity = getattr(space, "capacity", space.alphabet_size**space.length)
+    if config.num_candidates > capacity:
+        raise ValueError(
+            f"requested {config.num_candidates} unique candidates exceeds sequence space capacity {capacity}"
+        )
     if config.num_candidates > 1 and config.diversity > maximum_distance:
         raise ValueError(
             f"diversity={config.diversity} exceeds the {maximum_distance} mutable "
@@ -228,9 +442,12 @@ def _initial(
         values = np.asarray(list(seeds), dtype=str)
     else:
         values = space.validate(initial)
+    if not len(values):
+        raise ValueError("initial must contain at least one sequence")
     if len(values) < config.num_candidates:
         raise ValueError(
-            f"initial must contain at least {config.num_candidates} sequences"
+            f"initial must contain at least {config.num_candidates} sequences; "
+            f"received {len(values)}"
         )
     if len(values) > config.budget:
         raise ValueError(
@@ -375,13 +592,15 @@ def ism_greedy(initial, scorer, space, config, rng):
 
 @register_algorithm("simulated_annealing")
 def simulated_annealing(initial, scorer, space, config, rng):
+    # Repeated stochastic proposals still advance patience/budget; the model
+    # cache continues to avoid duplicate inference.
+    scorer.count_repeated = True
     archive: dict[str, tuple[float, float]] = {}
     current = initial.copy()
     current_scores = _score(scorer, archive, current).scores
     temperature = max(float(np.std(current_scores)), 1e-3)
     trajectory = []
     while scorer.remaining is None or scorer.remaining >= len(current):
-        before = scorer.query_count
         proposals = space.mutate_one(current, rng)
         values = _score(scorer, archive, proposals).scores
         passed = scorer.constraints_passed(proposals)
@@ -412,8 +631,6 @@ def simulated_annealing(initial, scorer, space, config, rng):
                 "mean_score": float(current_scores.mean()),
             }
         )
-        if scorer.query_count == before:
-            break
     return _finalize(
         "simulated_annealing",
         archive,
@@ -439,7 +656,10 @@ def genetic_algorithm(initial, scorer, space, config, rng):
         if not len(population):
             break
         scores = scorer.current_scores(population)
-        elite = population[np.argsort(scores)[-min(elite_count, len(population)) :]]
+        parent_count = min(elite_count, len(population))
+        order = np.lexsort((population, -scores))
+        pool = order[:min(len(population), config.parent_pool_multiplier * parent_count)]
+        elite, _ = _diverse_parent_subset(population[pool], scores[pool], parent_count)
         if hasattr(space, "offspring"):
             children = space.offspring(
                 elite, population_size, config.mutation_rate, rng
@@ -476,9 +696,75 @@ def genetic_algorithm(initial, scorer, space, config, rng):
         archive,
         config,
         scorer,
-        {"generations": len(trajectory), "elite_count": elite_count},
+        {"generations": len(trajectory), "elite_count": elite_count,
+         "parent_pool_multiplier": config.parent_pool_multiplier,
+         "parent_selection": "greedy_max_min_hamming"},
         trajectory,
     )
+
+
+def _diverse_parent_subset(sequences, scores, count):
+    """Score-ranked pool to max-min parents; retain the best as an anchor.
+
+    This is a deterministic greedy approximation, not a global optimum.
+    Equal distances favor higher score, then lexicographic sequence order.
+    """
+    sequences = np.asarray(sequences, dtype=str)
+    scores = np.asarray(scores, dtype=np.float64)
+    order = np.lexsort((sequences, -scores))
+    sequences, scores = sequences[order], scores[order]
+    if len(sequences) <= count:
+        return sequences, scores
+    codes = np.frombuffer(''.join(sequences).encode('ascii'), dtype=np.uint8).reshape(len(sequences), -1)
+    selected = [0]
+    distances = np.count_nonzero(codes != codes[0], axis=1)
+    distances[0] = -1
+    while len(selected) < count:
+        index = int(np.argmax(distances))
+        selected.append(index)
+        distances = np.minimum(distances, np.count_nonzero(codes != codes[index], axis=1))
+        distances[selected] = -1
+    return sequences[selected], scores[selected]
+
+
+def _cluster_parent_subset(sequences, scores, count, *, offset=0, cap=10, return_groups=False):
+    """Complete-link clusters (20% Hamming diameter), capped round-robin.
+
+    Score-ordered deterministic clustering; every pair in a cluster is within
+    the threshold. The rotation advances across calls, with no near-duplicate
+    padding if the capped set is smaller than the requested population.
+    """
+    sequences = np.asarray(sequences, dtype=str)
+    scores = np.asarray(scores, dtype=float)
+    order = np.lexsort((sequences, -scores))
+    unique = list(dict.fromkeys(sequences[order]))
+    lookup = {str(sequences[i]): float(scores[i]) for i in order[::-1]}
+    if not unique:
+        return np.array([], dtype=str), np.array([], dtype=float)
+    codes = np.array([list(s) for s in unique])
+    threshold = int(len(unique[0]) * .2)
+    clusters = []
+    compatible = np.ones((len(unique), len(unique)), dtype=bool)
+    for start in range(0, len(unique), 64):
+        compatible[start:start + 64] = np.count_nonzero(
+            codes[start:start + 64, None, :] != codes[None, :, :], axis=2) <= threshold
+    for index in range(len(unique)):
+        for cluster in clusters:
+            if all(compatible[index, member] for member in cluster):
+                cluster.append(index)
+                break
+        else:
+            clusters.append([index])
+    shift = offset % len(clusters)
+    clusters = clusters[shift:] + clusters[:shift]
+    selected = [cluster[level] for level in range(cap)
+                for cluster in clusters if len(cluster) > level][:count]
+    values = np.asarray([unique[i] for i in selected], dtype=str)
+    if return_groups:
+        retained = set(selected)
+        return [np.asarray([unique[i] for i in cluster[:cap] if i in retained], dtype=str)
+                for cluster in clusters if any(i in retained for i in cluster[:cap])]
+    return values, np.asarray([lookup[s] for s in values])
 
 
 @register_algorithm("adalead")
@@ -495,8 +781,11 @@ def adalead(initial, scorer, space, config, rng):
             break
         scores = scorer.current_scores(population)
         elite_count = max(1, int(round(len(population) * config.elite_fraction)))
-        elite = population[np.argsort(scores)[-elite_count:]]
-        parents = elite[rng.integers(len(elite), size=len(population))]
+        order = np.lexsort((population, -scores))
+        pool = order[:min(len(population), config.parent_pool_multiplier * elite_count)]
+        elite, _ = _cluster_parent_subset(population[pool], scores[pool], elite_count,
+                                          offset=len(trajectory))
+        parents = np.resize(elite, len(population))
         proposals = space.mutate_one(parents, rng)
         values = _score(scorer, archive, proposals).scores
         passed = scorer.constraints_passed(proposals)
@@ -518,7 +807,10 @@ def adalead(initial, scorer, space, config, rng):
         if scorer.query_count == before:
             break
     return _finalize(
-        "adalead", archive, config, scorer, {"steps": len(trajectory)}, trajectory
+        "adalead", archive, config, scorer,
+        {"steps": len(trajectory), "parent_pool_multiplier": config.parent_pool_multiplier,
+         "parent_selection": "cluster_round_robin", "parent_cluster_cap": 10,
+         "parent_cluster_diameter_fraction": 0.2}, trajectory
     )
 
 
@@ -721,6 +1013,7 @@ def optimize(
     seed: int = 0,
     mutation_rate: float = 0.02,
     elite_fraction: float = 0.2,
+    parent_pool_multiplier: int = 5,
     learning_rate: float = 0.1,
     generator_learning_rate: float = 3e-3,
     generator_pretrain_epochs: int = 20,
@@ -755,6 +1048,7 @@ def optimize(
         fixed_region=fixed_region,
         mutation_rate=mutation_rate,
         elite_fraction=elite_fraction,
+        parent_pool_multiplier=parent_pool_multiplier,
         learning_rate=learning_rate,
         generator_learning_rate=generator_learning_rate,
         generator_pretrain_epochs=generator_pretrain_epochs,
@@ -780,7 +1074,7 @@ def optimize(
                 "saturation is not supported by random search; set budget instead"
             )
         if budget is None:
-            budget = _DEFAULT_BUDGET
+            budget = _DEFAULT_RANDOM_BUDGET
         count_repeated = True
     automatic_saturation = budget is None and saturation is None
     if automatic_saturation:
@@ -808,7 +1102,7 @@ def optimize(
                 cds_reference=cds_reference,
                 **parameters,
             )
-            return saturated[0.99] if automatic_saturation else saturated
+            return saturated.selected if automatic_saturation else saturated
         resolved_budget = _DEFAULT_BUDGET if budget is None else budget
         config = OptimizationConfig(budget=resolved_budget, **parameters)
         return run(
@@ -859,7 +1153,7 @@ def optimize(
     def optimize_cds(reference, population, local_seed):
         result = execute(population, local_seed, cds_reference=reference)
         selections = (
-            result.selections.values()
+            [*result.selections.values(), result.knee, result.knee_fraction_result]
             if isinstance(result, SaturationResult)
             else (result,)
         )
@@ -914,7 +1208,7 @@ random_optimize = _named_optimizer(
     "random",
     "random_optimize",
     "Uniform random candidate sampling with a fixed proposal budget.",
-    default_budget=_DEFAULT_BUDGET,
+    default_budget=_DEFAULT_RANDOM_BUDGET,
 )
 ism_optimize = _named_optimizer("ism_greedy", "ism_optimize")
 simulated_annealing_optimize = _named_optimizer(

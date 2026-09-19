@@ -156,8 +156,10 @@ def generate_designs(
         pandas DataFrame with columns: sequence, algorithm, score, activity_*
 
     Notes:
-        - Random search: uses a finite 10,000-query default, returns top 100
-        - Other algorithms: auto-stop at saturation plateau (0.9)
+        - Random search: uses a finite 100,000-query default, returns top 100
+        - Other algorithms: auto-stop at plateau, return diverse relaxed-knee sets
+          with population-scaled minimum/patience windows (10N/40N), a
+          three-proposal-batch patience floor, and no implicit query ceiling
         - Diversity control: ensures minimum Hamming distance of 5 within each algorithm
     """
     # The suite is the complete comparison unless the caller selects a subset.
@@ -182,6 +184,8 @@ def generate_designs(
         raise ValueError("saturation is not supported by random search; set budget instead")
 
     initial_values = normalize_nucleotide_sequences(initial)
+    if not len(initial_values):
+        raise ValueError("initial must contain at least one sequence")
     if not is_CDS_optimized and len(initial_values) < num_candidates:
         raise ValueError(
             f"initial must contain at least {num_candidates} sequences; "
@@ -257,15 +261,10 @@ def generate_designs(
             pass
         elif name == "random":
             # Random search cannot detect saturation; use its finite default.
-            algo_options["budget"] = 10_000
+            algo_options["budget"] = 100_000
         else:
-            # Other algorithms: stop at the 0.9 saturation plateau.
-            algo_options["saturation"] = SaturationConfig(
-                fractions=(0.9,),
-                minimum_queries=len(initial_values),
-                plateau_patience_queries=len(initial_values) * 2,
-                maximum_queries=100_000,
-            )
+            # No implicit ceiling: stop on plateau and use relaxed-knee selection.
+            algo_options["saturation"] = SaturationConfig(fractions=(0.9,))
 
         # Run optimization
         raw_result = optimize(
@@ -284,7 +283,7 @@ def generate_designs(
         results = raw_result if isinstance(raw_result, list) else [raw_result]
         for result in results:
             if isinstance(result, SaturationResult):
-                result = result[max(result.selections)]
+                result = result.selected
             if not isinstance(result, OptimizationResult):
                 raise TypeError(
                     "generate_designs requires fixed-budget optimizer results"

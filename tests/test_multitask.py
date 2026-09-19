@@ -179,7 +179,7 @@ def test_numeric_targets_lock_only_a_jointly_feasible_prefix():
     assert not wrapped.target_stop_reached
 
 
-def test_numeric_target_can_return_default_q99_selection():
+def test_numeric_target_can_return_default_knee_fraction_selection():
     scorer = CallableScorer(lambda values: [value.count("G") for value in values])
     result = genetic_algorithm_optimize(
         scorer,
@@ -190,7 +190,8 @@ def test_numeric_target_can_return_default_q99_selection():
         diversity=0,
     )
     assert result.query_count == 4
-    assert result.metadata["saturation_fraction"] == 0.99
+    assert result.metadata["saturation_fraction"] == 0.9
+    assert result.metadata["selection"] == "quality_diversity_near_knee_gain"
     assert result.metadata["stop_reason"] == "target_reached"
     assert result.activities[0, 0] == 4
 

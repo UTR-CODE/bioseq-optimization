@@ -2,6 +2,10 @@
 
 Fit positional categorical distributions to elites. Here learning_rate is the smoothing factor, clipped to at most 1.
 
+Repeated proposals always advance budget and plateau patience; cached sequences
+do not require another model inference. An all-cached batch does not terminate
+the search on its own.
+
 | Parameter | Default | Meaning |
 |---|---|---|
 | `model` | required | Parameterized predictor accepting sequence strings |

@@ -23,7 +23,7 @@ from sequence_optimization import (
     run,
 )
 from sequence_optimization.api import resolve_fixed_positions
-from sequence_optimization.algorithms import _select_diverse
+from sequence_optimization.algorithms import _hamming_distance, _select_diverse
 from sequence_optimization.cli import main as cli_main
 
 
@@ -43,6 +43,26 @@ def test_diversity_selection_recovers_from_a_blocking_top_sequence():
         ("CA", (1.0, 0.0)),
     ]
     assert [item[0] for item in _select_diverse(ranked, 2, 2)] == ["AC", "CA"]
+
+
+def test_hamming_distance_is_exact_for_dna_strings():
+    values = ["ACGTAC", "AAAAAA", "TTTTTT", "CGTACG"]
+    for left in values:
+        for right in values:
+            assert _hamming_distance(left, right) == sum(
+                a != b for a, b in zip(left, right)
+            )
+
+
+def test_select_diverse_preserves_greedy_order_for_long_sequences():
+    ranked = [
+        ("A" * 500, (4.0, 0.0)),
+        ("A" * 250 + "C" * 250, (3.0, 0.0)),
+        ("C" * 500, (2.0, 0.0)),
+        ("G" * 500, (1.0, 0.0)),
+    ]
+    selected = _select_diverse(ranked, 3, 250)
+    assert [item[0] for item in selected] == [ranked[i][0] for i in (0, 1, 2)]
 
 
 def test_cached_scorer_enforces_unique_budget():
@@ -385,7 +405,7 @@ def test_saturation_returns_requested_q80_and_q90_archives():
             minimum_queries=8,
             plateau_patience_queries=8,
             maximum_queries=40,
-            material_improvement=1e-6,
+            material_improvement=1e-2,
         ),
         seed=4,
     )
@@ -408,7 +428,7 @@ def test_saturation_and_budget_are_mutually_exclusive():
         )
 
 
-def test_random_search_omitted_budget_counts_10000_proposals():
+def test_random_search_omitted_budget_counts_100000_proposals():
     scorer = CallableScorer(lambda values: [value.count("G") for value in values])
     result = random_optimize(
         scorer,
@@ -419,7 +439,7 @@ def test_random_search_omitted_budget_counts_10000_proposals():
         diversity=0,
         seed=4,
     )
-    assert result.query_count == 10_000
+    assert result.query_count == 100_000
     assert result.metadata["stop_reason"] == "budget"
 
 
@@ -718,7 +738,7 @@ def test_public_optimizers_expose_saturation_parameter():
             "num_candidates",
         ]
         assert signature.parameters["saturation"].default is None
-        expected_budget = 10_000 if function is so.random_optimize else None
+        expected_budget = 100_000 if function is so.random_optimize else None
         assert signature.parameters["budget"].default == expected_budget
         assert "model_weights" not in signature.parameters
         assert signature.parameters["is_CDS_optimized"].default is False

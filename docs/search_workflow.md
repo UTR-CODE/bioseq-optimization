@@ -135,18 +135,43 @@ result columns, and screening counts.
 
 `num_candidates` controls the number of sequences retained in the result. When
 `initial=None`, it also controls the number of generated starting sequences. A
-supplied initial population may be larger than `num_candidates`, which allows
-population-based optimizers to score and update more sequences in parallel.
+supplied initial population must be at least `num_candidates`; smaller
+populations raise ValueError before optimization. For 100 returned candidates,
+provide at least 100 unique starting sequences. A larger initial population is
+allowed. CDS mode retains its per-reference generated-population behavior;
+the number of reference CDSs is not the search population size.
+
+The saturation baseline is the mean objective score of the initial scoring
+batch, not the first archive containing `num_candidates` sequences. Before
+enough diverse candidates exist, snapshots are ineligible for selection and
+the search cannot declare a successful plateau. The initial mean/query count
+anchors the elbow curve; only complete candidate sets can be returned. If a
+90%-gain target was already crossed before the first complete set, that first
+eligible set is returned. Metadata records `baseline_population_mean`,
+`baseline_query_count`, and `first_complete_query_count`.
+If no complete candidate set reaches the initial mean (e.g. a few unusually
+strong seeds), return the best eligible complete snapshot and mark an unmet
+90% threshold as `selection_target_reached=False`; never return fewer sequences
+or claim a gain that was not achieved.
+
+An algorithm stopping or exhausting its budget without enough candidates
+raises a clear error; there is no duplicate padding or unrelated random
+backfill. A collection phase without progress in available diverse count or
+mean for the patience window also raises an error, avoiding endless gradient
+iterations. Increase the initial population, exploration/patience or budget,
+or reduce diversity when collection fails. Impossible sequence-space capacity
+and empty/duplicate/invalid seeds are rejected before searching.
 Every initial sequence consumes query budget, so `budget` must be at least the
 initial population size. For every optimizer except random search,
 the default `budget=None` places no fixed limit on candidate queries: the
-optimizer stops from observed plateau progress and returns the q99 selection.
+optimizer stops from observed plateau progress and returns a quality-constrained,
+diverse set around a late relaxed elbow.
 Set `budget` to a positive integer for a fixed-budget run; it must be at least
 `num_candidates`. A fixed budget limits candidate query or proposal accounting,
 not training epochs or result size.
 
 `random_optimize` always uses a fixed proposal budget and does not accept
-`saturation`. Its default `budget=10_000` counts the initial candidates followed
+`saturation`. Its default `budget=100_000` counts the initial candidates followed
 by uniformly sampled random candidates. Repeated proposals consume this budget,
 although the score cache prevents another model call for the same sequence.
 
@@ -156,6 +181,13 @@ call. In a fixed-budget or custom-saturation run with
 `count_repeated=False`, a cached sequence does not consume another counted
 query. Set `count_repeated=True` to count every proposal. The result's
 `query_count` reports the counted amount.
+
+CEM (`cross_entropy_method`) and simulated annealing always count repeated
+proposals, even with `count_repeated=False`, just like gradient methods. A
+random batch containing only cached sequences is not proof of convergence:
+search continues until plateau, a target, or budget exhaustion. Cache hits
+still avoid extra model inference. Thus their query counts include repeats
+and are no longer directly comparable to old unique-query counts.
 
 The gradient optimizers (`vanilla_activation_maximization_optimize`,
 `fast_seqprop_optimize`, `den_optimize`, and `ledidi_optimize`) require a
@@ -182,8 +214,7 @@ optimizer-budget candidates.
 
 With `budget` and `saturation` omitted, every optimizer except random search
 continues until the retained-candidate mean score stops making material progress
-and returns the earliest candidate set at 99% of the observed gain. This default
-q99 value is an `OptimizationResult`.
+and returns the default relaxed-knee result as an `OptimizationResult`.
 
 Pass `saturation=SaturationConfig(...)` to customize the plateau rules or
 request multiple gain fractions. This form returns a `SaturationResult`. Omit
@@ -194,10 +225,82 @@ Saturation parameters are:
 | Parameter | Default | Meaning |
 |---|---|---|
 | `fractions` | `(0.99,)` | Fractions of observed baseline-to-plateau gain to return |
-| `minimum_queries` | `10 * num_candidates` | Minimum counted queries before plateau stopping is allowed |
-| `plateau_patience_queries` | `20 * num_candidates` | Counted queries without material improvement before plateau stopping |
+| `minimum_queries` | `10 * N` | Minimum counted queries before plateau stopping is allowed |
+| `plateau_patience_queries` | `max(40 * N, 3 * B)` | Counted queries without material improvement before plateau stopping |
 | `maximum_queries` | `None` | Optional safety ceiling on counted queries |
-| `material_improvement` | `1e-4` | Minimum top-candidate-mean improvement considered material |
+| `material_improvement` | `1e-2` | Absolute floor for one-step material improvement |
+| `relative_material_improvement` | `1e-3` | Relative threshold applied to the current score scale |
+| `relaxed_knee` | `True` | Require the elbow to occur late in the run-relative gain curve |
+| `knee_minimum_gain_fraction` | `0.85` | Minimum observed-gain fraction for a relaxed elbow candidate |
+| `selection_minimum_gain_fraction` | `0.8` | Minimum selected-set mean, relative to observed gain |
+| `knee_fraction_tolerance` | `0.1` | Half-width of the local knee band, relative to observed gain |
+| `diversity_pool_size` | `20000` | Maximum sampled pool for diversity selection |
+
+Here `N = max(num_candidates, len(initial))`; without explicit seeds it is
+`num_candidates`. CDS runs use their generated population per reference, not
+the number of reference CDSs. Explicit query limits are used unchanged.
+`generate_designs()` uses the same defaults and has no implicit safety ceiling.
+Random search remains fixed-budget. An explicit `maximum_queries` or fixed
+`budget` is still honored.
+
+Default selection is `selection="knee_fraction"` with `relaxed_knee=True`.
+After the search stops, let `baseline` be the initial-population mean and let
+`gain = peak_retained_mean - baseline`. Elbow candidates must reach at least
+`baseline + 0.85 * gain`; among them, the maximum normalized distance above the
+query/score chord is selected. This prevents a visually sharp but low-quality
+early bend from defining the returned set.
+
+The elbow mean itself is the quality target: the historical `knee_fraction=0.9`
+discount is not applied a second time in relaxed mode. Candidate selection uses
+the full evaluated archive, initially inside `target ± 0.1 * gain`, with a
+selected-set mean floor of `baseline + 0.8 * gain`. Within this band, greedy selection
+maximizes the sum of `log(1 + Hamming distance)` to already selected sequences;
+score proximity only breaks ties. Every pair must still meet `diversity`.
+Pools larger than `diversity_pool_size=20000` are reproducibly sampled.
+If the local band is too small, it widens by score proximity. A diverse proposal
+whose mean is initially below the 80% relative floor is blended with the
+highest-mean diversity-feasible snapshot: the lowest-scoring diverse members
+are replaced first, stopping after the minimum number of replacements that
+meets the floor. A full fallback is used only if no feasible blend exists or it
+would reduce the measured diversity. Metadata records the replacement count,
+expansion, fallback, actual score range, and whether the mean floor was satisfied.
+The selected sequences may come from after the elbow; selected query count
+reports their latest discovery, not a reduced cost of running the search.
+All thresholds above are relative to the scalarized objective trajectory of the
+current run. No MRL, training-set, or other model-specific absolute cutoff is
+used. Multi-task and minimization runs therefore use the same rule. Flat curves
+fall back to the ordinary elbow logic because there is no material relative gain.
+
+`SaturationResult.selected` exposes this default candidate set; `.knee` exposes
+the elbow archive. Existing `result[0.9]` indexing still means a fraction of the
+**final observed gain**, for compatibility. Use `selection="fraction"` to
+explicitly retain that older selection policy, or `selection="knee"` for the
+elbow itself. Metadata distinguishes the selection and stopping reasons.
+
+The elbow is a retrospective selection, not an online stopping trigger.
+Plateau stopping uses a dynamic one-step threshold:
+`max(0.01, 0.001 * max(1, abs(current_top_mean)))`. Only a single observation
+that clears this threshold refreshes patience. Consecutive smaller gains do not
+accumulate into material progress, so a search that only creeps upward stops.
+An algorithm-internal stop or explicit safety ceiling does not establish a
+plateau. Without an upper limit a search can run for a long time.
+Simulated annealing retains its existing nominal cooling horizon and temperature
+floor; the nominal horizon is not a query ceiling.
+
+For a gradient optimizer with N seeds, a full update proposes N sequences,
+including repeated hard decodes. Thus `40 * N` allows approximately 40 updates
+without material improvement. This is a counted-query window, not a universal
+iteration count: CbAS/CEM batch sizes and ISM/beam neighborhood sizes differ.
+`B` is the nominal proposal batch: N for population updates, the configured
+batch size for BaseSearch/CbAS/CEM, or parents times single-mutant neighbors for
+beam/ISM (beam parents use the configured elite fraction). The `3 * B` floor
+prevents very large batches from making patience shorter than three full
+proposal batches. Duplicate caching and finite remaining budget can make actual
+batches smaller. A configured safety ceiling can still stop a run before this
+window is exhausted. Resolved limits are recorded in selection metadata.
+The minimum-query guard does not restart the patience clock; it only prevents
+stopping before that query count. See [patience calibration](patience_calibration.md)
+for the Optimus experiments and their limitations.
 
 ```python
 from sequence_optimization import (

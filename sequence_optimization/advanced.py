@@ -5,10 +5,11 @@ from __future__ import annotations
 import copy
 import heapq
 import math
+from itertools import islice
 
 import numpy as np
 
-from .algorithms import _finalize, _rank_archive, _score, register_algorithm
+from .algorithms import _cluster_parent_subset, _finalize, _rank_archive, _score, _select_diverse, register_algorithm
 from .api import CachedScorer, ScoreBatch, SequenceSpace
 from .objectives import ObjectiveScorer
 
@@ -42,6 +43,7 @@ def basesearch(initial, scorer, space, config, rng):
     capacity = getattr(space, "capacity", space.alphabet_size**space.length)
     stop_reason = "budget"
     objective_version = scorer.objective_version
+    recent_gains = {}
     mutable_positions = np.asarray(
         getattr(space, "mutable_positions", tuple(range(space.length))), dtype=int
     )
@@ -68,18 +70,49 @@ def basesearch(initial, scorer, space, config, rng):
             config.basesearch_max_stalled - stalled,
         )
         batch_attempts = 0
+        groups = _cluster_parent_subset(
+            [s for _, s in queue], [-p for p, _ in queue],
+            config.basesearch_queue_size, offset=len(trajectory), return_groups=True)
+        scheduled = np.concatenate(groups)
+        priorities = {s: -p for p, s in queue}
+        cluster_scores = np.asarray([max(priorities[s] for s in g) for g in groups])
+        cluster_gains = np.asarray([max(recent_gains.get(s, 0.) for s in g) for g in groups])
+        def rank_weights(values):
+            return np.searchsorted(np.sort(values), values, side="right") / len(values)
+        weights = rank_weights(cluster_scores) + rank_weights(cluster_gains)
+        uses = np.zeros(len(groups), dtype=int)
+        representatives_used = np.zeros(len(groups), dtype=int)
+        exploration_cursor = 0
+        candidate_parents = []
+        cluster_cap = max(1, int(np.ceil(target_batch_size * max(.2, 1 / len(groups)))))
         while len(candidates) < target_batch_size and batch_attempts < maximum_attempts:
             parent_count = min(
                 target_batch_size - len(candidates),
                 maximum_attempts - batch_attempts,
             )
             parents = []
-            for _ in range(parent_count):
-                negative_priority, parent = heapq.heappop(queue)
+            for index in range(parent_count):
+                eligible = np.flatnonzero(uses < cluster_cap)
+                if not len(eligible):
+                    uses[:] = 0
+                    eligible = np.arange(len(groups))
+                if (batch_attempts + index) % 10 < 3:
+                    available = set(eligible.tolist())
+                    while exploration_cursor % len(groups) not in available:
+                        exploration_cursor += 1
+                    group_index = exploration_cursor % len(groups)
+                    exploration_cursor += 1
+                else:
+                    p = weights[eligible] / weights[eligible].sum()
+                    group_index = int(rng.choice(eligible, p=p))
+                group = groups[group_index]
+                parent = str(group[representatives_used[group_index] % len(group)])
+                representatives_used[group_index] += 1
+                uses[group_index] += 1
                 priority = _decay_base_priority(
-                    -negative_priority, config.basesearch_decay
+                    priorities[parent], config.basesearch_decay
                 )
-                heapq.heappush(queue, (-priority, parent))
+                priorities[parent] = priority
                 parents.append(parent)
             encoded = space.encode(parents)
             for row in range(parent_count):
@@ -101,7 +134,7 @@ def basesearch(initial, scorer, space, config, rng):
             proposed = space.decode(encoded)
             attempts += parent_count
             batch_attempts += parent_count
-            for candidate in proposed:
+            for candidate, parent in zip(proposed, parents):
                 value = str(candidate)
                 if value in seen:
                     duplicates += 1
@@ -109,6 +142,7 @@ def basesearch(initial, scorer, space, config, rng):
                     continue
                 seen.add(value)
                 candidates.append(value)
+                candidate_parents.append(parent)
                 if len(candidates) == target_batch_size:
                     break
             if len(seen) == capacity:
@@ -122,9 +156,21 @@ def basesearch(initial, scorer, space, config, rng):
             else:
                 stop_reason = "proposal_stall"
             break
+        queue = [(-priorities[s], str(s)) for s in scheduled]
+        heapq.heapify(queue)
         candidate_array = np.asarray(candidates, dtype=str)
         current = _score(scorer, archive, candidate_array)
         passed = scorer.constraints_passed(candidate_array)
+        if scorer.objective_version == objective_version:
+            parent_scores = scorer.current_scores(candidate_parents)
+            recent_gains = {s: recent_gains.get(s, 0.) * .8 for s in scheduled}
+            for s, parent, value, old, keep in zip(candidate_array, candidate_parents, current.scores, parent_scores, passed):
+                if keep:
+                    gain = max(0., float(value - old))
+                    recent_gains[str(s)] = gain
+                    recent_gains[parent] = max(recent_gains.get(parent, 0.), gain)
+        else:
+            recent_gains.clear()
         if passed.any():
             accepted_sequences = candidate_array[passed]
             accepted_scores = current.scores[passed]
@@ -149,6 +195,11 @@ def basesearch(initial, scorer, space, config, rng):
             pruned += len(queue) - config.basesearch_queue_size
             queue = heapq.nsmallest(config.basesearch_queue_size, queue)
             heapq.heapify(queue)
+        representatives, priorities = _cluster_parent_subset(
+            [s for _, s in queue], [-p for p, _ in queue], config.basesearch_queue_size)
+        pruned += len(queue) - len(representatives)
+        queue = [(-float(p), str(s)) for s, p in zip(representatives, priorities)]
+        heapq.heapify(queue)
         trajectory.append(
             {
                 "query_count": scorer.query_count,
@@ -166,6 +217,11 @@ def basesearch(initial, scorer, space, config, rng):
         scorer,
         {
             "priority_decay": config.basesearch_decay,
+            "parent_selection": "quality_progress_weighted_clusters",
+            "cluster_exploitation_fraction": 0.7,
+            "cluster_proposal_share_cap": 0.2,
+            "parent_cluster_cap": 10,
+            "parent_cluster_diameter_fraction": 0.2,
             "queue_size": len(queue),
             "pruned": pruned,
             "proposal_attempts": attempts,
@@ -178,16 +234,82 @@ def basesearch(initial, scorer, space, config, rng):
     )
 
 
+def _stored_utilities_are_stationary(scorer: CachedScorer) -> bool:
+    objective = scorer.scorer
+    return (
+        isinstance(objective, ObjectiveScorer)
+        and bool(objective._activities)
+        and not objective._targets(len(next(iter(objective._activities.values()))))
+        and scorer.constraint_evaluator is None
+    )
+
+
+class _TopArchiveTracker:
+    """Maintain an exact bounded ranking for append-only stationary scores."""
+
+    def __init__(self, archive, count: int, diversity: int) -> None:
+        self.archive = archive
+        self.count = count
+        self.diversity = diversity
+        self.limit = max(128, 2 * count)
+        self.ranking: list[tuple[float, str]] = []
+        self._rebuild()
+
+    def _rebuild(self) -> None:
+        limit = min(self.limit, len(self.archive))
+        self.ranking = heapq.nsmallest(
+            limit,
+            ((-value[0], key) for key, value in self.archive.items()),
+        )
+
+    def update(self, novel_sequences) -> None:
+        additions = sorted(
+            (-self.archive[str(sequence)][0], str(sequence))
+            for sequence in novel_sequences
+        )
+        if additions:
+            self.ranking = list(
+                islice(heapq.merge(self.ranking, additions), self.limit)
+            )
+
+    def select(self) -> tuple[np.ndarray, np.ndarray]:
+        while True:
+            ranked = [(key, self.archive[key]) for _, key in self.ranking]
+            selected = _select_diverse(
+                ranked, self.count, self.diversity, fallback=False
+            )
+            if len(selected) == self.count:
+                break
+            if len(self.ranking) == len(self.archive):
+                selected = _select_diverse(ranked, self.count, self.diversity)
+                break
+            self.limit = min(len(self.archive), 2 * self.limit)
+            self._rebuild()
+        return (
+            np.asarray([item[0] for item in selected], dtype=str),
+            np.asarray([item[1][0] for item in selected], dtype=np.float64),
+        )
+
+
 def _top_archive(
     archive: dict[str, tuple[float, float]],
     count: int,
     scorer: CachedScorer,
+    diversity: int = 0,
 ) -> tuple[np.ndarray, np.ndarray]:
+    # Only use stored utilities when no target gates can change their meaning.
+    stationary = _stored_utilities_are_stationary(scorer)
+    if stationary and diversity == 0:
+        ranked = heapq.nsmallest(count, archive.items(), key=lambda item: (-item[1][0], item[0]))
+        return (
+            np.asarray([item[0] for item in ranked], dtype=str),
+            np.asarray([item[1][0] for item in ranked], dtype=np.float64),
+        )
     ranked = _rank_archive(archive, scorer)
     if ranked:
         passed = scorer.constraints_passed([item[0] for item in ranked])
         ranked = [item for item, keep in zip(ranked, passed) if keep]
-    ranked = ranked[:count]
+    ranked = _select_diverse(ranked, count, diversity)
     return (
         np.asarray([item[0] for item in ranked], dtype=str),
         np.asarray([item[1][0] for item in ranked], dtype=np.float64),
@@ -198,10 +320,20 @@ def _top_archive(
 def beam_search(initial, scorer, space, config, rng):
     """Expand single mutants of the best current sequences as a shared beam."""
     archive: dict[str, tuple[float, float]] = {}
-    initial_scores = _score(scorer, archive, initial).scores
+    _score(scorer, archive, initial)
     beam_width = max(1, int(round(config.num_candidates * config.elite_fraction)))
-    order = np.argsort(initial_scores)[::-1][:beam_width]
-    beam = initial[order]
+    pool_width = config.parent_pool_multiplier * beam_width
+    tracker = (
+        _TopArchiveTracker(archive, pool_width, config.diversity)
+        if _stored_utilities_are_stationary(scorer)
+        else None
+    )
+    beam, _ = (
+        tracker.select()
+        if tracker is not None
+        else _top_archive(archive, pool_width, scorer, config.diversity)
+    )
+    beam, _ = _cluster_parent_subset(beam, scorer.current_scores(beam), beam_width)
     trajectory = []
     rounds = 0
     while scorer.remaining is None or scorer.remaining > 0:
@@ -211,10 +343,24 @@ def beam_search(initial, scorer, space, config, rng):
             proposals = proposals[chosen]
         if not len(proposals):
             break
+        novel = (
+            [str(sequence) for sequence in proposals if str(sequence) not in archive]
+            if tracker is not None
+            else ()
+        )
         before = scorer.query_count
         _score(scorer, archive, proposals)
         rounds += 1
-        beam, beam_scores = _top_archive(archive, beam_width, scorer)
+        if tracker is not None:
+            tracker.update(novel)
+            beam, beam_scores = tracker.select()
+        else:
+            beam, beam_scores = _top_archive(
+                archive, pool_width, scorer, config.diversity
+            )
+        beam, beam_scores = _cluster_parent_subset(beam, beam_scores, beam_width, offset=rounds)
+        if not len(beam):
+            break
         trajectory.append(
             {
                 "query_count": scorer.query_count,
@@ -229,7 +375,10 @@ def beam_search(initial, scorer, space, config, rng):
         archive,
         config,
         scorer,
-        {"rounds": rounds, "beam_width": beam_width},
+        {"rounds": rounds, "beam_width": beam_width, "parent_diversity": config.diversity,
+         "parent_pool_multiplier": config.parent_pool_multiplier,
+         "parent_selection": "cluster_round_robin", "parent_cluster_cap": 10,
+         "parent_cluster_diameter_fraction": 0.2},
         trajectory,
     )
 
@@ -237,6 +386,7 @@ def beam_search(initial, scorer, space, config, rng):
 @register_algorithm("cross_entropy_method")
 def cross_entropy_method(initial, scorer, space, config, rng):
     """Optimize a position-wise categorical generator with elite samples."""
+    scorer.count_repeated = True
     archive: dict[str, tuple[float, float]] = {}
     initial_batch = _score(scorer, archive, initial)
     encoded = space.encode(initial)

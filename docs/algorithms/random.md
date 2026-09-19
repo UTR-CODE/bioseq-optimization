@@ -12,7 +12,7 @@ trajectory.
 | `initial` | required | Starting sequences, or None for random initialization |
 | `objective` | required | Per-output numeric targets or maximize, minimize, and ignore directions; an objective object is also accepted |
 | `num_candidates` | required | Number of unique retained results |
-| `budget` | 10000 | Number of candidate proposals, including the initial candidates |
+| `budget` | 100000 | Number of candidate proposals, including the initial candidates |
 | `saturation` | None | Not supported; use `budget` |
 | `constraint` | None | One constraint callable or a list of independently intersected constraint callables |
 | `diversity` | 5 | Minimum pairwise Hamming distance among returned sequences; zero disables it |

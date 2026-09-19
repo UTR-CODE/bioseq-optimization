@@ -1,6 +1,22 @@
 # adalead_optimize
 
+Parent scheduling now groups score-ordered candidates into deterministic
+complete-link clusters with maximum Hamming diameter 20% of sequence length
+(10 bases for 50-nt Optimus). Each cluster retains at most 10 expansion
+representatives. Selection visits clusters round-robin, taking one representative
+per cluster before taking a second, with a rotating start across rounds.
+AdaLead and beam apply this within their high-quality parent pool; BaseSearch
+also prunes its queue by this cap. This limits search representatives, not the
+number of final candidates per cluster. Several small output clusters are
+acceptable; audit the largest and top-two cluster shares for concentration.
+
 Single-base mutations of selected elite parents.
+
+For N elites, take up to `parent_pool_multiplier * N` highest-scoring population
+members, keep the best as an anchor, then greedily select the most distant
+parents using minimum Hamming distance to those already selected. The default
+multiplier is 5; use 2 for a narrower quality pool or 1 for score-only elites.
+This local AdaLead variant uses single-base proposals and elitist replacement.
 
 | Parameter | Default | Meaning |
 |---|---|---|
@@ -19,6 +35,7 @@ Single-base mutations of selected elite parents.
 | `count_repeated` | False | Charge repeated proposals even when cached |
 | `is_CDS_optimized` | False | Independently optimize each initial sequence as a protein-preserving CDS |
 | `elite_fraction` | 0.2 | Elite proportion (0 < value <= 1) |
+| `parent_pool_multiplier` | 5 | Positive integer candidate-pool multiplier for parent selection |
 
 ```python
 from sequence_optimization import adalead_optimize, random_seed_sequences

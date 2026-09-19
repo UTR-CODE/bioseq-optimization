@@ -5,6 +5,14 @@ and mutation operate on whole codons. Each initial CDS is optimized independentl
 every result starts with `ATG`, ends with `TAA`, `TAG`, or `TGA`, and encodes the
 same protein as that initial sequence. Only the standard genetic code is used.
 
+For N parents, first take up to `parent_pool_multiplier * N` highest-scoring
+members of the current feasible population. Keep the highest-scoring anchor,
+then greedily add the candidate maximizing its minimum Hamming distance to
+selected parents. The default multiplier is 5; 2 narrows the quality pool and
+1 selects score-ranked elites. Parent count, crossover, mutation, and survivor
+selection remain unchanged. This greedy diversity heuristic does not guarantee
+a global optimum or prevent later generations from converging.
+
 | Parameter | Default | Meaning |
 |---|---|---|
 | `model` | required | Parameterized predictor accepting sequence strings |
@@ -22,6 +30,7 @@ same protein as that initial sequence. Only the standard genetic code is used.
 | `count_repeated` | False | Charge repeated proposals even when cached |
 | `mutation_rate` | 0.02 | Mutation probability per position (0 < value <= 1); per codon for constrained CDS |
 | `elite_fraction` | 0.2 | Elite proportion (0 < value <= 1) |
+| `parent_pool_multiplier` | 5 | Candidate-pool multiplier before diverse parent selection |
 | `is_CDS_optimized` | False | Validate and independently optimize each initial sequence as a protein-preserving CDS |
 
 ```python

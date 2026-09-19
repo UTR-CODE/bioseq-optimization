@@ -17,11 +17,7 @@ from pathlib import Path
 
 from bioseq_models import load_model
 
-from sequence_optimization import (
-    SequencePredictor,
-    generate_designs,
-    random_seed_sequences,
-)
+from sequence_optimization import generate_designs, random_seed_sequences
 
 
 def main() -> None:
@@ -72,8 +68,8 @@ def main() -> None:
     # Run all 13 algorithms
     print("\nRunning all 13 optimization algorithms...")
     print("- Default: 100 candidates per algorithm")
-    print("- Random search: 10,000 samples → top 100 by default")
-    print("- Other algorithms: auto-stop at saturation plateau (0.9)")
+    print("- Random search: 100,000 proposals including initial seeds → top 100 by default")
+    print("- Other algorithms: no implicit query cap; return diverse relaxed-knee candidates")
     print("- Diversity: minimum Hamming distance = 5")
 
     result_df = generate_designs(
@@ -90,10 +86,10 @@ def main() -> None:
     print("=" * 80)
     print(f"\nTotal candidates: {len(result_df)}")
     print(f"Algorithms: {len(result_df['algorithm'].unique())}")
-    print(f"\nCandidates per algorithm:")
+    print("\nCandidates per algorithm:")
     print(result_df.groupby('algorithm').size().to_string())
 
-    print(f"\nBest scores per algorithm:")
+    print("\nBest scores per algorithm:")
     best_scores = result_df.groupby('algorithm')['score'].max().sort_values(ascending=False)
     print(best_scores.to_string())
 

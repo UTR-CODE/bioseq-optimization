@@ -6,7 +6,7 @@ defaults described in the [README](../README.md) work without any of these setti
 
 `generate_designs()` exposes `budget`, `saturation`, `fixed_region`,
 `is_CDS_optimized`, and `count_repeated` directly. With `budget=None`, non-random
-algorithms use saturation stopping at the default 0.9 fraction; random search uses
+algorithms use plateau stopping and relaxed-knee selection; random search uses
 its finite proposal budget because it does not support saturation. Set a positive
 `budget` to use the same fixed query limit for every selected algorithm. `budget`
 and `saturation` cannot be combined.
@@ -80,21 +80,16 @@ result_df = generate_designs(
 
 ## Saturation Screening
 
-By default, algorithms stop at **0.9 saturation** (90% of the achievable gain).
+By default, non-random algorithms stop after a plateau and select a diverse set
+around a late relaxed knee. The knee must reach at least 85% of the gain observed
+in that run. Selection prefers candidates within 10% of the knee score while
+requiring the returned set's mean score to retain at least 80% of observed gain.
 
 ![Saturation Screening](figures/saturation_optimus_example.png)
 
-**Example** (Optimus 5-Prime, genetic algorithm):
-
-| Saturation | Queries | Predicted MRL |
-|------------|---------|---------------|
-| 0.8 | 3,247 | 9.234 |
-| **0.9** (default) | 4,892 | 9.456 |
-| 0.99 | 12,341 | 9.498 |
-
-Early stopping is not only about compute. Pushing an optimizer to full convergence drives
-sequences far from the training distribution, where predictions are unreliable. Stopping at
-0.9 keeps candidates closer to the training distribution while retaining most of the gain.
+These thresholds are computed from the scalarized score trajectory of the current
+run. They do not use an MRL cutoff, training-set distribution, or any other
+model-specific absolute value.
 
 ```python
 from sequence_optimization import SaturationConfig

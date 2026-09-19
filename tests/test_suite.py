@@ -189,13 +189,13 @@ def test_generate_designs_cds_optimizes_each_reference_independently():
     assert set(frame["sequence"].str[-3:]).issubset({"TAA", "TAG", "TGA"})
 
 
-def test_generate_designs_rejects_initial_smaller_than_candidate_count():
-    with pytest.raises(ValueError, match="at least 10 sequences"):
+def test_generate_designs_rejects_budget_smaller_than_candidate_count():
+    with pytest.raises(ValueError, match="budget must be at least num_candidates"):
         generate_designs(
             CallableScorer(_count_g),
             algorithms=["random"],
             length=4,
-            initial=["AAAA", "CCCC"],
+            initial=random_seed_sequences(length=4, count=10, seed=42),
             objective=["maximize"],
             num_candidates=10,
             budget=8,

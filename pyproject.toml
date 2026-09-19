@@ -9,6 +9,7 @@ description = "Model-agnostic DNA and RNA activity optimization"
 requires-python = ">=3.10"
 dependencies = [
     "numpy>=1.24",
+    "numba>=0.60",
     "pandas>=2",
     "torch>=2.1",
 ]

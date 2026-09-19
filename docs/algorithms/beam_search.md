@@ -1,6 +1,24 @@
 # beam_search_optimize
 
+Parent scheduling now groups score-ordered candidates into deterministic
+complete-link clusters with maximum Hamming diameter 20% of sequence length
+(10 bases for 50-nt Optimus). Each cluster retains at most 10 expansion
+representatives. Selection visits clusters round-robin, taking one representative
+per cluster before taking a second, with a rotating start across rounds.
+AdaLead and beam apply this within their high-quality parent pool; BaseSearch
+also prunes its queue by this cap. This limits search representatives, not the
+number of final candidates per cluster. Several small output clusters are
+acceptable; audit the largest and top-two cluster shares for concentration.
+
 Explore substitution neighborhoods of a beam. Width is max(1, round(num_candidates × elite_fraction)).
+
+For a beam of N parents, first collect up to `parent_pool_multiplier * N`
+high-scoring candidates subject to the same `diversity` distance as returned
+candidates. Keep the highest-scoring anchor, then select N parents by greedy
+maximum minimum Hamming distance. Default multiplier is 5; use 2 for a narrower
+pool or 1 for the previous score-ranked selection. The beam never exceeds N;
+if too few feasible parents exist it uses the available smaller set. Zero
+`diversity` removes the hard distance floor but retains diversity prioritization.
 
 | Parameter | Default | Meaning |
 |---|---|---|

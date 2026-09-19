@@ -255,7 +255,7 @@ saturated = genetic_algorithm_optimize(
         minimum_queries=40,
         plateau_patience_queries=80,
         maximum_queries=400,
-        material_improvement=1e-4,
+        material_improvement=1e-2,
     ),
 )
 
