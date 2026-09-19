@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import inspect
+from dataclasses import replace
 import random
 from collections.abc import Callable, Iterable, Sequence
 from functools import lru_cache
@@ -862,8 +863,8 @@ def run(
     initial: Sequence[str] | np.ndarray | None = None,
     objective: TargetObjective
     | MultiTaskObjective
-    | list[str | float]
-    | tuple[str | float, ...]
+    | list[str]
+    | tuple[str, ...]
     | None = None,
     constraint: ConstraintSpec | None = None,
     seed: int = 0,
@@ -969,8 +970,8 @@ def run_many(
     initial: Sequence[str] | np.ndarray | None = None,
     objective: TargetObjective
     | MultiTaskObjective
-    | list[str | float]
-    | tuple[str | float, ...]
+    | list[str]
+    | tuple[str, ...]
     | None = None,
     constraint: ConstraintSpec | None = None,
     seed: int = 0,
@@ -998,12 +999,13 @@ def optimize(
     initial: Sequence[str] | np.ndarray | None,
     objective: TargetObjective
     | MultiTaskObjective
-    | list[str | float]
-    | tuple[str | float, ...]
+    | list[str]
+    | tuple[str, ...]
     | None,
     num_candidates: int,
     *,
     algorithm: str = "genetic_algorithm",
+    stop_values: Sequence[float | None] | None = None,
     budget: int | None = None,
     saturation: SaturationConfig | None = None,
     diversity: int = 5,
@@ -1039,9 +1041,16 @@ def optimize(
 
     ``diversity`` is the minimum pairwise Hamming distance among returned
     sequences. ``fixed_region`` holds zero-based positions or Python-style
-    slices to one shared sequence template. Numeric objective entries are
-    raw-output lower targets.
+    slices to one shared sequence template. ``stop_values`` supplies directional
+    stopping thresholds, defaulting to None (unlimited) for every output.
     """
+    if stop_values is not None:
+        if isinstance(objective, (list, tuple)):
+            objective = MultiTaskObjective(directions=objective, stop_values=stop_values)
+        elif isinstance(objective, MultiTaskObjective):
+            objective = replace(objective, stop_values=stop_values)
+        else:
+            raise ValueError("stop_values requires a directions objective")
     parameters = dict(
         num_candidates=num_candidates,
         diversity=diversity,

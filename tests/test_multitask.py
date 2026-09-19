@@ -118,7 +118,8 @@ def test_numeric_objective_target_stops_and_is_reported():
     result = genetic_algorithm_optimize(
         scorer,
         SequenceSpace(4),
-        objective=[4.0],
+        objective=["maximize"],
+        stop_values=[4.0],
         initial=["AAAA", "CCCC", "GGGG", "TTTT"],
         budget=40,
         num_candidates=4,
@@ -139,7 +140,7 @@ def test_numeric_target_becomes_a_gate_for_remaining_objectives():
             [[value.count("G"), value.count("C")] for value in values]
         )
     )
-    wrapped = ObjectiveScorer(scorer, [2.0, "maximize"])
+    wrapped = ObjectiveScorer(scorer, ["maximize", "maximize"], stop_values=[2.0, None])
     before = wrapped.score(["AAAA", "GCCC", "CCCC"])
     np.testing.assert_allclose(before.scores[:2], [-1.0, 1.0])
     wrapped.score(["GGAA", "GGCC"])
@@ -160,7 +161,10 @@ def test_numeric_target_rescores_cached_uncertainty():
             np.ones((len(values), 2)),
         )
     )
-    cached = CachedScorer(ObjectiveScorer(scorer, [2.0, "maximize"]), budget=2)
+    cached = CachedScorer(
+        ObjectiveScorer(scorer, ["maximize", "maximize"], stop_values=[2.0, None]),
+        budget=2,
+    )
     first = cached.score(["CCCC"])
     np.testing.assert_allclose(first.uncertainties, [np.sqrt(0.5)])
     cached.score(["GGCC"])
@@ -173,7 +177,7 @@ def test_numeric_targets_lock_only_a_jointly_feasible_prefix():
     scorer = CallableScorer(
         lambda values: np.asarray([activities[str(value)] for value in values])
     )
-    wrapped = ObjectiveScorer(scorer, [2.0, 2.0])
+    wrapped = ObjectiveScorer(scorer, ["maximize", "maximize"], stop_values=[2.0, 2.0])
     wrapped.score(["left", "right"])
     assert wrapped.thresholds_passed(["left", "right"]).tolist() == [True, False]
     assert not wrapped.target_stop_reached
@@ -185,7 +189,8 @@ def test_numeric_target_can_return_default_knee_fraction_selection():
         scorer,
         SequenceSpace(4),
         initial=["AAAA", "CCCC", "GGGG", "TTTT"],
-        objective=[4.0],
+        objective=["maximize"],
+        stop_values=[4.0],
         num_candidates=4,
         diversity=0,
     )
@@ -201,7 +206,7 @@ def test_numeric_target_can_return_default_knee_fraction_selection():
     [[float("nan")], [float("inf")], [True], ["maximize", object()]],
 )
 def test_invalid_numeric_objective_targets(directions):
-    with pytest.raises(ValueError, match="finite numeric targets"):
+    with pytest.raises(ValueError, match="maximize, minimize, or ignore"):
         MultiTaskObjective(directions=directions)
 
 

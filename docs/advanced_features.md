@@ -104,14 +104,25 @@ result_df = generate_designs(
 
 ## Threshold-Based Multi-Task Optimization
 
-Objectives accept numbers (thresholds) mixed with `"maximize"`, `"minimize"`, and
-`"ignore"`. A numeric threshold means "reach this value, then just stay above it".
+`objective` accepts only `"maximize"`, `"minimize"`, and `"ignore"`.
+Supply stopping lines separately with `stop_values`, in model-output order.
+Omitting it is equivalent to a list of `None` values (no limits).
+
+For `maximize`, search toward the line while the prediction is below it;
+for `minimize`, search toward the line while the prediction is above it.
+On reaching or crossing a line, that task stops contributing to further improvement
+and becomes a maintained threshold (>= for maximize, <= for minimize).
+Other tasks continue. If all non-ignored tasks have lines, search stops when a
+single scored sequence satisfies all of them. A `None` task remains open-ended;
+an ignored output must have `None`. Raw predictions are not clipped, and a
+discrete mutation can overshoot the stopping line. This is not a hard output range.
 
 ```python
-# Once task_0 reaches 0.9, maintain >= 0.9 and focus on maximizing task_1
+# K562 high, HepG2 and SKNSH low: stop at directional thresholds.
 result_df = generate_designs(
-    model, length=230, initial=initial,
-    objective=[0.9, "maximize"],
+    model, length=200, initial=initial,
+    objective=["maximize", "minimize", "minimize"],
+    stop_values=[6.0, -2.0, -2.0],
     seed=42,
 )
 ```

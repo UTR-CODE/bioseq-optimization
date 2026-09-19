@@ -107,14 +107,15 @@ def generate_designs(
     initial: Sequence[str] | np.ndarray,
     objective: TargetObjective
     | MultiTaskObjective
-    | list[str | float]
-    | tuple[str | float, ...]
+    | list[str]
+    | tuple[str, ...]
     | None,
     *,
     algorithms: Sequence[str] | None = None,
     num_candidates: int = 100,
     diversity: int = 5,
     weights: Sequence[float] | None = None,
+    stop_values: Sequence[float | None] | None = None,
     differentiable_model: SequenceScorer | None = None,
     tasks: Sequence[str] | None = None,
     alphabet: str = "ACGT",
@@ -138,6 +139,7 @@ def generate_designs(
         num_candidates: Candidates per algorithm (default: 100)
         diversity: Minimum Hamming distance between candidates (default: 5)
         weights: Relative importance per model output (default: equal weighting)
+        stop_values: Per-output directional stopping thresholds; None means unlimited.
         differentiable_model: Model for gradient algorithms (optional)
         tasks: Optional output names for this generate_designs call
         alphabet: DNA/RNA alphabet (default: "ACGT")
@@ -234,6 +236,7 @@ def generate_designs(
 
     # Common options for all algorithms
     shared_options = dict(common_kwargs)
+    shared_options["stop_values"] = stop_values
     shared_options["diversity"] = diversity
     shared_options["fixed_region"] = fixed_region
     shared_options["is_CDS_optimized"] = is_CDS_optimized

@@ -212,7 +212,7 @@ class _SaturationMonitor:
         self._ranking_limit = limit
 
     def reset(self, query_count: int) -> None:
-        """Restart plateau tracking after a numeric target changes the objective."""
+        """Restart plateau tracking after a stopping line changes the objective."""
         self.archive.clear()
         self.discovery_queries.clear()
         self._ranking.clear()
@@ -915,8 +915,8 @@ def _optimize_with_saturation(
     initial=None,
     objective: TargetObjective
     | MultiTaskObjective
-    | list[str | float]
-    | tuple[str | float, ...]
+    | list[str]
+    | tuple[str, ...]
     | None = None,
     constraint: ConstraintSpec | None = None,
     saturation: SaturationConfig,

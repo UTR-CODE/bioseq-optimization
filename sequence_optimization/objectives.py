@@ -149,14 +149,15 @@ class MultiTaskObjective:
     centers: Sequence[float] | None = None
     scales: Sequence[float] | None = None
     temperature: float = 0.1
-    directions: Sequence[str | float] | None = None
+    directions: Sequence[str] | None = None
     weights: Sequence[float] | None = None
+    stop_values: Sequence[float | None] | None = None
 
     def __post_init__(self):
         if self.directions is not None:
             if isinstance(self.directions, str) or not self.directions:
                 raise ValueError(
-                    "directions must be a nonempty list of numeric targets, "
+                    "directions must be a nonempty list of "
                     "maximize, minimize, or ignore"
                 )
             directions = []
@@ -165,26 +166,39 @@ class MultiTaskObjective:
                     normalized = value.strip().lower()
                     if normalized not in {"maximize", "minimize", "ignore"}:
                         raise ValueError(
-                            "directions entries must be finite numeric targets, "
-                            "maximize, minimize, or ignore"
+                            "directions entries must be maximize, minimize, or ignore"
                         )
                     directions.append(normalized)
-                elif (
-                    isinstance(value, bool)
-                    or not isinstance(value, Real)
-                    or not np.isfinite(value)
-                ):
-                    raise ValueError(
-                        "directions entries must be finite numeric targets, "
-                        "maximize, minimize, or ignore"
-                    )
                 else:
-                    directions.append(float(value))
+                    raise ValueError(
+                        "directions entries must be maximize, minimize, or ignore"
+                    )
             if all(value == "ignore" for value in directions):
                 raise ValueError("at least one output must be optimized")
             if len(self.high) or len(self.low):
                 raise ValueError("use directions or high/low, not both")
             object.__setattr__(self, "directions", tuple(directions))
+            stops = (
+                [None] * len(directions)
+                if self.stop_values is None
+                else list(self.stop_values)
+            )
+            if len(stops) != len(directions):
+                raise ValueError("stop_values must match directions length")
+            for direction, value in zip(directions, stops):
+                if value is not None and (
+                    isinstance(value, bool)
+                    or not isinstance(value, Real)
+                    or not np.isfinite(value)
+                ):
+                    raise ValueError(
+                        "stop_values entries must be finite numbers or None"
+                    )
+                if direction == "ignore" and value is not None:
+                    raise ValueError("ignored outputs must have stop_values=None")
+            object.__setattr__(self, "stop_values", tuple(stops))
+        elif self.stop_values is not None:
+            raise ValueError("stop_values requires directions")
         if self.aggregation not in {"worst", "mean", "smoothmin"}:
             raise ValueError("aggregation must be worst, mean, or smoothmin")
         if not np.isfinite(self.temperature) or self.temperature <= 0:
@@ -234,11 +248,7 @@ class MultiTaskObjective:
             index(k) for k in ([self.low] if isinstance(self.low, str) else self.low)
         ]
         if self.directions is not None:
-            high = [
-                i
-                for i, value in enumerate(self.directions)
-                if value == "maximize" or not isinstance(value, str)
-            ]
+            high = [i for i, value in enumerate(self.directions) if value == "maximize"]
             low = [i for i, value in enumerate(self.directions) if value == "minimize"]
         selected = high + low
         if not selected or len(set(selected)) != len(selected):
@@ -268,8 +278,7 @@ class MultiTaskObjective:
         direction_targets = self.target_thresholds(n_tasks)
         if direction_targets and bounded:
             raise ValueError(
-                "numeric objective targets cannot be combined with lower_bounds "
-                "or upper_bounds"
+                "stop_values cannot be combined with lower_bounds or upper_bounds"
             )
         if bounded:
             lower = {index(k): float(v) for k, v in (self.lower_bounds or {}).items()}
@@ -292,7 +301,7 @@ class MultiTaskObjective:
         return selected, signs, center, scale, bounded
 
     def target_thresholds(self, n_tasks: int | None = None) -> dict[int, float]:
-        """Return numeric direction-list entries as raw-output lower targets."""
+        """Return per-output directional stopping thresholds."""
         if self.directions is None:
             return {}
         if n_tasks is not None and len(self.directions) != n_tasks:
@@ -301,14 +310,20 @@ class MultiTaskObjective:
             )
         return {
             index: float(value)
-            for index, value in enumerate(self.directions)
-            if not isinstance(value, str)
+            for index, value in enumerate(self.stop_values)
+            if value is not None
         }
+
+    def target_sign(self, index):
+        return -1.0 if self.directions[index] == "minimize" else 1.0
 
     def has_open_objectives(self) -> bool:
         return bool(
             self.directions
-            and any(value in {"maximize", "minimize"} for value in self.directions)
+            and any(
+                value != "ignore" and stop is None
+                for value, stop in zip(self.directions, self.stop_values)
+            )
         )
 
     def _active_positions(
@@ -366,9 +381,7 @@ class MultiTaskObjective:
         if self.aggregation == "worst":
             return worst
         shifted = np.exp(-(margins - worst[:, None]) / self.temperature)
-        pooled = (
-            shifted.mean(axis=1) if weights is None else shifted @ weights
-        )
+        pooled = shifted.mean(axis=1) if weights is None else shifted @ weights
         return worst - self.temperature * np.log(pooled)
 
     def scalarize_soft(self, activities, task_names=None, reached_targets=None):
@@ -458,6 +471,9 @@ class MultiTaskObjective:
             "requested_directions": (
                 None if self.directions is None else list(self.directions)
             ),
+            "stop_values": list(self.stop_values)
+            if self.stop_values is not None
+            else [None] * n_tasks,
             "centers_or_bounds": center.tolist(),
             "scales": scale.tolist(),
             "thresholded": bounded,
@@ -498,11 +514,9 @@ class ObjectiveScorer:
     def __init__(
         self,
         scorer: SequenceScorer,
-        objective: TargetObjective
-        | MultiTaskObjective
-        | list[str | float]
-        | tuple[str | float, ...],
+        objective: TargetObjective | MultiTaskObjective | list[str] | tuple[str, ...],
         weights: Sequence[float] | None = None,
+        stop_values: Sequence[float | None] | None = None,
     ) -> None:
         self.scorer = scorer
         if isinstance(objective, (list, tuple)):
@@ -510,8 +524,13 @@ class ObjectiveScorer:
                 directions=objective,
                 aggregation="mean",
                 weights=weights,
+                stop_values=stop_values,
             )
         else:
+            if stop_values is not None:
+                if not isinstance(objective, MultiTaskObjective):
+                    raise ValueError("stop_values requires a directions objective")
+                objective = replace(objective, stop_values=stop_values)
             if weights is not None:
                 if not isinstance(objective, MultiTaskObjective):
                     raise TypeError(
@@ -541,12 +560,16 @@ class ObjectiveScorer:
             return
         eligible = np.ones(len(activities), dtype=bool)
         for index in self._reached_targets:
-            eligible &= activities[:, index] >= targets[index]
+            eligible &= (
+                activities[:, index] - targets[index]
+            ) * self.objective.target_sign(index) >= 0
         newly_reached: set[int] = set()
         for index, target in targets.items():
             if index in self._reached_targets:
                 continue
-            reaches_target = activities[:, index] >= target
+            reaches_target = (
+                activities[:, index] - target
+            ) * self.objective.target_sign(index) >= 0
             if np.any(eligible & reaches_target):
                 newly_reached.add(index)
                 eligible &= reaches_target
@@ -578,7 +601,11 @@ class ObjectiveScorer:
         passed = np.ones(len(activities), dtype=bool)
         gaps = np.zeros(len(activities), dtype=np.float64)
         for index in reached:
-            gap = np.maximum(targets[index] - activities[:, index], 0.0)
+            gap = np.maximum(
+                (targets[index] - activities[:, index])
+                * self.objective.target_sign(index),
+                0.0,
+            )
             passed &= gap == 0
             gaps += gap
         if passed.all():
@@ -630,7 +657,12 @@ class ObjectiveScorer:
             targets = self._targets(activities.shape[1])
             passed[present] = np.asarray(
                 [
-                    all(row[index] >= targets[index] for index in self._reached_targets)
+                    all(
+                        (row[index] - targets[index])
+                        * self.objective.target_sign(index)
+                        >= 0
+                        for index in self._reached_targets
+                    )
                     for row in activities
                 ],
                 dtype=bool,
@@ -650,7 +682,9 @@ class ObjectiveScorer:
             np.any(
                 np.logical_and.reduce(
                     [
-                        activities[:, index] >= target
+                        (activities[:, index] - target)
+                        * self.objective.target_sign(index)
+                        >= 0
                         for index, target in targets.items()
                     ]
                 )

@@ -26,7 +26,7 @@ change returned objective scores.
 | `model` | required | Parameterized predictor accepting sequence strings |
 | `length` | required | Candidate sequence length |
 | `initial` | required | Starting sequences, or None for random initialization |
-| `objective` | required | Per-output numeric targets or maximize, minimize, and ignore directions; an objective object is also accepted |
+| `objective` | required | Per-output maximize, minimize, or ignore directions; optional stop_values provides stopping lines; an objective object is also accepted |
 | `num_candidates` | required | Number of unique retained results |
 | `budget` | None (unlimited) | Optional fixed candidate budget; omitted runs to a plateau and returns q99 |
 | `saturation` | None | Optional SaturationConfig for custom plateau rules and gain fractions; omit budget when set |

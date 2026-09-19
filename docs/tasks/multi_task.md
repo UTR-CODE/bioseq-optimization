@@ -80,9 +80,9 @@ lets the optimizer draw `num_candidates` random starts.
 The main goal maximizes G fraction, minimizes C fraction, and ignores T
 fraction with `objective=["maximize", "minimize", "ignore"]`.
 
-A finite number in the same position sets a raw-output lower target. For
-example, `objective=[0.50, "minimize", "ignore"]` preserves G activity at or
-above 0.50 after that target is reached while continuing to minimize C.
+Add `stop_values=[0.50, None, None]` to preserve G activity at or above 0.50
+after that line is reached while continuing to minimize C. Numeric values
+are not accepted inside `objective`.
 
 An ignored output remains available in `result.activities`, but it does not
 affect the scalar objective. Active outputs use an equal-weight signed mean by

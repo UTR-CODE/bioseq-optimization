@@ -10,7 +10,7 @@ trajectory.
 | `model` | required | Parameterized predictor accepting sequence strings |
 | `length` | required | Candidate sequence length |
 | `initial` | required | Starting sequences, or None for random initialization |
-| `objective` | required | Per-output numeric targets or maximize, minimize, and ignore directions; an objective object is also accepted |
+| `objective` | required | Per-output maximize, minimize, or ignore directions; optional stop_values provides stopping lines; an objective object is also accepted |
 | `num_candidates` | required | Number of unique retained results |
 | `budget` | 100000 | Number of candidate proposals, including the initial candidates |
 | `saturation` | None | Not supported; use `budget` |
@@ -40,7 +40,7 @@ result = random_optimize(
 The optimizer scores the supplied `num_candidates` initial sequences, then
 draws uniform random sequences until it has counted `budget` proposals. Repeated
 sequences still consume the proposal budget, while cached sequences do not
-cause another model call. A numeric objective target can stop the run before
+cause another model call. A finite stop_values threshold can stop the run before
 the full budget is used.
 
 For gradient algorithms, use a [differentiable predictor](../custom_models.md#custom-input).

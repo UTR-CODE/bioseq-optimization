@@ -1,14 +1,16 @@
 # Objectives
 
-Pass one entry per output. Each entry may be `maximize`, `minimize`, `ignore`,
-or a finite numeric target. A numeric entry is a minimum in raw model-output
-units. At least one output must be active.
+Pass one entry per output: `maximize`, `minimize`, or `ignore` only.
+At least one output must be active. Set numeric stopping lines separately with
+`stop_values`; the default is a list of `None` (unlimited) for every output.
 
-Before a numeric target is reached, its margin contributes to the objective.
-Once a candidate reaches it, later selection keeps that
-output at or above the target and continues optimizing the other entries. With
-only numeric targets and `ignore` entries, the search stops when one scored
-candidate satisfies every numeric target. A positive `budget` can provide a
+Before a stopping line is reached, its margin contributes to the objective.
+For maximize, reach or exceed the line; for minimize, reach or fall below it.
+Once reached, selection maintains that threshold while optimizing other tasks.
+When every active task has a line, search stops when one scored candidate
+satisfies all lines jointly. An ignored output must have a `None` line.
+Predictions are not clipped: discrete steps may overshoot a line.
+A positive `budget` can provide a
 fixed query limit; otherwise the default plateau rules apply.
 
 Direction lists use the equal-weight mean of active signed outputs.
@@ -21,7 +23,8 @@ targeted = genetic_algorithm_optimize(
     model,
     length=50,
     initial=initial,
-    objective=[0.8, "maximize", "ignore"],
+    objective=["maximize", "minimize", "ignore"],
+    stop_values=[0.8, -2.0, None],
     num_candidates=100,
 )
 ```
@@ -30,7 +33,8 @@ targeted = genetic_algorithm_optimize(
 
 | Parameter | Default | Meaning |
 |---|---|---|
-| directions | None | Per-output numeric target or maximize, minimize, and ignore entry |
+| directions | None | Per-output maximize, minimize, or ignore entry |
+| stop_values | all None | Directional stopping lines, in model-output order |
 | high / low | empty | Selected output indices or task names; alternative to directions; high="all" selects all |
 | aggregation | "mean" | mean, worst, or smoothmin |
 | centers | None | Fixed per-output reference centers; default zero |
@@ -45,8 +49,7 @@ Bounds must cover all selected outputs and replace centers. Margins are
 when `worst_margin >= 0`. Mean and smoothmin scores do not certify this.
 Without bounds, directions guide search but do not define absolute success.
 Compute normalization from a fixed reference dataset, not each candidate batch.
-Numeric entries are a compact alternative for raw-output lower targets and
-cannot be combined with `lower_bounds` or `upper_bounds` in the same
+Stopping lines cannot be combined with `lower_bounds` or `upper_bounds` in the same
 `MultiTaskObjective`.
 
 For outputs with different units or numeric ranges, use fixed positive `scales`

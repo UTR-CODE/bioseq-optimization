@@ -350,16 +350,17 @@ A stop reason of `"plateau"` indicates that the configured patience window
 found no material improvement. `"maximum_queries"` indicates that the safety
 ceiling was reached, and `"algorithm_stopped"` indicates that the selected
 algorithm ended before either condition. `"target_reached"` indicates that a
-target-only numeric objective was satisfied. Saturation stopping describes
+all finite stopping lines were jointly satisfied with no unlimited active tasks. Saturation stopping describes
 observed progress; it does not guarantee a biological or model-specific optimum.
 
 ## Objectives and returned data
 
-Pass one entry per model output: `"maximize"`, `"minimize"`, `"ignore"`, or
-a finite numeric target. A numeric entry is a raw-output lower target. Once it
-is reached, later selection preserves that threshold while optimizing any
-remaining directions; a target-only search stops when one candidate satisfies
-all numeric entries. Numeric targets also work with the default q99 mode and
+Pass one entry per model output: `"maximize"`, `"minimize"`, or `"ignore"`.
+Use `stop_values` for optional stopping lines (default all `None`). Maximize
+reaches a line from below; minimize reaches it from above. Once reached, later
+selection preserves the threshold while optimizing remaining tasks. If all
+active tasks have lines, search stops when one candidate satisfies them jointly.
+Stopping lines also work with the default q99 mode and
 with a custom `SaturationConfig`. Active outputs use an equal-weight signed mean. Use
 [`MultiTaskObjective`](objectives.md) for fixed centers, scales, another
 aggregation, or explicit lower and upper bounds.
