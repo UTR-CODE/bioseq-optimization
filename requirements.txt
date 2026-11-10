@@ -1,1 +1,1 @@
--e .[models,analysis,motifs]
+-e .[analysis,motifs]

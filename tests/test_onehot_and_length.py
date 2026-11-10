@@ -32,7 +32,7 @@ def test_default_torch_onehot_preserves_predictions_and_gradients():
             return values[:, 2].sum(dim=1)
 
     scorer = so.SequencePredictor(Model())
-    np.testing.assert_array_equal(scorer.score(["AGGT", "AAAA"]).scores, [2, 0])
+    np.testing.assert_array_equal(scorer.score(["AGGT", "AAAA"]).scores, [[2], [0]])
     inputs = torch.from_numpy(so.onehot(["AGGT", "AAAA"])).requires_grad_()
     scores, _ = scorer.score_soft(inputs)
     scores.sum().backward()

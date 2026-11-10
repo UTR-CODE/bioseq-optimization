@@ -125,6 +125,8 @@ def generate_candidates(scorer, length, initial, objective, *, output_dir,
     sat = saturation or SaturationConfig(fractions=(.9,), selection='fraction', maximum_queries=None)
     config = _configuration(initial, num_candidates, names, seed, diversity, sat, options)
     config["objective"] = repr(objective)
+    if scorer.task_names is None:
+        scorer.score(initial[:1])
     config["task_names"] = list(scorer.task_names)
     out = Path(output_dir); _prepare(out, initial, config)
     started = time.perf_counter()

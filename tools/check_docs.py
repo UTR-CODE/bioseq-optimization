@@ -8,6 +8,8 @@ ROOT=Path(__file__).resolve().parents[1]
 errors=[];blocks=0
 for p in [ROOT/'README.md',*sorted((ROOT/'docs').rglob('*.md')),*sorted((ROOT/'examples').rglob('*.md'))]:
     text=p.read_text()
+    if any("\u4e00" <= ch <= "\u9fff" for ch in text):
+        errors.append(f"{p.relative_to(ROOT)}: expected English documentation")
     for target in re.findall(r'\]\(([^)]+)\)',text):
         if '://' in target or target.startswith('#'):continue
         dest=target.split('#',1)[0]

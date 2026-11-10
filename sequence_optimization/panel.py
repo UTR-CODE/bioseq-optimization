@@ -153,33 +153,31 @@ class ClusteredDesignPanel:
                 ]
             )
         )
-        buttons = '<button data-family="all">全部</button>' + "".join(
+        buttons = '<button data-family="all">All</button>' + "".join(
             f'<button data-family="{escape(str(f), quote=True)}">{escape(str(f))}</button>'
             for f in self.family_summary.family
         )
         tables = ""
         for family, group in self.representatives.groupby("family", sort=True):
             tables += (
-                f'<section data-family="{escape(str(family), quote=True)}"><h2>{escape(str(family))} 代表序列</h2>'
+                f'<section data-family="{escape(str(family), quote=True)}"><h2>{escape(str(family))} representatives</h2>'
                 + group[columns].to_html(
                     index=False, escape=True, classes="representatives"
                 )
                 + "</section>"
             )
-        report = f"""<!doctype html><html lang="zh"><meta charset="utf-8"><title>Sequence shortlist</title>
+        report = f"""<!doctype html><html lang="en"><meta charset="utf-8"><title>Sequence shortlist</title>
 <style>body{{font:15px system-ui;margin:28px;color:#172b3a}}table{{border-collapse:collapse;width:100%;margin:16px 0}}
 td,th{{padding:9px;border-bottom:1px solid #ddd;text-align:left}}td:last-child{{font:12px monospace;overflow-wrap:anywhere;max-width:500px}}
 svg{{width:100%;max-width:1000px;height:auto}}button{{padding:8px 15px;margin:5px;cursor:pointer}}h2{{margin-top:32px}}</style>
-<h1>候选序列聚类与推荐</h1><p>{len(self.candidates)} 条唯一序列；{self.metadata["n_clusters"]} 类；
-{len(self.representatives)} 条代表；最终推荐 {len(self.recommendations)} 条。
-最终候选用星形标记，代表序列用圆环标记。聚类使用保留的全部主成分，二维图仅用于展示。</p>
-<p>这是模型预测候选的描述性分组，不代表独立 TF 家族或实验验证。候选缺额：{self.metadata["shortfall"]}。</p>
-<p>质量下限：{escape(str(self.metadata["min_quality"]))}；最小全局 Hamming 距离：{self.metadata["min_hamming"]}。
-Silhouette：{escape(str(self.metadata["silhouette"]))}；重采样稳定性 ARI：{escape(str(self.metadata["stability_ari"]))}。
-稳定性条件于当前特征表示，不能替代生物学验证。</p>
-{plot}<h2>分组诊断</h2>{self.diagnostics.to_html(index=False, escape=True)}
-<h2>最终候选</h2>{self.recommendations[columns].to_html(index=False, escape=True)}
-<h2>各类概览</h2>{self.family_summary.to_html(index=False, escape=True)}<nav>{buttons}</nav>{tables}
+<h1>Sequence families and selected panels</h1><p>{len(self.candidates)} unique sequences; {self.metadata["n_clusters"]} families;
+{len(self.representatives)} representatives; {len(self.recommendations)} selected candidates.
+Selected candidates are marked by stars and representatives by circles.</p>
+<p>Quality threshold: {escape(str(self.metadata["min_quality"]))}; minimum Hamming distance: {self.metadata["min_hamming"]}.
+Silhouette: {escape(str(self.metadata["silhouette"]))}; resampling ARI: {escape(str(self.metadata["stability_ari"]))}.</p>
+{plot}<h2>Family diagnostics</h2>{self.diagnostics.to_html(index=False, escape=True)}
+<h2>Selected candidates</h2>{self.recommendations[columns].to_html(index=False, escape=True)}
+<h2>Family overview</h2>{self.family_summary.to_html(index=False, escape=True)}<nav>{buttons}</nav>{tables}
 <script>document.querySelectorAll('button[data-family]').forEach(b=>b.onclick=()=>{{
 document.querySelectorAll('section[data-family]').forEach(s=>s.hidden=b.dataset.family!=='all'&&s.dataset.family!==b.dataset.family);
 }});</script></html>"""

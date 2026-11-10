@@ -1,11 +1,13 @@
-# K562 reference inputs
+# K562 reference data
 
-These are predictions and motif scans from the local study, not wet-lab measurements.
+Inputs for the [motif-diversity workflow](../../docs/motif-diversity.md).
 
-- `k562_candidates_1100.csv`: 11 non-random algorithms ×100 source records,1084 unique200-nt DNA sequences.
-- `k562_catalog.meme`:11 retained DNA PWM models from the study-specific seqlet-derived catalog.
-- `k562_fimo_sites.csv`:12164 physical sites passing the original scan p/q thresholds and same-ID footprint NMS. Original full-catalog q-values are retained.
-- `k562_expected_top10.csv`: expected ordered panel for the documented default selection parameters; use DNA and stable sequence IDs to compare.
-- `manifest.json`: input checksums and provenance.
+| File | Contents |
+|---|---|
+| `k562_candidates_1100.csv` | 11 algorithms × 100 candidates; 1,084 unique 200-nt sequences |
+| `k562_catalog.meme` | 11 seqlet-derived motif models |
+| `k562_fimo_sites.csv` | 12,164 sites after p/q filtering and footprint consolidation |
+| `k562_expected_top10.csv` | Ordered reference panel |
+| `manifest.json` | Data provenance and SHA256 checksums |
 
-No model checkpoints, external database collections or experimental activity claims are included. This catalog is specific to the K562 example. See [the complete tutorial](../../docs/motif-diversity.md).
+The source study used Malinois activity predictions for K562, HepG2, and SKNSH. Specificity is K562 activity minus the maximum off-target activity. Sequence IDs are SHA256-based identifiers. FIMO q-values retain the original catalog-wide scan values.

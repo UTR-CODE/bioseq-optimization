@@ -1,8 +1,8 @@
 """Standalone, model-agnostic sequence optimization toolkit.
 
-Supply a parameterized prediction model, the sequence length, starting
-sequences, an objective, and a candidate count. Model architectures and weights
-live in the separate ``bioseq-models`` package.
+Supply a PyTorch sequence-to-activity model, starting sequences, an objective,
+and a candidate count. Input and output transforms connect the optimizer to
+the model used in each experiment.
 """
 
 from .api import (

@@ -179,10 +179,11 @@ class SequencePredictor:
     """Wrap a PyTorch model for discrete and gradient sequence optimization.
 
     The default model input is float32 one-hot ``[batch, 4, length]`` in A/C/G/T
-    order. Models with another nucleotide-channel order or another input
-    representation should expose their own ``score`` and ``score_soft`` methods.
+    order. ``input_transform`` maps canonical probabilities to a model-specific
+    input; ``output_transform`` extracts or constructs activity tensors.
     ``score`` receives nucleotide strings, while ``score_soft`` receives the
     optimizer's canonical ``[batch, length, A/C/G/T]`` probabilities.
+    Both scoring paths return activities with shape ``[batch, tasks]``.
     """
 
     supports_soft_scoring = True
@@ -197,6 +198,8 @@ class SequencePredictor:
         pad_to_length: int | None = None,
         padding_side: str = "right",
         task_names: Sequence[str] | None = None,
+        input_transform: Callable[[Any], Any] | None = None,
+        output_transform: Callable[[Any], Any] | None = None,
     ) -> None:
         if batch_size < 1:
             raise ValueError("batch_size must be positive")
@@ -210,6 +213,8 @@ class SequencePredictor:
             device,
             batch_size,
         )
+        self.input_transform = input_transform
+        self.output_transform = output_transform
         self._user_tasks = tasks  # Store user-provided task names
         self.task_names = _validate_task_names(tasks)  # Will be updated after first prediction
         self.pad_to_length, self.padding_side = _validate_padding(
@@ -239,6 +244,8 @@ class SequencePredictor:
 
     def prepare_input(self, probabilities: Any) -> Any:
         """Convert canonical ``[batch, length, 4]`` values for the model."""
+        if self.input_transform is not None:
+            return self.input_transform(probabilities)
         return probabilities.transpose(1, 2)
 
     def score(self, sequences: Sequence[str] | np.ndarray) -> ScoreBatch:
@@ -251,13 +258,23 @@ class SequencePredictor:
         with torch.no_grad():
             for start in range(0, len(values), self.batch_size):
                 batch = values[start : start + self.batch_size]
-                inputs = self.prepare_input(self.encode_sequences(batch))
+                encoded = self.encode_sequences(batch)
+                if self.device is not None and hasattr(encoded, "to"):
+                    encoded = encoded.to(self.device)
+                inputs = self.prepare_input(encoded)
                 if isinstance(inputs, np.ndarray):
                     inputs = torch.from_numpy(inputs)
                 if self.device is not None and hasattr(inputs, "to"):
                     inputs = inputs.to(self.device)
                 output = self.model(inputs)
+                if self.output_transform is not None:
+                    output = self.output_transform(output)
                 current = as_score_batch(output)
+                if current.scores.ndim == 1:
+                    current = ScoreBatch(
+                        current.scores[:, None],
+                        None if current.uncertainties is None else current.uncertainties[:, None],
+                    )
                 if len(current.scores) != len(batch):
                     raise ValueError(
                         f"model returned {len(current.scores)} rows for a batch of {len(batch)} sequences"
@@ -287,10 +304,14 @@ class SequencePredictor:
         probabilities = _pad_soft_nucleotide_tensor(
             probabilities, self.pad_to_length, self.padding_side
         )
+        if self.device is not None:
+            probabilities = probabilities.to(self.device)
         inputs = self.prepare_input(probabilities)
         if self.device is not None and hasattr(inputs, "to"):
             inputs = inputs.to(self.device)
         output = self.model(inputs)
+        if self.output_transform is not None:
+            output = self.output_transform(output)
         if isinstance(output, tuple) and len(output) == 2:
             activities, uncertainties = output
         else:
