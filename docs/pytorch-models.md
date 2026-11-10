@@ -2,11 +2,11 @@
 
 [Home](../README.md) · [Candidate generation](candidate-generation.md)
 
-The optimizer operates on nucleotide sequences. `SequencePredictor` connects a PyTorch model to discrete scoring and differentiable sequence optimization.
+The optimizer operates on nucleotide sequences. The default `SequencePredictor` adapter supports **four-channel A/C/G/T one-hot input**, in that order. For nonstandard representations or channel counts, implement `score` and `score_soft` as described in [Custom sequence scorers](custom-scorers.md).
 
 | Component | Interface |
 |---|---|
-| Model | Any `torch.nn.Module` implementing sequence-to-activity prediction |
+| Model | A `torch.nn.Module` following the default input/output contract below |
 | Default input | Float32 `[batch, 4, length]`, A/C/G/T channels |
 | Model output | `[batch]` or `[batch, tasks]` activity tensor |
 | Predictor output | `[batch, tasks]` activity matrix |
@@ -53,7 +53,7 @@ scorer = SequencePredictor(model, tasks=["activity"], device="cpu")
 
 ### Direct use with all eleven optimizers
 
-A trained `nn.Module` can be supplied directly:
+A trained `nn.Module` accepting four-channel `[batch,4,length]` A/C/G/T input can be supplied directly:
 
 ```python
 from sequence_optimization import generate_designs
@@ -65,7 +65,7 @@ designs = generate_designs(
 
 `generate_designs` constructs `SequencePredictor` automatically. For discrete scoring, it one-hot encodes DNA strings. For `score_soft`, it feeds continuous nucleotide probabilities through the same `forward` method and retains input gradients. Seven optimizers use discrete scores; DEN, Fast SeqProp, Ledidi, and activation maximization also request differentiable scores. The shared service batches both kinds of requests and returns gradients to CPU optimizer workers.
 
-The model only implements `forward`; users do not add `score` or `score_soft` methods to a standard CNN. Model weights stay fixed while the optimizers update sequences. The differentiable path uses PyTorch tensor operations throughout: use `argmax`, NumPy conversion, or `detach` only outside the model's input-to-activity computation. Custom input layouts use `SequencePredictor(input_transform=...)` as below.
+The model only implements `forward`; users do not add `score` or `score_soft` methods to a standard CNN. Model weights stay fixed while the optimizers update sequences. The differentiable path uses PyTorch tensor operations throughout: use `argmax`, NumPy conversion, or `detach` only outside the model's input-to-activity computation. Simple layout changes can use `SequencePredictor(input_transform=...)` as below. For a complete model-specific interface, use a [custom scorer](custom-scorers.md).
 
 ## 2. Input layouts
 

@@ -71,7 +71,7 @@ with torch.no_grad():
 print(activity)  # [2, 1]
 ```
 
-Pass the trained model directly to the optimizer. The framework automatically wraps it with `SequencePredictor`, encodes DNA strings for discrete prediction, and implements `score_soft` for differentiable sequence probabilities. Your CNN only needs a differentiable `forward` method returning activity tensors; no custom `score` or `score_soft` methods are required.
+This direct model interface supports **four-channel A/C/G/T one-hot input**, in that order, with shape `[batch,4,length]`. The framework wraps the CNN with `SequencePredictor` and supplies `score` and `score_soft`. For other encodings, channel orders, or channel counts, provide a custom scorer implementing these two methods; see [Custom sequence scorers](docs/custom-scorers.md).
 
 ```python
 designs = generate_designs(
@@ -142,6 +142,7 @@ Each tutorial uses the same three core functions and has a corresponding [Notebo
 
 - [Three-function API](docs/core-api.md)
 - [PyTorch model interface](docs/pytorch-models.md)
+- [Nonstandard inputs: custom score and score_soft](docs/custom-scorers.md)
 - [Candidate generation and timing](docs/candidate-generation.md)
 - [Motif discovery](docs/motif-discovery.md)
 - [Built-in discovery comparison](docs/motif-discovery-comparison.md)

@@ -15,7 +15,7 @@ designs = generate_designs(
 )
 ```
 
-`model` may be a PyTorch `nn.Module`, `SequencePredictor`, or `CombinedScorer`. A plain module is automatically wrapped: its `forward` accepts `[batch,4,length]` A/C/G/T inputs and returns `[batch]` or `[batch,tasks]` activity tensors. The wrapper supplies both discrete `score` and differentiable `score_soft`; users do not implement those methods on a standard CNN. `initial=None` generates the shared random population. Select algorithms with `algorithms=[...]`; the default contains eleven non-random optimizers.
+`model` may be a PyTorch `nn.Module`, `SequencePredictor`, or `CombinedScorer`. A plain module using the standard four-channel A/C/G/T encoding is automatically wrapped: its `forward` accepts `[batch,4,length]` A/C/G/T inputs and returns `[batch]` or `[batch,tasks]` activity tensors. The wrapper supplies both discrete `score` and differentiable `score_soft`; users do not implement those methods on a standard CNN. For nonstandard encodings or channel counts, supply a [custom scorer](custom-scorers.md) implementing `score` and `score_soft`. Explicit scorer methods are used directly, including when the scorer is a PyTorch module. `initial=None` generates the shared random population. Select algorithms with `algorithms=[...]`; the default contains eleven non-random optimizers.
 
 By default, `parallel=True` starts one CPU optimization process per algorithm. A single scoring service in the calling process retains the loaded model, receives requests through a shared queue, and combines compatible discrete or differentiable requests into batches. Model objects stay out of the worker processes.
 

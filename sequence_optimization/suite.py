@@ -195,7 +195,7 @@ def generate_designs(
         raise ValueError("Batch sizes must be positive integers")
     if not np.isfinite(batch_wait_ms) or batch_wait_ms < 0:
         raise ValueError("batch_wait_ms must be finite and nonnegative")
-    if isinstance(model, torch.nn.Module):
+    if isinstance(model, torch.nn.Module) and not callable(getattr(model, "score", None)):
         tensor = next(model.parameters(), None)
         if tensor is None:
             tensor = next(model.buffers(), None)
