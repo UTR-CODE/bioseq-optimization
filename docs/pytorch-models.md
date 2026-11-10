@@ -118,3 +118,7 @@ scorer = CallableScorer(predict_sequences, task_names=["activity"])
 ```
 
 Here `predict_sequences` is your own prediction function. Select black-box algorithms for this interface, or provide a corresponding differentiable model for gradient algorithms.
+
+## Sequence-design workflows
+
+Continue with [single-task optimization](examples/single-task.md), [one-high/others-low multi-task optimization](examples/multi-task.md), or [integration of independent predictors](examples/multiple-models.md).

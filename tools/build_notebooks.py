@@ -30,12 +30,13 @@ def notebook(text, name):
         if cell['cell_type'] == 'markdown':
             value = ''.join(cell['source']).replace('../../README.md', '../README.md').replace('../../examples/', '')
             value = re.sub(r'\.\./([a-z-]+)\.md', r'../docs/\1.md', value)
+            value = re.sub(r'\]\(([a-z0-9-]+)\.md\)', r'](../docs/examples/\1.md)', value)
             cell['source'] = value.splitlines(True)
     return dict(cells=cells, metadata=dict(kernelspec=dict(display_name='Python 3', language='python', name='python3'),
         language_info=dict(name='python', version='3.10')), nbformat=4, nbformat_minor=5)
 
 
-for name in ['enhancer', 'promoter', '5utr']:
+for name in ['enhancer', 'promoter', '5utr', 'single-task', 'multi-task', 'multiple-models']:
     text = (ROOT / f'docs/examples/{name}.md').read_text()
     (ROOT / f'examples/{name}.ipynb').write_text(json.dumps(notebook(text, name), ensure_ascii=False, indent=1) + '\n')
 text = (ROOT / 'docs/motif-diversity.md').read_text().split('## 6. Reference-data example')[1].split('## Outputs')[0]
@@ -49,4 +50,4 @@ print("Reference Top10 reproduced")
 ```
 '''
 (ROOT / 'examples/motif_diversity.ipynb').write_text(json.dumps(notebook(text, 'motif-diversity'), ensure_ascii=False, indent=1) + '\n')
-print('Generated four English workflow notebooks')
+print('Generated seven English workflow notebooks')

@@ -20,6 +20,11 @@ for p in [ROOT/'README.md',*sorted((ROOT/'docs').rglob('*.md')),*sorted((ROOT/'e
 for p in sorted((ROOT/'examples').glob('*.ipynb')):
     n=json.loads(p.read_text());assert n['nbformat']==4
     for cell in n['cells']:
+        if cell['cell_type']=='markdown':
+            for target in re.findall(r'\]\(([^)]+)\)', ''.join(cell['source'])):
+                if '://' in target or target.startswith('#'):continue
+                dest=target.split('#',1)[0]
+                if not (p.parent/dest).exists():errors.append(f'{p.name}: missing {dest}')
         if cell['cell_type']=='code':
             try:ast.parse(''.join(cell['source']));blocks+=1
             except SyntaxError as e:errors.append(f'{p.name}: invalid cell: {e}')

@@ -51,6 +51,18 @@ The default workflow runs 11 algorithms to a plateau, retains 100 candidates per
 
 `input_transform` adapts input layouts, fixed contexts, or embeddings. `output_transform` selects model outputs or constructs activity contrasts. Both transformations are shared by sequence scoring and gradient optimization.
 
+## Three optimization settings
+
+| Setting | Prediction model | Design objective | Tutorial |
+|---|---|---|---|
+| Single task | One model, one output | Maximize predicted activity | [Single-task design](docs/examples/single-task.md) |
+| Multi-task | One model, multiple outputs | Target high, remaining outputs low | [Multi-task design](docs/examples/multi-task.md) |
+| Multiple models | Several single-output models | Joint activity, weighted ensemble, or selective optimization | [Multiple-model design](docs/examples/multiple-models.md) |
+
+Each tutorial shows model setup, objective definition, candidate generation, panel selection, and CSV/FASTA export.
+
+Notebooks: [single task](examples/single-task.ipynb), [multi-task](examples/multi-task.ipynb), and [multiple models](examples/multiple-models.ipynb).
+
 ## Workflow and examples
 
 | Document | Contents |
