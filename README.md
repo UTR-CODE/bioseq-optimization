@@ -30,11 +30,50 @@ Install MEME Suite for motif discovery and scanning; see [Installation](docs/ins
 
 ## 1. Generate designs
 
-Supply a trained PyTorch `model` mapping `[batch,4,length]` sequences to activities:
+Define a CNN that maps one-hot DNA `[batch,4,length]` in A/C/G/T order to one activity value per sequence:
 
 ```python
-from sequence_optimization import generate_designs, call_motifs, select_candidates
+import torch
+from torch import nn
+from sequence_optimization import (
+    generate_designs, call_motifs, select_candidates, onehot,
+)
 
+class ActivityCNN(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.network = nn.Sequential(
+            nn.Conv1d(4, 32, kernel_size=9, padding=4),
+            nn.ReLU(),
+            nn.Conv1d(32, 32, kernel_size=5, padding=2),
+            nn.ReLU(),
+            nn.AdaptiveAvgPool1d(1),
+            nn.Flatten(),
+            nn.Linear(32, 1),
+        )
+
+    def forward(self, dna):
+        return self.network(dna)  # [batch, 1] predicted activity
+```
+
+Train this network on DNA sequences and measured activities using a regression loss such as MSE. After training, save its weights with `torch.save(model.state_dict(), "activity_cnn.pt")`. Load the trained weights and predict activity from DNA strings:
+
+```python
+device = "cuda" if torch.cuda.is_available() else "cpu"
+model = ActivityCNN()
+model.load_state_dict(torch.load("activity_cnn.pt", map_location="cpu", weights_only=True))
+model = model.to(device).eval()
+
+sequences = ["ACGT" * 50, "TGCA" * 50]  # Two 200-nt DNA sequences
+x = torch.tensor(onehot(sequences, channels_first=True), device=device)
+with torch.no_grad():
+    activity = model(x)
+print(activity)  # [2, 1]
+```
+
+Pass the trained model directly to the optimizer. The framework encodes candidate DNA strings and maximizes the predicted activity:
+
+```python
 designs = generate_designs(
     model, length=200, objective=["maximize"],
     num_candidates=100, seed=42, output_dir="outputs/designs",
