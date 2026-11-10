@@ -75,6 +75,8 @@ print(motifs.support)
 
 The function reuses the generation objective for ISM contributions, calls positive seqlets with tangermeme, discovers motifs with STREME against dinucleotide-shuffled controls, and retains motifs supported by at least 10 seqlets from at least 3 sequences. It saves the contributions, seqlets, support counts, and `catalog.meme`.
 
+The exported MEME file can also be passed as `motifs="outputs/optimus5prime/motifs/catalog.meme"` in the selection call below. To use your own motif-discovery method, skip this step and set `motifs="my_motifs.meme"` instead.
+
 ## 5. Select ten candidates
 
 ```python

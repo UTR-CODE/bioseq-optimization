@@ -88,7 +88,7 @@ By default, 11 optimizers share 100 random starting sequences, run to a plateau,
 motifs = call_motifs(designs, model=model, output_dir="outputs/motifs")
 ```
 
-The function uses the design objective to calculate contributions, extracts positive seqlets, discovers PWMs against dinucleotide-shuffled controls, and retains supported motifs.
+The function uses the design objective to calculate contributions, extracts positive seqlets, discovers PWMs against dinucleotide-shuffled controls, and retains supported motifs. It returns a motif catalog and writes the DNA PWMs to **`outputs/motifs/catalog.meme`** in MEME format. You can also discover motifs with your own method and supply its MEME file directly to step 3.
 
 ## 3. Select candidates
 
@@ -101,6 +101,17 @@ selected = select_candidates(
     output_dir="outputs/selected",
 )
 ```
+
+Alternatively, pass a MEME file path. This can be the file exported in step 2 or a catalog produced by your own motif-discovery workflow:
+
+```python
+selected = select_candidates(
+    designs, motifs="outputs/motifs/catalog.meme",  # Or "my_motifs.meme"
+    top_n=10, min_score=gate, output_dir="outputs/selected_from_file",
+)
+```
+
+The selector scans the supplied motifs onto the candidate sequences with FIMO and computes motif composition and positional diversity. With your own catalog, start directly at step 3; no model or attribution scores are needed for selection. MEME files contain DNA letter-probability matrices with `ALPHABET= ACGT` and unique motif IDs.
 
 Without motifs, the same function selects by Hamming Max-Min:
 

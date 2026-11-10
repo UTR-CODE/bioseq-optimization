@@ -54,9 +54,21 @@ print(motifs.support)
 print(motifs.seqlets[["seqlet_id", "sequence_id", "start", "end", "dna"]].head())
 ```
 
-The output directory contains `contributions.npz`, `seqlets.csv/fa`, `background.fa`, `support.csv`, and `catalog.meme`.
+The output directory contains `contributions.npz`, `seqlets.csv/fa`, `background.fa`, `support.csv`, and **`catalog.meme`**. The MEME file contains the retained DNA PWMs and is the portable input to candidate selection.
 
-An existing MEME catalog can be reused through the same interface:
+Pass the exported file directly to selection:
+
+```python
+from sequence_optimization import select_candidates
+selected = select_candidates(
+    designs, motifs="outputs/motifs/catalog.meme", top_n=10,
+    output_dir="outputs/panel_from_meme",
+)
+```
+
+You can skip discovery entirely and replace that path with `"my_motifs.meme"`, produced by your own motif-calling method. Supply DNA letter-probability matrices with `ALPHABET= ACGT` and unique motif IDs. The selector performs FIMO scanning and motif-diversity selection without needing the prediction model or attribution scores.
+
+To load an existing catalog as an in-memory `MotifCatalog` instead:
 
 ```python
 motifs = call_motifs(designs, catalog="catalog.meme")

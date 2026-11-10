@@ -49,7 +49,7 @@ Use the same model or scorer as in design generation. The design objective is ca
 5. Discover candidate PWMs with STREME.
 6. Retain motifs supported by at least ten seqlets from at least three parent sequences.
 
-The returned `MotifCatalog` contains `pwms`, `seqlets`, and `support`. The output directory contains contributions, fragment sequences, the motif-support table, and `catalog.meme`.
+The returned `MotifCatalog` contains `pwms`, `seqlets`, and `support`. With `output_dir="outputs/motifs"`, the function exports the retained PWMs to **`outputs/motifs/catalog.meme`** in MEME format, alongside contributions, fragment sequences, and the motif-support table. This file can be passed directly to `select_candidates` in a later session.
 
 To reuse attribution scores:
 
@@ -92,6 +92,33 @@ selected = select_candidates(
 ```
 
 `motifs` accepts the `MotifCatalog` returned by `call_motifs`, a MEME file, or a PWM dictionary. The selector performs FIMO scanning, physical-site consolidation, motif support filtering, PWM similarity, Soft-Jaccard composition distances, and Hungarian positional matching internally.
+
+### Use your own motif-discovery workflow
+
+The discovery and selection stages communicate through a MEME file. Discover motifs with your preferred method, export DNA letter-probability matrices, and pass the path directly to selection. The file must declare `ALPHABET= ACGT` and use unique motif IDs.
+
+```python
+import pandas as pd
+
+designs = pd.read_csv("outputs/designs/designs.csv")
+gate = float(designs.drop_duplicates("sequence").score.quantile(0.9))
+selected = select_candidates(
+    designs,
+    motifs="my_motifs.meme",  # Also accepts pathlib.Path
+    top_n=10,
+    min_score=gate,
+    output_dir="outputs/custom_motif_panel",
+)
+```
+
+This route needs the scored candidate sequences and FIMO. It does not require `call_motifs`, the prediction model, attribution scores, tangermeme, or STREME. FIMO identifies motif IDs and positions internally, followed by the same site-support filtering and diversity selection. The MEME file exported by step 2 works through exactly this interface:
+
+```python
+selected = select_candidates(
+    designs, motifs="outputs/motifs/catalog.meme", top_n=10,
+    min_score=gate, output_dir="outputs/exported_motif_panel",
+)
+```
 
 Both modes return the same type of selected design table:
 
