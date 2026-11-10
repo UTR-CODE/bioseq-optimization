@@ -17,19 +17,34 @@ designs = generate_designs(
 
 `model` may be a PyTorch `nn.Module`, `SequencePredictor`, or `CombinedScorer`. `initial=None` generates the shared random population. Select algorithms with `algorithms=[...]`; the default contains eleven non-random optimizers.
 
+By default, `parallel=True` starts one CPU optimization process per algorithm. A single scoring service in the calling process retains the loaded model, receives requests through a shared queue, and combines compatible discrete or differentiable requests into batches. Model objects stay out of the worker processes.
+
 The default search runs to a plateau and retains the 90% observed-gain stage. `num_candidates` is the count per algorithm. The design table includes:
 
 - `sequence`, `algorithm`, and scalar `score`.
 - `activity_<task>` for each individual prediction output.
 - `record_id` for each source record and `sequence_id` for each exact DNA sequence.
 
-The output directory contains `designs.csv/fa`, `unique_designs.csv/fa`, `timing.csv`, and the run configuration.
+The output directory contains `designs.csv/fa`, `unique_designs.csv/fa`, `timing.csv`, and the run configuration. Parallel runs also export `gpu_batches.csv/json`; the returned table includes `designs.attrs["batching"]` and `designs.attrs["execution"]`.
 
 ```python
 import pandas as pd
 timing = pd.DataFrame(designs.attrs["timing"])
 print(timing[["algorithm", "seconds", "queries", "stop_reason"]])
 ```
+
+Batch sizes and the collection window can be adjusted through the same function:
+
+```python
+designs = generate_designs(
+    model, length=200, num_candidates=100,
+    max_batch_size=512, max_soft_batch_size=64, batch_wait_ms=5.0,
+    output_dir="outputs/batched_designs",
+)
+print(designs.attrs["batching"])
+```
+
+`parallel=False` uses sequential optimization for comparison. Per-algorithm parallel runtimes include queue waiting; `wall_seconds` measures the whole generation call. Notebooks can call the function directly. In standalone Python scripts, place model loading and workflow calls under `if __name__ == "__main__":`.
 
 ## 2. `call_motifs`
 

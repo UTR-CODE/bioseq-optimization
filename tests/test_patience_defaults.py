@@ -83,6 +83,7 @@ def test_suite_cds_default_uses_per_reference_population(monkeypatch):
         12,
         ["ATGGCTGCTTAA"],
         ["maximize"],
+        parallel=False,
         algorithms=["genetic_algorithm"],
         num_candidates=3000,
         is_CDS_optimized=True,

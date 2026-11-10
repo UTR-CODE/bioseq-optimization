@@ -50,3 +50,14 @@ print(timing[["algorithm", "seconds", "queries", "stop_reason"]])
 Query counts include repeated optimization proposals; shared prediction caching reuses model evaluations. The design table carries the individual model outputs, scalar score, algorithm identity, record ID, and stable sequence ID. An output directory stores the full and unique sequence tables and FASTA files, runtime summary, and run configuration.
 
 Continue with `call_motifs(designs, model=...)`, then `select_candidates(designs, motifs=...)`. To select using sequence distance alone, call `select_candidates(designs)` directly.
+
+## Shared batched model scoring
+
+`generate_designs` uses parallel optimization by default. Each algorithm has a CPU process and sends discrete sequence or differentiable scoring requests to a shared queue. One service in the calling process retains the model, batches compatible requests, and routes scores or input gradients back to the requesting worker. The shared discrete cache reuses predictions across algorithms.
+
+```python
+print(designs.attrs["execution"])  # parallel
+print(designs.attrs["batching"])
+```
+
+Use `max_batch_size`, `max_soft_batch_size`, and `batch_wait_ms` to control batching; see [Parallel scoring](parallel-scoring.md). In a standalone script, place model loading and workflow calls under `if __name__ == "__main__":`. Set `parallel=False` to compare against sequential optimization.

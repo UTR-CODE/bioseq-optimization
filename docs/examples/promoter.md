@@ -41,7 +41,7 @@ timing = pd.DataFrame(designs.attrs["timing"])
 print(timing[["algorithm", "seconds", "queries", "stop_reason"]])
 ```
 
-The 11 optimizers share a starting population, run to a plateau, and each contribute 100 designs at the 90% observed-gain stage. The returned table contains sequences, individual activity predictions, scores, and algorithm provenance.
+The 11 optimizers run in independent CPU processes with shared batched model scoring, share a starting population, run to a plateau, and each contribute 100 designs at the 90% observed-gain stage. The returned table contains sequences, individual activity predictions, scores, and algorithm provenance.
 
 ## 3. Call motifs from the designs
 
@@ -87,3 +87,5 @@ selected["construct"] = LEFT + selected.sequence + RIGHT
 selected.to_csv("outputs/promoter_top10/selected_sequences.csv", index=False)
 write_fasta("outputs/promoter_top10/constructs.fa", selected.sequence_id, selected.construct)
 ```
+
+For standalone Python scripts, place model loading and workflow calls under `if __name__ == "__main__":`. Notebook cells call the functions directly. See [Parallel scoring](../parallel-scoring.md) for batch-size controls and utilization metrics.

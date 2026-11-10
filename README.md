@@ -80,7 +80,9 @@ designs = generate_designs(
 )
 ```
 
-By default, 11 optimizers share 100 random starting sequences, run to a plateau, and retain 100 designs each at the 90% observed-gain stage. The result contains 1,100 source records with individual activity predictions and algorithm provenance. Runtime and query counts are recorded per algorithm.
+By default, 11 optimizers run in separate CPU processes and share 100 random starting sequences. Their scoring requests enter a shared queue; one scoring service combines compatible requests into batches for the model on its current device. Discrete prediction and gradient forward/backward requests use this service. Each optimizer runs to a plateau and retains 100 designs at the 90% observed-gain stage. The result contains 1,100 source records with individual activity predictions and algorithm provenance. Runtime and query counts are recorded per algorithm. `gpu_batches.csv/json` records batching and cross-worker utilization. See [Parallel scoring](docs/parallel-scoring.md) for batch-size controls.
+
+Run these cells in a notebook. For a standalone Python script, place model loading and the workflow inside `if __name__ == "__main__":` so spawned CPU workers import only definitions.
 
 ## 2. Call motifs
 

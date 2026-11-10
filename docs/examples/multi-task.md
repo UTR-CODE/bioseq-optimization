@@ -62,7 +62,7 @@ print(timing[["algorithm", "seconds", "queries", "stop_reason"]])
 print(designs.groupby("algorithm").score.agg(["count", "median", "max"]))
 ```
 
-All 11 optimizers start from the same 100 random sequences. Each runs to a plateau without a query budget and retains 100 candidates at the 90% observed-gain stage. The combined table contains 1,100 algorithm records; identical DNA sequences are combined during panel selection. Individual activities, objective scores, and algorithm provenance are retained.
+All 11 optimizers start from the same 100 random sequences and run in independent CPU processes. A shared scoring service batches their prediction and gradient requests for the model. Each runs to a plateau without a query budget and retains 100 candidates at the 90% observed-gain stage. The combined table contains 1,100 algorithm records; identical DNA sequences are combined during panel selection. Individual activities, objective scores, and algorithm provenance are retained.
 
 ## 4. Discover motifs for the design objective
 
@@ -143,3 +143,5 @@ fig.savefig("outputs/deepstarr/top10/activity_tradeoff.png", dpi=200)
 ```
 
 High-developmental, low-housekeeping sequences appear toward the upper left of this plot. For explicit activity thresholds, set `lower_bounds={"developmental": target_minimum}` and `upper_bounds={"housekeeping": off_target_maximum}` in `MultiTaskObjective`, using values in the model's activity units.
+
+For standalone Python scripts, place model loading and workflow calls under `if __name__ == "__main__":`. Notebook cells call the functions directly. See [Parallel scoring](../parallel-scoring.md) for batch-size controls and utilization metrics.

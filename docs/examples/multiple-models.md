@@ -78,7 +78,7 @@ print(timing[["algorithm", "seconds", "queries", "stop_reason"]])
 print(designs.groupby("algorithm").score.agg(["count", "median", "max"]))
 ```
 
-All 11 optimizers start from the same 100 random sequences. Each runs to a plateau without a query budget and retains 100 candidates at the 90% observed-gain stage. The combined table contains 1,100 algorithm records; identical DNA sequences are combined during panel selection. Individual activities, objective scores, and algorithm provenance are retained.
+All 11 optimizers start from the same 100 random sequences and run in independent CPU processes. A shared scoring service batches their prediction and gradient requests for the model. Each runs to a plateau without a query budget and retains 100 candidates at the 90% observed-gain stage. The combined table contains 1,100 algorithm records; identical DNA sequences are combined during panel selection. Individual activities, objective scores, and algorithm provenance are retained.
 
 ## 4. Discover motifs for the design objective
 
@@ -158,3 +158,5 @@ worst_objective = MultiTaskObjective(
 Pass this as `objective` to `generate_designs` for a separate run. Its score is `min(z_K562, -z_HepG2, -z_WTC11)`. `call_motifs` then uses that same objective automatically. For another target cell, change `high` and `low` while retaining the scorer's task names.
 
 To use independently trained PyTorch models from another study, replace the loaded adapters with `SequencePredictor(model, tasks=["activity"], device=DEVICE)` for each single-output model. Input transforms can supply model-specific layouts or contexts; see [PyTorch model interface](../pytorch-models.md).
+
+For standalone Python scripts, place model loading and workflow calls under `if __name__ == "__main__":`. Notebook cells call the functions directly. See [Parallel scoring](../parallel-scoring.md) for batch-size controls and utilization metrics.

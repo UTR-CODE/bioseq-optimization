@@ -119,6 +119,10 @@ def generate_designs(
     *,
     output_dir: str | Path | None = None,
     device: str | None = None,
+    parallel: bool = True,
+    max_batch_size: int = 512,
+    max_soft_batch_size: int = 64,
+    batch_wait_ms: float = 5.,
     algorithms: Sequence[str] | None = None,
     num_candidates: int = 100,
     diversity: int = 5,
@@ -146,6 +150,10 @@ def generate_designs(
         length: Sequence length to optimize
         initial: Starting sequences; None generates num_candidates random seeds
         objective: Optimization objective (e.g., ["maximize"], ["minimize", "maximize"])
+        parallel: Run CPU optimizers in separate processes with shared batched scoring
+        max_batch_size: Maximum discrete scoring batch in the shared service
+        max_soft_batch_size: Maximum differentiable scoring batch
+        batch_wait_ms: Window for combining requests from multiple optimizers
         algorithms: Algorithm names to run (default: eleven non-random optimizers)
         num_candidates: Candidates per algorithm (default: 100)
         diversity: Minimum Hamming distance between candidates (default: 5)
@@ -180,6 +188,13 @@ def generate_designs(
         - Diversity control: ensures minimum Hamming distance of 5 within each algorithm
     """
     import torch
+    if not isinstance(parallel, bool):
+        raise TypeError("parallel must be a boolean")
+    if any(isinstance(v, bool) or not isinstance(v, int) or v < 1
+           for v in (max_batch_size, max_soft_batch_size)):
+        raise ValueError("Batch sizes must be positive integers")
+    if not np.isfinite(batch_wait_ms) or batch_wait_ms < 0:
+        raise ValueError("batch_wait_ms must be finite and nonnegative")
     if isinstance(model, torch.nn.Module):
         tensor = next(model.parameters(), None)
         if tensor is None:
@@ -287,7 +302,8 @@ def generate_designs(
 
     # Shared model caching across algorithms
     black_box_scorer = _SharedScorer(model)
-    gradient_scorer = _SharedScorer(gradient_model) if gradient_model is not None else None
+    gradient_scorer = (black_box_scorer if gradient_model is model else
+                       _SharedScorer(gradient_model) if gradient_model is not None else None)
 
     # Common options for all algorithms
     shared_options = dict(common_kwargs)
@@ -307,13 +323,8 @@ def generate_designs(
     result_task_names = ()
     suite_started = time.perf_counter()
 
+    jobs = []
     for offset, name in enumerate(names):
-        # Select appropriate scorer
-        if name in DIFFERENTIABLE_ALGORITHMS:
-            scorer = gradient_scorer
-        else:
-            scorer = black_box_scorer
-
         # Set algorithm-specific options
         algo_options = dict(shared_options)
 
@@ -327,26 +338,37 @@ def generate_designs(
             # No implicit ceiling: stop on plateau and use relaxed-knee selection.
             algo_options["saturation"] = SaturationConfig(fractions=(0.9,), selection="knee_fraction" if is_CDS_optimized else "fraction")
 
-        # Run optimization
-        started = time.perf_counter()
-        raw_result = optimize(
-            scorer,
-            length,
-            initial_values,
-            objective,
-            num_candidates,
-            algorithm=name,
-            alphabet=alphabet,
-            constraint=constraint,
-            seed=seed + offset,
-            **algo_options,
-        )
+        jobs.append((name, algo_options))
 
-        elapsed = time.perf_counter()-started
+    batch_statistics = {}
+    if parallel:
+        from tempfile import TemporaryDirectory
+        from .parallel import run_batched_designs
+        with TemporaryDirectory(prefix="bioseq_design_batches_") as temp:
+            metrics_folder = output_dir if output_dir is not None else Path(temp)
+            metrics_folder.mkdir(parents=True, exist_ok=True)
+            completed, batch_statistics = run_batched_designs(
+                black_box_scorer, gradient_scorer, length, initial_values,
+                objective, num_candidates, jobs, alphabet=alphabet,
+                constraint=constraint, seed=seed, max_batch_size=max_batch_size,
+                max_soft_batch_size=max_soft_batch_size, batch_wait_ms=batch_wait_ms,
+                metrics_path=str(metrics_folder/"gpu_batches.csv"))
+    else:
+        completed = []
+        for offset, (name, algo_options) in enumerate(jobs):
+            scorer = gradient_scorer if name in DIFFERENTIABLE_ALGORITHMS else black_box_scorer
+            started, cpu = time.perf_counter(), time.process_time()
+            result = optimize(scorer, length, initial_values, objective, num_candidates,
+                algorithm=name, alphabet=alphabet, constraint=constraint,
+                seed=seed+offset, **algo_options)
+            completed.append((result, dict(seconds=time.perf_counter()-started,
+                cpu_seconds=time.process_time()-cpu)))
+
+    for offset, (name, (raw_result, runtime)) in enumerate(zip(names, completed)):
         results = raw_result if isinstance(raw_result, list) else [raw_result]
         queries = sum(r.total_query_count if isinstance(r, SaturationResult) else r.query_count for r in results)
         reason = ";".join(sorted({getattr(r, "stop_reason", "budget") for r in results})) or "budget"
-        timings.append(dict(algorithm=name, seconds=elapsed, queries=queries, stop_reason=reason, seed=seed+offset))
+        timings.append(dict(algorithm=name, **runtime, queries=queries, stop_reason=reason, seed=seed+offset))
         for result in results:
             if isinstance(result, SaturationResult):
                 result = result.selected
@@ -378,7 +400,8 @@ def generate_designs(
                        timing=timings, wall_seconds=time.perf_counter()-suite_started,
                        length=length, seed=seed, algorithms=list(names),
                        candidates_per_algorithm=num_candidates, initial_count=len(initial_values),
-                       minimum_hamming=diversity)
+                       minimum_hamming=diversity, execution="parallel" if parallel else "serial",
+                       batching=batch_statistics)
     if output_dir is not None:
         from .workflows import deduplicate_candidates, write_fasta
         output_dir.mkdir(parents=True, exist_ok=True)

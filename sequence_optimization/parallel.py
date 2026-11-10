@@ -1,6 +1,6 @@
 """CPU optimizer clients with batched scoring and first-order gradients in one service.
 
-Only the service process owns the prediction model / CUDA context. Optimization
+Only the scoring service owns the prediction model / CUDA context. Optimization
 processes communicate NumPy arrays through bounded multiprocessing queues. Soft
 backward requests recompute the forward pass, avoiding retained GPU graphs across
 processes. The model must be deterministic in eval mode for this recomputation.
@@ -16,7 +16,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .api import as_score_batch
+from .api import ScoreBatch, as_score_batch
 
 
 class ScoringClient:
@@ -25,13 +25,14 @@ class ScoringClient:
     device = 'cpu'
 
     def __init__(self, worker_id, requests, responses, stopped, *, task_names=None,
-                 batch_size=512, soft_batch_size=128):
+                 batch_size=512, soft_batch_size=128, discrete_kind='discrete'):
         self.worker_id = worker_id
         self.requests, self.responses, self.stopped = requests, responses, stopped
         self.task_names = task_names
         self.batch_size, self.soft_batch_size = batch_size, soft_batch_size
+        self.discrete_kind = discrete_kind
         self._serial = 0
-        self.statistics = dict(requests=0, discrete_rows=0, soft_forward_rows=0,
+        self.statistics = dict(requests=0, discrete_rows=0, discrete_gradient_rows=0, soft_forward_rows=0,
                                soft_backward_rows=0, rpc_wait_seconds=0.)
 
     def _call(self, kind, values, gradient=None):
@@ -66,11 +67,16 @@ class ScoringClient:
 
     def score(self, sequences):
         values = np.asarray(sequences, dtype=str).reshape(-1)
-        batches = [self._call('discrete', values[i:i+self.batch_size])
+        batches = [self._call(self.discrete_kind, values[i:i+self.batch_size])
                    for i in range(0, len(values), self.batch_size)]
         if not batches:
             return np.empty((0, len(self.task_names or ())))
-        return np.concatenate(batches)
+        if all(isinstance(batch, np.ndarray) for batch in batches):
+            return np.concatenate(batches)
+        batches = [as_score_batch(batch) for batch in batches]
+        uncertainty = None if any(batch.uncertainties is None for batch in batches) else np.concatenate(
+            [batch.uncertainties for batch in batches])
+        return ScoreBatch(np.concatenate([batch.scores for batch in batches]), uncertainty)
 
     def score_soft(self, probabilities):
         import torch
@@ -103,13 +109,13 @@ def scoring_service(factory, requests, responses, stopped, ready, *, max_batch_s
                     max_soft_batch_size=256, batch_wait_ms=10., metrics_path=None):
     """Own a scorer and merge compatible requests from independent optimizers.
 
-    ``factory`` must construct the scorer inside this process. A single request
+    ``factory`` supplies the scorer inside the service process or thread. A request
     must fit its operation's batch limit; clients split larger calls beforehand.
     ``ready`` receives either ``(True, None)`` or ``(False, traceback)``.
     """
     import torch
     writer = handle = None
-    statistics = dict(batches=0, multi_worker_batches=0, discrete_rows=0,
+    statistics = dict(batches=0, multi_worker_batches=0, discrete_rows=0, discrete_gradient_rows=0,
                       soft_forward_rows=0, soft_backward_rows=0,
                       max_discrete_batch=0, max_soft_batch=0, service_seconds=0.)
     pending = deque()
@@ -126,12 +132,16 @@ def scoring_service(factory, requests, responses, stopped, ready, *, max_batch_s
             writer.writeheader()
         ready.put((True, None))
         initialized = True
-        while True:
-            first = pending.popleft() if pending else requests.get()
+        while not stopped.is_set():
+            try:
+                first = pending.popleft() if pending else requests.get(timeout=1.)
+            except queue.Empty:
+                continue
             if first is None:
                 break
             kind = first[2]
-            limit = max_batch_size if kind == 'discrete' else max_soft_batch_size
+            is_discrete = kind in {'discrete', 'discrete_gradient'}
+            limit = max_batch_size if is_discrete else max_soft_batch_size
             group = [first]
             size = len(first[3])
             if size > limit:
@@ -160,8 +170,11 @@ def scoring_service(factory, requests, responses, stopped, ready, *, max_batch_s
                     pending.append(current)
             began = time.monotonic()
             inputs = np.concatenate([request[3] for request in group])
-            if kind == 'discrete':
-                outputs = as_score_batch(scorer.score(inputs)).scores
+            uncertainty = None
+            if is_discrete:
+                predict = scorer.score if kind == 'discrete' else scorer.score_gradient
+                batch = as_score_batch(predict(inputs))
+                outputs, uncertainty = batch.scores, batch.uncertainties
             elif kind in {'soft_forward', 'soft_backward'}:
                 values = torch.as_tensor(inputs, dtype=torch.float32, device=device)
                 if kind == 'soft_forward':
@@ -183,13 +196,16 @@ def scoring_service(factory, requests, responses, stopped, ready, *, max_batch_s
             offset = 0
             for worker_id, serial, _, values, _, _ in group:
                 count = len(values)
-                responses[worker_id].put((serial, True, outputs[offset:offset+count].copy()))
+                result = outputs[offset:offset+count].copy()
+                if uncertainty is not None:
+                    result = ScoreBatch(result, uncertainty[offset:offset+count].copy())
+                responses[worker_id].put((serial, True, result))
                 offset += count
             workers = len({r[0] for r in group})
             statistics['batches'] += 1
             statistics['multi_worker_batches'] += workers > 1
             statistics[kind+'_rows'] += size
-            maximum = 'max_discrete_batch' if kind == 'discrete' else 'max_soft_batch'
+            maximum = 'max_discrete_batch' if is_discrete else 'max_soft_batch'
             statistics[maximum] = max(statistics[maximum], size)
             statistics['service_seconds'] += duration
             if writer:
@@ -211,3 +227,148 @@ def scoring_service(factory, requests, responses, stopped, ready, *, max_batch_s
     finally:
         if handle:
             handle.close()
+
+
+class _DesignScorer:
+    """Keep the shared discrete cache and differentiable model in the caller."""
+    def __init__(self, scorer, gradient_scorer):
+        self.scorer, self.gradient_scorer = scorer, gradient_scorer
+        self.device = getattr(gradient_scorer, 'device', None) or 'cpu'
+
+    def score(self, sequences):
+        return self.scorer.score(sequences)
+
+    def score_gradient(self, sequences):
+        return self.gradient_scorer.score(sequences)
+
+    def score_soft(self, probabilities):
+        return self.gradient_scorer.score_soft(probabilities)
+
+
+def _design_worker(index, client, length, initial, objective, count, name,
+                   alphabet, constraint, seed, options, barrier, results):
+    """CPU-only proposals and remote scoring; no model is sent to this process."""
+    import os
+    import torch
+    import numba
+    from .algorithms import optimize
+    torch.set_num_threads(1)
+    numba.set_num_threads(1)
+    try:
+        barrier.wait()
+        began, cpu = time.perf_counter(), time.process_time()
+        result = optimize(client, length, initial, objective, count, algorithm=name,
+                          alphabet=alphabet, constraint=constraint, seed=seed, **options)
+        results.put((index, True, result, dict(seconds=time.perf_counter()-began,
+            cpu_seconds=time.process_time()-cpu, pid=os.getpid())))
+    except BaseException as error:
+        results.put((index, False, error, traceback.format_exc()))
+
+
+def run_batched_designs(scorer, gradient_scorer, length, initial, objective, count,
+                        jobs, *, alphabet='ACGT', constraint=None, seed=0,
+                        max_batch_size=512, max_soft_batch_size=64,
+                        batch_wait_ms=5., metrics_path=None):
+    """Run independent optimizers through one local, model-owning service thread.
+
+    Only clients, sequences and optimization options cross process boundaries.
+    Keeping inference in the caller supports already-loaded CUDA models and
+    notebook-defined PyTorch classes without serializing model objects.
+    """
+    import json
+    import multiprocessing as mp
+    import os
+    import threading
+    import torch
+
+    # Infer names once; the same central cache serves all subsequent requests.
+    if getattr(scorer, 'task_names', None) is None:
+        scorer.score(initial[:1])
+    task_names = getattr(scorer, 'task_names', None)
+    ctx = mp.get_context('spawn')
+    requests, ready, results = ctx.Queue(maxsize=2*len(jobs)), ctx.Queue(), ctx.Queue()
+    replies = [ctx.Queue(maxsize=2) for _ in jobs]
+    stopped = ctx.Event()
+    barrier = ctx.Barrier(len(jobs))
+    failures = []
+    combined = _DesignScorer(scorer, gradient_scorer)
+
+    def serve():
+        try:
+            scoring_service(lambda: combined, requests, replies, stopped, ready,
+                max_batch_size=max_batch_size, max_soft_batch_size=max_soft_batch_size,
+                batch_wait_ms=batch_wait_ms, metrics_path=metrics_path)
+        except BaseException as error:
+            failures.append(error)
+
+    service = threading.Thread(target=serve, name='bioseq-scoring-service', daemon=True)
+    workers, received = [], {}
+    previous_threads = torch.get_num_threads()
+    thread_env = ('OMP_NUM_THREADS', 'OPENBLAS_NUM_THREADS', 'MKL_NUM_THREADS', 'NUMEXPR_NUM_THREADS')
+    previous_env = {key: os.environ.get(key) for key in thread_env}
+    try:
+        service.start()
+        ok, error = ready.get()
+        if not ok:
+            raise RuntimeError(error)
+        # Spawned optimizers each use one CPU thread, including imported BLAS.
+        for key in thread_env:
+            os.environ[key] = '1'
+        from .suite import DIFFERENTIABLE_ALGORITHMS
+        for index, (name, options) in enumerate(jobs):
+            client = ScoringClient(index, requests, replies[index], stopped,
+                task_names=task_names, batch_size=max_batch_size,
+                soft_batch_size=max_soft_batch_size,
+                discrete_kind='discrete_gradient' if name in DIFFERENTIABLE_ALGORITHMS
+                    and gradient_scorer is not scorer else 'discrete')
+            process = ctx.Process(target=_design_worker,
+                name=f'bioseq-{name}', args=(index, client, length, initial, objective,
+                    count, name, alphabet, constraint, seed+index, options, barrier, results))
+            process.start()
+            workers.append(process)
+        while len(received) < len(jobs):
+            try:
+                index, ok, result, info = results.get(timeout=.1)
+            except queue.Empty:
+                if not service.is_alive() or failures:
+                    raise RuntimeError('Shared scoring service failed') from (failures[0] if failures else None)
+                failed = next((p for p in workers if p.exitcode not in (None, 0)), None)
+                if failed is not None:
+                    raise RuntimeError(f'Optimizer {failed.name} exited with code {failed.exitcode}')
+                continue
+            if not ok:
+                if failures:
+                    raise RuntimeError('Shared scoring service failed') from failures[0]
+                if hasattr(result, 'add_note'):
+                    result.add_note(info)
+                raise result
+            received[index] = (result, info)
+        requests.put(None)
+        service.join()
+        if failures:
+            raise RuntimeError('Shared scoring service failed') from failures[0]
+        for process in workers:
+            process.join()
+        statistics = json.loads(Path(metrics_path).with_suffix('.json').read_text()) if metrics_path else {}
+        return [received[i] for i in range(len(jobs))], statistics
+    finally:
+        stopped.set()
+        if service.is_alive():
+            try:
+                requests.put_nowait(None)
+            except queue.Full:
+                pass
+            service.join(timeout=5.)
+        for process in workers:
+            if process.is_alive():
+                process.terminate()
+            process.join(timeout=5.)
+        for channel in [requests, ready, results, *replies]:
+            channel.cancel_join_thread()
+            channel.close()
+        for key, value in previous_env.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+        torch.set_num_threads(previous_threads)
