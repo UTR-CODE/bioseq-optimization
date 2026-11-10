@@ -99,7 +99,8 @@ The function uses the design objective to calculate contributions, extracts posi
 With motifs, selection prioritizes motif composition diversity, matched motif-position diversity, and prediction score:
 
 ```python
-gate = float(designs.drop_duplicates("sequence").score.quantile(0.9))
+# Retain the highest-scoring 20% of unique candidates.
+gate = float(designs.drop_duplicates("sequence").score.quantile(0.8))
 selected = select_candidates(
     designs, top_n=10, motifs=motifs, min_score=gate,
     output_dir="outputs/selected",

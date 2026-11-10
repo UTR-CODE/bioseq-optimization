@@ -118,7 +118,7 @@ The discovery and selection stages communicate through a MEME file. Discover mot
 import pandas as pd
 
 designs = pd.read_csv("outputs/designs/designs.csv")
-gate = float(designs.drop_duplicates("sequence").score.quantile(0.9))
+gate = float(designs.drop_duplicates("sequence").score.quantile(0.8))
 selected = select_candidates(
     designs,
     motifs="my_motifs.meme",  # Also accepts pathlib.Path

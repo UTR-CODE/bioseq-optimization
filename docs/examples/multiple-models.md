@@ -101,7 +101,7 @@ The exported MEME file can also be passed as `motifs="outputs/agarwal_selective/
 
 ```python
 unique = designs.drop_duplicates("sequence")
-gate = float(unique.score.quantile(0.9))
+gate = float(unique.score.quantile(0.8))
 selected = select_candidates(
     designs,
     motifs=motifs,
@@ -112,7 +112,7 @@ selected = select_candidates(
 print(selected[['selection_rank', 'sequence_id', 'activity_K562', 'activity_HepG2', 'activity_WTC11', 'score', 'present_motifs']])
 ```
 
-The score gate retains the highest-scoring 10% of unique candidates. Within this pool, selection prioritizes motif composition diversity, then motif positions matched by the Hungarian algorithm, then prediction score for diversity ties. Motifs with fewer than 30 physical sites across the design pool are excluded by default. Outputs include `selected_sequences.csv`, FASTA, motif sites, distance matrices, and the selection trace.
+The score gate retains the highest-scoring 20% of unique candidates. Within this pool, selection prioritizes motif composition diversity, then motif positions matched by the Hungarian algorithm, then prediction score for diversity ties. Motifs with fewer than 30 physical sites across the design pool are excluded by default. Outputs include `selected_sequences.csv`, FASTA, motif sites, distance matrices, and the selection trace.
 
 For Hamming Max-Min selection, omit `motifs`:
 

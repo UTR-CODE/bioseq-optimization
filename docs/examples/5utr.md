@@ -45,7 +45,7 @@ This calculates contributions for the optimization objective, extracts positive 
 ## 4. Select a motif-diverse panel
 
 ```python
-gate = float(designs.drop_duplicates("sequence").score.quantile(0.9))
+gate = float(designs.drop_duplicates("sequence").score.quantile(0.8))
 selected = select_candidates(
     designs, top_n=10, motifs=motifs, min_score=gate,
     output_dir="outputs/utr_top10",
