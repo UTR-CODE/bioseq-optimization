@@ -1,0 +1,9 @@
+{
+  "method": "pystreme",
+  "seconds": 6.496354799999949,
+  "candidates": 10,
+  "training_seqlets": 3215,
+  "heldout_seqlets": 1020,
+  "pystreme_commit": "dd5d3c52a9d7264b50bf43e2457e90a0a46e132a",
+  "note": "Pystreme uses invalid N padding; all methods share external family-held-out evaluation."
+}

@@ -26,7 +26,7 @@ cd bioseq-optimization
 python -m pip install -e '.[analysis,motifs]'
 ```
 
-Install MEME Suite for motif discovery and scanning; see [Installation](docs/installation.md).
+Built-in motif discovery runs in Python. Install MEME Suite for FIMO scanning in motif-based panel selection and the optional external STREME backend; see [Installation](docs/installation.md).
 
 ## 1. Generate designs
 
@@ -86,13 +86,13 @@ Run these cells in a notebook. For a standalone Python script, place model loadi
 
 ## 2. Call motifs
 
-The function checks that STREME and FIMO are executable before calculating contributions. If either is missing, it stops immediately and displays the MEME Suite installation command.
+The default discovery backend is a small, built-in STREME-inspired algorithm for variable-length seqlets. This step does not require MEME Suite executables. Use `motif_backend="streme"` for the external implementation; that mode checks STREME and FIMO before calculating contributions.
 
 ```python
 motifs = call_motifs(designs, model=model, output_dir="outputs/motifs")
 ```
 
-The function uses the design objective to calculate contributions, extracts positive seqlets, discovers PWMs against dinucleotide-shuffled controls, and retains supported motifs. It returns a motif catalog and writes the DNA PWMs to **`outputs/motifs/catalog.meme`** in MEME format. You can also discover motifs with your own method and supply its MEME file directly to step 3.
+The function uses the design objective to calculate contributions, extracts positive seqlets, discovers PWMs against dinucleotide-shuffled controls, and retains motifs supported by independent-group held-out enrichment and at least ten seqlets from three parent sequences. It returns a motif catalog and writes the DNA PWMs to **`outputs/motifs/catalog.meme`** in MEME format. You can also discover motifs with your own method and supply its MEME file directly to step 3.
 
 ## 3. Select candidates
 
@@ -144,6 +144,7 @@ Each tutorial uses the same three core functions and has a corresponding [Notebo
 - [PyTorch model interface](docs/pytorch-models.md)
 - [Candidate generation and timing](docs/candidate-generation.md)
 - [Motif discovery](docs/motif-discovery.md)
+- [Built-in discovery comparison](docs/motif-discovery-comparison.md)
 - [Motif composition and positional selection](docs/motif-diversity.md)
 - [Algorithms and plateau stopping](docs/algorithms.md)
 - [Parallel scoring backend](docs/parallel-scoring.md)

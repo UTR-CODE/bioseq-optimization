@@ -61,8 +61,10 @@ Use the same model or scorer as in design generation. The design objective is ca
 2. Calculate ISM contributions for the design objective.
 3. Call positive tangermeme seqlets.
 4. Generate length- and dinucleotide-matched background fragments.
-5. Discover candidate PWMs with STREME.
-6. Retain motifs supported by at least ten seqlets from at least three parent sequences.
+5. Discover candidate PWMs with the built-in STREME-inspired algorithm, using canonical k-mer seeds, iterative PWM refinement, and training-only site masking.
+6. Retain motifs with independent-parent held-out enrichment (Bonferroni corrected across the maximum candidate count), at least ten supporting seqlets, and at least three parent sequences.
+
+The default `motif_backend="builtin"` needs no MEME Suite executable for discovery. Set `motif_backend="streme"` to use official STREME and FIMO; missing executables produce an installation message before attribution starts. Use `discovery_options={"per_width": 3, "iterations": 10, "holdout_fraction": 0.2, "alpha": 0.05}` to configure built-in discovery. At least ten independent discovery groups are required.
 
 The returned `MotifCatalog` contains `pwms`, `seqlets`, and `support`. With `output_dir="outputs/motifs"`, the function exports the retained PWMs to **`outputs/motifs/catalog.meme`** in MEME format, alongside contributions, fragment sequences, and the motif-support table. This file can be passed directly to `select_candidates` in a later session.
 

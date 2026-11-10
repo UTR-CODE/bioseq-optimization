@@ -100,12 +100,15 @@ def call_motifs(designs, model=None, objective=None, *, contributions=None,
                 catalog=None, hits=None, output_dir=None, batch_size=512,
                 min_seqlets=10, min_parents=3, seqlet_threshold=.01,
                 min_width=6, max_width=15, max_seqlet_len=25, flanks=2,
-                max_motifs=30, seed=42, streme='streme', fimo='fimo'):
+                max_motifs=30, seed=42, streme='streme', fimo='fimo',
+                motif_backend='builtin', discovery_options=None):
     """Discover motifs from optimized sequences and their nucleotide contributions.
 
     By default, compute ISM for the design objective, call positive tangermeme
-    seqlets, discover PWMs with STREME against dinucleotide-shuffled controls,
-    and retain models supported by min_seqlets fragments and min_parents DNA.
+    seqlets, discover PWMs with the built-in STREME-inspired method against
+    dinucleotide-shuffled controls, and retain held-out enriched models supported
+    by min_seqlets fragments and min_parents DNA. motif_backend="streme" selects
+    the external MEME Suite implementation.
     Supply contributions as [input records,length] or a DataFrame indexed by
     sequence_id to reuse existing ISM/DeepLIFTShap scores. Alternatively, supply
     a MEME file/PWM dictionary as catalog and optional saved FIMO hits.
@@ -113,7 +116,9 @@ def call_motifs(designs, model=None, objective=None, *, contributions=None,
     unique, records = _records(designs)
     if min_seqlets < 1 or min_parents < 1 or not 1 <= min_width <= max_width <= max_seqlet_len:
         raise ValueError('Invalid motif support or width parameters')
-    if catalog is None:
+    if motif_backend not in {'builtin', 'streme'}:
+        raise ValueError("motif_backend must be 'builtin' or 'streme'")
+    if catalog is None and motif_backend == 'streme':
         _require_meme_tools(streme, fimo)
     ids = tuple(unique.sequence_id)
     saved_dir = None if output_dir is None else Path(output_dir)
@@ -156,8 +161,6 @@ def call_motifs(designs, model=None, objective=None, *, contributions=None,
 
         import torch
         from tangermeme.seqlet import recursive_seqlets
-        from tangermeme.ersatz import dinucleotide_shuffle
-        from .onehot import onehot
         seqlets = recursive_seqlets(torch.tensor(projected, dtype=torch.float32),
             threshold=seqlet_threshold, min_seqlet_len=min_width,
             max_seqlet_len=max_seqlet_len, additional_flanks=flanks)
@@ -174,35 +177,42 @@ def call_motifs(designs, model=None, objective=None, *, contributions=None,
         if len(seqlets) < min_seqlets:
             raise ValueError(f'Found {len(seqlets)} positive seqlets; require at least {min_seqlets}')
         write_fasta(out/'seqlets.fa', seqlets.seqlet_id, seqlets.dna)
-        controls = {}
-        for _, group in seqlets.groupby(seqlets.dna.str.len()):
-            tensor = torch.tensor(onehot(group.dna.to_numpy(), channels_first=True))
-            shuffled = dinucleotide_shuffle(tensor, n=1, random_state=seed)
-            codes = shuffled[:, 0].argmax(dim=1).cpu().numpy()
-            controls.update({sid: ''.join(np.array(list('ACGT'))[row]) for sid, row in zip(group.seqlet_id, codes)})
-        write_fasta(out/'background.fa', seqlets.seqlet_id, [controls[sid] for sid in seqlets.seqlet_id])
-        command = [str(streme), '--dna', '--p', str(out/'seqlets.fa'), '--n', str(out/'background.fa'),
-                   '--oc', str(out/'streme'), '--minw', str(min_width), '--maxw', str(max_width),
-                   '--nmotifs', str(max_motifs), '--seed', str(seed)]
-        with (out/'streme.log').open('w') as log:
-            subprocess.run(command, check=True, stdout=log, stderr=subprocess.STDOUT)
-        discovered = read_meme(out/'streme/streme.txt')
-        seqlet_hits = scan_fimo(out/'streme/streme.txt', out/'seqlets.fa', out/'seqlet_scan', executable=fimo)
-        support = []
-        for motif_id in discovered:
-            matched = set(seqlet_hits.loc[seqlet_hits.motif_id.eq(motif_id), 'sequence_name'])
-            group = seqlets[seqlets.seqlet_id.isin(matched)]
-            support.append(dict(motif_id=motif_id, seqlets=len(group), parents=group.sequence_id.nunique()))
-        support = pd.DataFrame(support)
-        support['retained'] = support.seqlets.ge(min_seqlets) & support.parents.ge(min_parents)
+        from .simple_streme import dinucleotide_controls, discover_seqlet_motifs
+        controls = dinucleotide_controls(seqlets.dna.tolist(), seed)
+        write_fasta(out/'background.fa', seqlets.seqlet_id, controls)
+        if motif_backend == 'builtin':
+            discovery = discover_seqlet_motifs(seqlets, controls=controls,
+                min_width=min_width, max_width=max_width, max_motifs=max_motifs,
+                min_seqlets=min_seqlets, min_parents=min_parents, seed=seed,
+                **dict(discovery_options or {}))
+            discovered, support = discovery.pwms, discovery.support
+            discovery.split.to_csv(out/'discovery_split.csv', index=False)
+            if discovered:
+                write_meme(out/'candidate_motifs.meme', discovered)
+        else:
+            command = [str(streme), '--dna', '--p', str(out/'seqlets.fa'), '--n', str(out/'background.fa'),
+                       '--oc', str(out/'streme'), '--minw', str(min_width), '--maxw', str(max_width),
+                       '--nmotifs', str(max_motifs), '--seed', str(seed)]
+            with (out/'streme.log').open('w') as log:
+                subprocess.run(command, check=True, stdout=log, stderr=subprocess.STDOUT)
+            discovered = read_meme(out/'streme/streme.txt')
+            seqlet_hits = scan_fimo(out/'streme/streme.txt', out/'seqlets.fa', out/'seqlet_scan', executable=fimo)
+            rows = []
+            for motif_id in discovered:
+                matched = set(seqlet_hits.loc[seqlet_hits.motif_id.eq(motif_id), 'sequence_name'])
+                group = seqlets[seqlets.seqlet_id.isin(matched)]
+                rows.append(dict(motif_id=motif_id, seqlets=len(group), parents=group.sequence_id.nunique()))
+            support = pd.DataFrame(rows)
+            support['retained'] = support.seqlets.ge(min_seqlets) & support.parents.ge(min_parents)
         support.to_csv(out/'support.csv', index=False)
         pwms = {m: discovered[m] for m in support.loc[support.retained, 'motif_id']}
         if not pwms:
-            raise ValueError('No motifs pass the seqlet and parent support thresholds')
+            raise ValueError('No motifs pass the discovery significance and seqlet/parent support thresholds; see support.csv')
         write_meme(out/'catalog.meme', pwms)
         (out/'config.json').write_text(json.dumps(dict(method='ISM' if contributions is None else 'provided',
+            motif_backend=motif_backend, discovery_options=dict(discovery_options or {}),
             sequences=len(unique), seqlets=len(seqlets), motifs=len(pwms), min_seqlets=min_seqlets,
-            min_parents=min_parents, seqlet_threshold=seqlet_threshold, seed=seed), indent=2)+'\n')
+            min_parents=min_parents, seqlet_threshold=seqlet_threshold, seed=seed), indent=2, default=str)+'\n')
         return MotifCatalog(pwms, seqlets=seqlets, support=support, sequence_ids=ids, output_dir=saved_dir)
 
 

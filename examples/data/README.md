@@ -11,3 +11,5 @@ Inputs for the [motif-diversity workflow](../../docs/motif-diversity.md).
 | `manifest.json` | Data provenance and SHA256 checksums |
 
 The source study used Malinois activity predictions for K562, HepG2, and SKNSH. Specificity is K562 activity minus the maximum off-target activity. Sequence IDs are SHA256-based identifiers. FIMO q-values retain the original catalog-wide scan values.
+
+The [motif-discovery reference files](motif_discovery) provide 4,235 variable-length seqlets, matched controls, CD-HIT-family split labels, and outputs for the built-in/STREME/pystreme comparison. See the [method comparison](../../docs/motif-discovery-comparison.md).

@@ -1,0 +1,62 @@
+{
+  "seqlets": 4235,
+  "parents": 1072,
+  "families": 176,
+  "train_seqlets": 3215,
+  "heldout_seqlets": 1020,
+  "train_families": 140,
+  "heldout_families": 36,
+  "pystreme_commit": "dd5d3c52a9d7264b50bf43e2457e90a0a46e132a",
+  "torch": "2.5.1",
+  "gpu": "NVIDIA GeForce RTX 4090",
+  "source": "Malinois K562 11-algorithm study; high-contribution seqlets; pre-existing CD-HIT 90% family-held-out split",
+  "core_sha256": "dd3a1e511cb7a5c858da327a72aa70c11f3dd1bc494122eb131ceb1c174be666",
+  "files": {
+    "builtin.meme": "90a4e4aed60684d4850f210a23ce9ab085205b30c16735779879b90aa1982854",
+    "builtin_runtime.json": "6d33f7a9faf2eb5cab9a222208199e09b39186bc3bfd160f14e0f1b338417694",
+    "builtin_support.csv": "cff44090e16d481fc0315ecdd32e9cb1f4128a5fb4ab4af555afd95e6ec6643f",
+    "builtin_top10.csv": "b51fb79817b4cf4c975c886ba1eb61fa2bbdff40874f34f7b2821bf8a57b9042",
+    "common_validation.csv": "0953262e4dad185274e32045c58abc9673b00a9f322d04dcaa9f34b455e7f950",
+    "null_calibration.csv": "09a483b30550c6bce4df4a37d1955a2adfe91ec36f9d6737bc3d6c78c7284da8",
+    "panel_overlap.csv": "f5c761e66ca2f5a8f6c5905ae7e272daf4fdb18523c89a8c7bfc8f22aed78315",
+    "pystreme.meme": "50ff4723adb73fcd352c8ee4148c70471fe86da79b51a2ec4ad2c5815f9e28ec",
+    "pystreme_runtime.json": "90ec0b378f9ef1009affb09c2b1d889f96fccb7737dec77c06118a52a94da9fe",
+    "pystreme_top10.csv": "316bb129eaf7574bda54b14a93922f6a43dc6d02f863733af994dec7b5154ef1",
+    "reference.meme": "28f2b8b9722739f00e11927b781d956d86786a58c78d8b9b0e31997b384ed65d",
+    "reference_motif_comparison.png": "fcb6fdfdc1515527fcf906abe71f54b2f57a0da4dc521128221f4e190e695506",
+    "reference_recovery.csv": "9ca84ee05d7e2a8df1204a3becfb7b068a7bbae3c311d6198811b02cc7933e78",
+    "seqlets.csv.gz": "171227ee5110853b653e81a734ef5adb5f41c48bf728b76db2f6d3c961d191ef",
+    "streme.meme": "f6f4a384d0c0003dd86bf02eb0a13f92aa28c701433c511d2598a433c2c649c4",
+    "streme_runtime.json": "6b68c68f34f71894da15dec4f5bc0bdff91fd9bd743b7ffc49080fc3918ee540",
+    "streme_top10.csv": "56b744a612d47a012953965d51f254f126b571be261f07e407c8bd7986dd829f"
+  },
+  "null_diagnostic": {
+    "runs": 40,
+    "sequences_per_run": 160,
+    "length_range_inclusive": [
+      18,
+      30
+    ],
+    "base_probabilities_first_20": [
+      0.25,
+      0.25,
+      0.25,
+      0.25
+    ],
+    "base_probabilities_last_20": [
+      0.1,
+      0.4,
+      0.4,
+      0.1
+    ],
+    "dna_seed": "100 + run_index",
+    "discovery_seed": "run_index",
+    "max_motifs": 3,
+    "min_width": 6,
+    "max_width": 10,
+    "per_width": 2,
+    "iterations": 5,
+    "holdout_fraction": 0.2,
+    "alpha": 0.05
+  }
+}
