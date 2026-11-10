@@ -863,7 +863,7 @@ def _cluster_parent_subset(sequences, scores, count, *, offset=0, cap=10, return
     lookup = {str(sequences[i]): float(scores[i]) for i in order[::-1]}
     if not unique:
         return np.array([], dtype=str), np.array([], dtype=float)
-    codes = np.array([list(s) for s in unique])
+    codes = np.array([list(s) for s in unique], dtype="U1").view(np.uint32)
     threshold = int(len(unique[0]) * .2)
     clusters = []
     compatible = np.ones((len(unique), len(unique)), dtype=bool)
