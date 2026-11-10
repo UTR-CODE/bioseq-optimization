@@ -13,7 +13,7 @@ motifs = call_motifs(
 )
 ```
 
-The default backend is a compact, independently implemented STREME-inspired discovery algorithm. It supports variable-length seqlets and does not call STREME or FIMO. Use the same scorer as in `generate_designs`; the optimization objective stored with the designs defines the attribution target for single-task, multi-task, and combined-model predictions.
+The default backend uses official STREME to discover motifs and FIMO to identify supporting seqlets. The optional `motif_backend="builtin"` selects the independently implemented method described below. Use the same scorer as in `generate_designs`; the optimization objective stored with the designs defines the attribution target for single-task, multi-task, and combined-model predictions.
 
 ## Attribution and fragments
 
@@ -24,7 +24,26 @@ Unique designs → ISM contributions → positive tangermeme seqlets
 
 ISM scores the three alternative bases at each position. The projected observed-base contribution is the original score minus the four-base mean prediction. Positive fragments are extracted with tangermeme's recursive seqlet caller. Discovery uses fragment sequences without attribution weighting.
 
-## Built-in discovery
+## Official STREME backend (default)
+
+```python
+motifs = call_motifs(
+    designs, model=scorer, motif_backend="streme",
+    output_dir="outputs/external_streme",
+)
+```
+
+This mode checks STREME and FIMO before attribution. Missing tools produce the installation command:
+
+```bash
+conda install -c conda-forge -c bioconda meme
+```
+
+Executable paths can be supplied as `streme="/path/to/streme"` and `fimo="/path/to/fimo"`. The external backend discovers motifs with STREME and counts supporting seqlets with FIMO. Its native discovery statistics and support criteria remain separate from the built-in paired-group validation.
+
+The default output directory contains `contributions.npz`, `seqlets.csv/fa`, `background.fa`, STREME output, seqlet FIMO matches, `support.csv`, and the retained `catalog.meme`.
+
+## Optional built-in discovery
 
 1. Generate one length- and dinucleotide-matched Euler-trail shuffle per seqlet.
 2. Split independent parent sequences into training and held-out groups. All fragments from one parent stay together. Family labels can be supplied to the lower-level interface below.
@@ -38,7 +57,7 @@ Invalid padding cannot enter a scanned window. Shorter fragments therefore contr
 
 This is an independent discovery method. Its paired group test and order-0 background differ from official STREME. `heldout_p_adjusted` refers to the matched shuffled-fragment null, while functional relevance is evaluated through the prediction model and experimental measurements.
 
-## Parameters and outputs
+### Built-in parameters and outputs
 
 ```python
 motifs = call_motifs(
@@ -58,23 +77,6 @@ print(motifs.support)
 At least ten independent groups are required, with at least three groups in each split. The default hold-out fraction is 20%. `max_motifs` limits the number of training candidates and defines the validation correction; the retained count follows the data.
 
 Outputs include `contributions.npz`, `seqlets.csv/fa`, `background.fa`, `discovery_split.csv`, `candidate_motifs.meme`, `support.csv`, and the retained `catalog.meme`. The support table includes consensus, width, threshold, training search statistics, held-out p-values, fragment support, parent support, and the retention decision. `config.json` records the backend and requested settings.
-
-## Official STREME backend
-
-```python
-motifs = call_motifs(
-    designs, model=scorer, motif_backend="streme",
-    output_dir="outputs/external_streme",
-)
-```
-
-This mode checks STREME and FIMO before attribution. Missing tools produce the installation command:
-
-```bash
-conda install -c conda-forge -c bioconda meme
-```
-
-Executable paths can be supplied as `streme="/path/to/streme"` and `fimo="/path/to/fimo"`. The external backend discovers motifs with STREME and counts supporting seqlets with FIMO. Its native discovery statistics and support criteria remain separate from the built-in paired-group validation.
 
 ## Existing contributions or seqlets
 

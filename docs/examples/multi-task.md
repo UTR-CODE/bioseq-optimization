@@ -77,7 +77,7 @@ motifs = call_motifs(
 print(motifs.support)
 ```
 
-The function reuses the generation objective for ISM contributions, calls positive seqlets with tangermeme, discovers motifs with the built-in STREME-inspired method against dinucleotide-shuffled controls, and retains motifs with held-out parent-group enrichment, at least 10 supporting seqlets, and at least 3 parent sequences. It saves the contributions, seqlets, support counts, and `catalog.meme`.
+The function reuses the generation objective for ISM contributions, calls positive seqlets with tangermeme, discovers motifs with official STREME against dinucleotide-shuffled controls, and retains motifs with FIMO support from at least 10 seqlets and at least 3 parent sequences. It saves the contributions, seqlets, support counts, and `catalog.meme`.
 
 The exported MEME file can also be passed as `motifs="outputs/deepstarr/motifs/catalog.meme"` in the selection call below. To use your own motif-discovery method, skip this step and set `motifs="my_motifs.meme"` instead.
 

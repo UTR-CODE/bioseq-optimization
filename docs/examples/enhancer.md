@@ -50,7 +50,7 @@ motifs = call_motifs(
 print(motifs.support)
 ```
 
-This calculates contributions for the optimization objective, extracts positive seqlets, and discovers supported PWMs with the built-in backend and held-out parent-group validation. The catalog is saved as `catalog.meme`.
+This calculates contributions for the optimization objective, extracts positive seqlets, and discovers PWMs with official STREME and filters supporting seqlets using FIMO. The catalog is saved as `catalog.meme`.
 
 ## 4. Select a motif-diverse panel
 

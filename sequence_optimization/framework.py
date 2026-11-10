@@ -101,14 +101,14 @@ def call_motifs(designs, model=None, objective=None, *, contributions=None,
                 min_seqlets=10, min_parents=3, seqlet_threshold=.01,
                 min_width=6, max_width=15, max_seqlet_len=25, flanks=2,
                 max_motifs=30, seed=42, streme='streme', fimo='fimo',
-                motif_backend='builtin', discovery_options=None):
+                motif_backend='streme', discovery_options=None):
     """Discover motifs from optimized sequences and their nucleotide contributions.
 
     By default, compute ISM for the design objective, call positive tangermeme
-    seqlets, discover PWMs with the built-in STREME-inspired method against
-    dinucleotide-shuffled controls, and retain held-out enriched models supported
-    by min_seqlets fragments and min_parents DNA. motif_backend="streme" selects
-    the external MEME Suite implementation.
+    seqlets, discover PWMs with official STREME against dinucleotide-shuffled
+    controls, and use FIMO to retain models supported by min_seqlets fragments
+    and min_parents DNA. motif_backend="builtin" selects the optional Python
+    implementation with independent-group held-out enrichment.
     Supply contributions as [input records,length] or a DataFrame indexed by
     sequence_id to reuse existing ISM/DeepLIFTShap scores. Alternatively, supply
     a MEME file/PWM dictionary as catalog and optional saved FIMO hits.

@@ -26,7 +26,7 @@ cd bioseq-optimization
 python -m pip install -e '.[analysis,motifs]'
 ```
 
-Built-in motif discovery runs in Python. Install MEME Suite for FIMO scanning in motif-based panel selection and the optional external STREME backend; see [Installation](docs/installation.md).
+Install MEME Suite for official STREME motif discovery and FIMO scanning; see [Installation](docs/installation.md).
 
 ## 1. Generate designs
 
@@ -71,7 +71,7 @@ with torch.no_grad():
 print(activity)  # [2, 1]
 ```
 
-Pass the trained model directly to the optimizer. The framework encodes candidate DNA strings and maximizes the predicted activity:
+Pass the trained model directly to the optimizer. The framework automatically wraps it with `SequencePredictor`, encodes DNA strings for discrete prediction, and implements `score_soft` for differentiable sequence probabilities. Your CNN only needs a differentiable `forward` method returning activity tensors; no custom `score` or `score_soft` methods are required.
 
 ```python
 designs = generate_designs(
@@ -86,13 +86,13 @@ Run these cells in a notebook. For a standalone Python script, place model loadi
 
 ## 2. Call motifs
 
-The default discovery backend is a small, built-in STREME-inspired algorithm for variable-length seqlets. This step does not require MEME Suite executables. Use `motif_backend="streme"` for the external implementation; that mode checks STREME and FIMO before calculating contributions.
+The default backend uses official STREME for discovery and FIMO for seqlet support. It checks both executables before calculating contributions and provides an installation command when either is missing.
 
 ```python
 motifs = call_motifs(designs, model=model, output_dir="outputs/motifs")
 ```
 
-The function uses the design objective to calculate contributions, extracts positive seqlets, discovers PWMs against dinucleotide-shuffled controls, and retains motifs supported by independent-group held-out enrichment and at least ten seqlets from three parent sequences. It returns a motif catalog and writes the DNA PWMs to **`outputs/motifs/catalog.meme`** in MEME format. You can also discover motifs with your own method and supply its MEME file directly to step 3.
+The function uses the design objective to calculate contributions, extracts positive seqlets, discovers PWMs with STREME against dinucleotide-shuffled controls, and retains motifs supported by at least ten seqlets from three parent sequences using FIMO matches. It returns a motif catalog and writes the DNA PWMs to **`outputs/motifs/catalog.meme`** in MEME format. You can also discover motifs with your own method and supply its MEME file directly to step 3.
 
 ## 3. Select candidates
 

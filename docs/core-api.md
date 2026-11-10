@@ -15,7 +15,7 @@ designs = generate_designs(
 )
 ```
 
-`model` may be a PyTorch `nn.Module`, `SequencePredictor`, or `CombinedScorer`. `initial=None` generates the shared random population. Select algorithms with `algorithms=[...]`; the default contains eleven non-random optimizers.
+`model` may be a PyTorch `nn.Module`, `SequencePredictor`, or `CombinedScorer`. A plain module is automatically wrapped: its `forward` accepts `[batch,4,length]` A/C/G/T inputs and returns `[batch]` or `[batch,tasks]` activity tensors. The wrapper supplies both discrete `score` and differentiable `score_soft`; users do not implement those methods on a standard CNN. `initial=None` generates the shared random population. Select algorithms with `algorithms=[...]`; the default contains eleven non-random optimizers.
 
 By default, `parallel=True` starts one CPU optimization process per algorithm. A single scoring service in the calling process retains the loaded model, receives requests through a shared queue, and combines compatible discrete or differentiable requests into batches. Model objects stay out of the worker processes.
 
@@ -61,10 +61,10 @@ Use the same model or scorer as in design generation. The design objective is ca
 2. Calculate ISM contributions for the design objective.
 3. Call positive tangermeme seqlets.
 4. Generate length- and dinucleotide-matched background fragments.
-5. Discover candidate PWMs with the built-in STREME-inspired algorithm, using canonical k-mer seeds, iterative PWM refinement, and training-only site masking.
-6. Retain motifs with independent-parent held-out enrichment (Bonferroni corrected across the maximum candidate count), at least ten supporting seqlets, and at least three parent sequences.
+5. Discover candidate PWMs with official STREME.
+6. Scan the seqlets with FIMO and retain motifs supported by at least ten seqlets from at least three parent sequences.
 
-The default `motif_backend="builtin"` needs no MEME Suite executable for discovery. Set `motif_backend="streme"` to use official STREME and FIMO; missing executables produce an installation message before attribution starts. Use `discovery_options={"per_width": 3, "iterations": 10, "holdout_fraction": 0.2, "alpha": 0.05}` to configure built-in discovery. At least ten independent discovery groups are required.
+The default `motif_backend="streme"` uses official STREME and FIMO. Missing executables produce an installation message before attribution starts. The optional `motif_backend="builtin"` uses the independently implemented discovery method described in [Motif discovery](motif-discovery.md).
 
 The returned `MotifCatalog` contains `pwms`, `seqlets`, and `support`. With `output_dir="outputs/motifs"`, the function exports the retained PWMs to **`outputs/motifs/catalog.meme`** in MEME format, alongside contributions, fragment sequences, and the motif-support table. This file can be passed directly to `select_candidates` in a later session.
 

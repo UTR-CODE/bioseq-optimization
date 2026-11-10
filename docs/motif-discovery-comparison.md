@@ -2,7 +2,7 @@
 
 [Home](../README.md) · [Discovery method](motif-discovery.md) · [Reference files](../examples/data/motif_discovery)
 
-The comparison uses 4,235 contribution-derived seqlets from the K562 enhancer study: 1,072 parent sequences in 176 pre-existing CD-HIT 90% families. This comparison uses sequence-family groups; the normal `call_motifs` default uses parent sequences as its groups. The fixed split contains 3,215 training fragments from 140 families and 1,020 held-out fragments from 36 families. The same families never appear in both sets. Sequences, shuffled controls, and split labels are provided in `examples/data/motif_discovery/seqlets.csv.gz`.
+The comparison uses 4,235 contribution-derived seqlets from the K562 enhancer study: 1,072 parent sequences in 176 pre-existing CD-HIT 90% families. This comparison uses sequence-family groups; the optional built-in method normally uses parent sequences as its groups. The fixed split contains 3,215 training fragments from 140 families and 1,020 held-out fragments from 36 families. The same families never appear in both sets. Sequences, shuffled controls, and split labels are provided in `examples/data/motif_discovery/seqlets.csv.gz`.
 
 ## Discovery and common evaluation
 

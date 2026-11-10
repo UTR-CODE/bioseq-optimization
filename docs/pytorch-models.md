@@ -51,6 +51,22 @@ Model loading remains part of the prediction workflow. For example, load a train
 scorer = SequencePredictor(model, tasks=["activity"], device="cpu")
 ```
 
+### Direct use with all eleven optimizers
+
+A trained `nn.Module` can be supplied directly:
+
+```python
+from sequence_optimization import generate_designs
+
+designs = generate_designs(
+    model, length=200, objective=["maximize"], num_candidates=100,
+)
+```
+
+`generate_designs` constructs `SequencePredictor` automatically. For discrete scoring, it one-hot encodes DNA strings. For `score_soft`, it feeds continuous nucleotide probabilities through the same `forward` method and retains input gradients. Seven optimizers use discrete scores; DEN, Fast SeqProp, Ledidi, and activation maximization also request differentiable scores. The shared service batches both kinds of requests and returns gradients to CPU optimizer workers.
+
+The model only implements `forward`; users do not add `score` or `score_soft` methods to a standard CNN. Model weights stay fixed while the optimizers update sequences. The differentiable path uses PyTorch tensor operations throughout: use `argmax`, NumPy conversion, or `detach` only outside the model's input-to-activity computation. Custom input layouts use `SequencePredictor(input_transform=...)` as below.
+
 ## 2. Input layouts
 
 A model accepting `[batch, length, 4]` uses an identity input transform:
