@@ -63,13 +63,13 @@ def test_high_scoring_candidate_rejected_by_selected_predecessor_uses_cache():
     assert monitor.ranking == [(-3.0, "AA"), (-2.5, "AC"), (-2.0, "CC")]
 
 
-def test_continuous_subthreshold_gains_do_not_accumulate_into_progress():
+def test_continuous_subthreshold_gains_accumulate_into_progress():
     monitor = _SaturationMonitor(1, 1, 3, 1e-2, 0)
     monitor.observe(np.array(["A"]), ScoreBatch([0.0]), 1)
     monitor.observe(np.array(["C"]), ScoreBatch([0.004]), 2)
     monitor.observe(np.array(["G"]), ScoreBatch([0.008]), 3)
-    with pytest.raises(_SaturationReached):
-        monitor.observe(np.array(["T"]), ScoreBatch([0.012]), 4)
+    monitor.observe(np.array(["T"]), ScoreBatch([0.012]), 4)
+    assert monitor.last_material_query == 4
 
 
 def test_single_dynamic_material_gain_refreshes_patience():
@@ -78,8 +78,8 @@ def test_single_dynamic_material_gain_refreshes_patience():
     monitor.observe(np.array(["C"]), ScoreBatch([0.02]), 2)
     monitor.observe(np.array(["G"]), ScoreBatch([0.024]), 3)
     monitor.observe(np.array(["T"]), ScoreBatch([0.028]), 4)
-    with pytest.raises(_SaturationReached):
-        monitor.observe(np.array(["AA"]), ScoreBatch([0.032]), 5)
+    monitor.observe(np.array(["AA"]), ScoreBatch([0.032]), 5)
+    assert monitor.last_material_query == 5
 
 
 def test_bounded_top_archive_tracker_matches_full_greedy_selection():

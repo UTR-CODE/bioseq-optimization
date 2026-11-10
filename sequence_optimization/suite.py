@@ -20,6 +20,7 @@ from .api import (
 from .constraints import ConstraintSpec
 from .objectives import MultiTaskObjective, TargetObjective
 from .saturation import SaturationConfig, SaturationResult
+from .exploration import DiversitySearchConfig, MotifPositionDescriptor, generate_diverse_designs
 
 DIFFERENTIABLE_ALGORITHMS = frozenset(
     {
@@ -115,7 +116,8 @@ def generate_designs(
     num_candidates: int = 100,
     diversity: int = 5,
     weights: Sequence[float] | None = None,
-    stop_values: Sequence[float | None] | None = None,
+    stop_values: Sequence[float | tuple[float | None, float | None] | None] | None = None,
+    stop_tolerance: float | None = 0.5,
     differentiable_model: SequenceScorer | None = None,
     tasks: Sequence[str] | None = None,
     alphabet: str = "ACGT",
@@ -126,20 +128,22 @@ def generate_designs(
     fixed_region: Sequence[int | str | slice] | None = None,
     is_CDS_optimized: bool = False,
     count_repeated: bool = False,
+    exploration: DiversitySearchConfig | None = None,
+    descriptor: MotifPositionDescriptor | None = None,
     **common_kwargs: Any,
 ):
-    """Run all 13 optimization algorithms and return one candidate DataFrame.
+    """Run all 12 optimization algorithms and return one candidate DataFrame.
 
     Args:
         model: Predictor model for sequence scoring
         length: Sequence length to optimize
         initial: Initial population sequences
         objective: Optimization objective (e.g., ["maximize"], ["minimize", "maximize"])
-        algorithms: Algorithm names to run (default: all 13)
+        algorithms: Algorithm names to run (default: all registered algorithms)
         num_candidates: Candidates per algorithm (default: 100)
         diversity: Minimum Hamming distance between candidates (default: 5)
         weights: Relative importance per model output (default: equal weighting)
-        stop_values: Per-output directional stopping thresholds; None means unlimited.
+        stop_values: Per-output directional caps or (lower, upper) bounds; None means unlimited.
         differentiable_model: Model for gradient algorithms (optional)
         tasks: Optional output names for this generate_designs call
         alphabet: DNA/RNA alphabet (default: "ACGT")
@@ -152,6 +156,10 @@ def generate_designs(
         fixed_region: Positions or slices held unchanged during optimization
         is_CDS_optimized: Restrict candidates to synonymous CDS substitutions
         count_repeated: Count repeated proposals against the query budget
+        exploration: Opt into budgeted cooperative motif/position search. In
+            this mode num_candidates is the TOTAL global panel size, and
+            exploration.total_budget is shared across all selected algorithms.
+        descriptor: Motif/position representation required with exploration.
         **common_kwargs: Algorithm-specific hyperparameters passed to every algorithm
 
     Returns:
@@ -164,6 +172,31 @@ def generate_designs(
           three-proposal-batch patience floor, and no implicit query ceiling
         - Diversity control: ensures minimum Hamming distance of 5 within each algorithm
     """
+    if exploration is not None:
+        if descriptor is None:
+            raise ValueError("descriptor is required with exploration")
+        if budget is not None or saturation is not None:
+            raise ValueError("exploration uses its own total_budget; omit budget and saturation")
+        if is_CDS_optimized or alphabet.upper().replace("U", "T") != "ACGT":
+            raise ValueError("exploration currently requires an A/C/G/T nucleotide space without CDS synonymy")
+        selected_algorithms = (tuple(available_algorithms()) if algorithms is None else algorithms)
+        if isinstance(selected_algorithms, (str, bytes)):
+            raise TypeError("algorithms must be a sequence of algorithm names")
+        selected_algorithms = tuple(str(n).strip().lower() for n in selected_algorithms)
+        result = generate_diverse_designs(
+            model, length, initial, objective, descriptor=descriptor, config=exploration,
+            algorithms=selected_algorithms, num_candidates=num_candidates,
+            diversity=diversity, weights=weights, stop_values=stop_values,
+            stop_tolerance=stop_tolerance, differentiable_model=differentiable_model,
+            tasks=tasks, constraint=constraint, fixed_region=fixed_region, seed=seed,
+            algorithm_options={name: common_kwargs for name in selected_algorithms},
+        )
+        frame = result.candidates
+        frame.attrs["diversity_search"] = result.metadata
+        frame.attrs["search_history"] = result.history.to_dict("records")
+        return frame
+    if descriptor is not None:
+        raise ValueError("descriptor requires exploration")
     # The suite is the complete comparison unless the caller selects a subset.
     if algorithms is None:
         algorithms = tuple(available_algorithms())
@@ -237,6 +270,7 @@ def generate_designs(
     # Common options for all algorithms
     shared_options = dict(common_kwargs)
     shared_options["stop_values"] = stop_values
+    shared_options["stop_tolerance"] = stop_tolerance
     shared_options["diversity"] = diversity
     shared_options["fixed_region"] = fixed_region
     shared_options["is_CDS_optimized"] = is_CDS_optimized

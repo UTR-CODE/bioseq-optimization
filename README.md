@@ -1,208 +1,70 @@
-# Biosequence Optimization
+# bioseq-optimization
 
-A unified multi-algorithm framework for biological sequence design. Run 13 complementary optimization strategies and obtain diverse candidate sequences for experimental validation.
+整合多种优化算法设计调控序列，再根据 **motif组成与位置的多样性** 选择实验候选。
 
-[Framework overview figure will be placed here - Main Figure 1 from the paper]
+预测模型来自独立的 [bioseq-models](https://github.com/UTR-CODE/bioseq-models/tree/main/bioseq_models)，统一通过 `from bioseq_models import load_model` 调用。本仓库维护优化、候选记录、motif距离和候选选择，不携带模型结构或权重。
 
-## Installation
+```text
+100条相同起始序列
+        ↓
+11种优化算法，各自stop on plateau，无默认查询budget
+        ↓
+各取90%增益档的100条候选 → 1,100条来源记录
+        ↓
+合并相同DNA，保留algorithm provenance
+        ↓
+贡献分 → seqlets → motif catalog → FIMO重新扫描
+        ↓
+质量门槛 → motif组合Max-Min → 位点位置Max-Min → 预测分数
+        ↓
+Top N候选、FASTA、预测值、motif位置与选择过程
+```
+
+1,100是**来源记录数**；不同算法可能得到相同DNA，去重后唯一序列数可能少于1,100。Random Search不包含在这11种算法中，可另外预测200,000条随机序列作参考。90%指本次搜索观察到的**增益比例**，不是预测概率、90%分位数或已知全局最优的90%。
+
+## 从哪里开始
+
+| 文档 | 内容 |
+|---|---|
+| [安装与模型接口](docs/installation.md) | 安装、环境、模型下载、输入输出约定 |
+| [11算法生成1,100条候选](docs/candidate-generation.md) | 完整优化循环、增益档、平台期、查询量、时间统计 |
+| [Enhancer逐步示例](docs/examples/enhancer.md) | Malinois；K562高于HepG2和SKNSH；切换目标细胞；motif筛选 |
+| [Promoter逐步示例](docs/examples/promoter.md) | DREAM LegNet酵母promoter；80 nt插入片段；固定实验上下文 |
+| [5′UTR逐步示例](docs/examples/5utr.md) | Optimus-5′ Prime；50 nt；提高MRL；Top10与uAUG检查 |
+| [贡献分、seqlets与motif发现](docs/motif-discovery.md) | ISM/DeepLIFTShap、tangermeme、STREME、独立支持与验证 |
+| [Motif diversity选择Top N](docs/motif-diversity.md) | PWM相似性、Soft-Jaccard、Hungarian、分层Max-Min；含免GPU真实数据示例 |
+| [多进程与GPU队列](docs/parallel-scoring.md) | 多个CPU优化进程、单GPU批量评分、梯度请求和退出处理 |
+| [算法与停止规则](docs/algorithms.md) | 11种算法名称、梯度需求、饱和/增益参数 |
+| [验证与结果边界](docs/validation.md) | 自动测试、真实模型检查、参考数据来源与未覆盖部分 |
+
+上述文档按步骤给出可以逐段执行的代码。三个主要示例也提供逐步Notebook：[enhancer](examples/enhancer.ipynb)、[promoter](examples/promoter.ipynb)、[5′UTR](examples/5utr.ipynb)。另有可直接执行的[免GPU motif选择Notebook](examples/motif_diversity.ipynb)。Enhancer的motif步骤需要先按发现文档准备catalog；按章节顺序执行代码块；示例中的生产规模为11×100，运行时间取决于模型、长度和平台期。Notebook的输出目录必须为空，重复实验请更改目录。
+
+## 安装
 
 ```bash
-python -m pip install git+https://github.com/UTR-CODE/bioseq-optimization.git
-python -m pip install git+https://github.com/UTR-CODE/bioseq-models.git
+git clone https://github.com/UTR-CODE/bioseq-optimization.git
+cd bioseq-optimization
+python -m pip install -e '.[analysis,motifs,dev]'
+python -m pip install 'bioseq-models @ git+https://github.com/UTR-CODE/bioseq-models.git'
 ```
 
-## Examples
+MEME Suite的FIMO/STREME/Tomtom以及R属于可选外部工具，安装方法见[安装文档](docs/installation.md)。普通优化不需要这些工具；扫描和发现motif时才需要。可选C扩展在安装时编译，没有C编译器时保留Python实现。
 
-### Example 1: Single-Task Optimization (Optimus 5-Prime MRL)
-
-Optimize 5'UTR sequences to maximize mean ribosome load (MRL):
+## 最小接口
 
 ```python
 from bioseq_models import load_model
-from sequence_optimization import generate_designs, random_seed_sequences
+from sequence_optimization import random_seed_sequences
+from sequence_optimization.workflows import generate_candidates
 
-model = load_model("optimus5prime", device="cuda", batch_size=256)
-initial = random_seed_sequences(length=50, count=100, seed=42)
-result_df = generate_designs(
-    model,
-    length=50,
-    initial=initial,
-    objective=["maximize"],
-    seed=42,
+model = load_model("optimus5prime", device="cuda", batch_size=512)
+initial = random_seed_sequences(50, 100, seed=42)
+records, times = generate_candidates(
+    model, 50, initial, ["maximize"],
+    output_dir="outputs/utr_run1", num_candidates=100,
 )
-
-print(result_df.head(20))
-print(f"\nTotal candidates: {len(result_df)}")
-print(f"Best score: {result_df['score'].max():.4f}")
+assert len(records) == 1100
+print(times[["algorithm", "seconds", "queries", "stop_reason"]])
 ```
 
-**Output:**
-```
-                                            sequence algorithm     score  activity_mrl
-0  TTGAGATTTTATTAATTTCTGAATTTTTAACTTTTAGATTTAAGAT...   adalead  9.523573      9.523573
-1  TTGTGATTTTATTAATTTTTGATTTTTTAACTTTTAGAGTTAGAAT...   adalead  9.510443      9.510443
-2  TAGTGTTTTGATTAATTTTTGAATTATTAACTTTTAGATTTAAGAT...   adalead  9.502789      9.502789
-...
-
-Total candidates: 1300
-Best score: 9.5539
-```
-
-### Example 2: Multi-Task Optimization (DeepSTARR)
-
-Optimize enhancer sequences for tissue specificity:
-
-```python
-from bioseq_models import load_model
-from sequence_optimization import generate_designs, random_seed_sequences
-
-model = load_model("deepstarr", device="cuda", batch_size=128)
-initial = random_seed_sequences(length=249, count=100, seed=42)
-result_df = generate_designs(
-    model,
-    length=249,
-    initial=initial,
-    objective=["minimize", "maximize"],
-    seed=42,
-)
-
-print(
-    result_df[
-        ["algorithm", "score", "activity_developmental", "activity_housekeeping"]
-    ].head()
-)
-```
-
-**Output:**
-```
-  algorithm     score  activity_developmental  activity_housekeeping
-0   adalead  1.730678                1.192306               4.653661
-1   adalead  1.729318                1.161735               4.620370
-2   adalead  1.723419                1.374944               4.821783
-```
-
-### Example 3: Multiple Independent Models (Agarwal lentiMPRA)
-
-Optimize for cell-type specificity across three cell lines:
-
-```python
-from bioseq_models import load_model
-from sequence_optimization import CombinedScorer, generate_designs, random_seed_sequences
-
-model_k562 = load_model("agarwal_k562", device="cuda", batch_size=128)
-model_hepg2 = load_model("agarwal_hepg2", device="cuda", batch_size=128)
-model_wtc11 = load_model("agarwal_wtc11", device="cuda", batch_size=128)
-
-combined = CombinedScorer(
-    [model_k562, model_hepg2, model_wtc11],
-    names=["K562", "HepG2", "WTC11"],
-)
-
-initial = random_seed_sequences(length=230, count=100, seed=42)
-result_df = generate_designs(
-    combined,
-    length=230,
-    initial=initial,
-    objective=["maximize", "minimize", "minimize"],
-    seed=42,
-)
-
-print(result_df[['algorithm', 'score', 'activity_K562', 'activity_HepG2', 'activity_WTC11']].head())
-```
-
-The Agarwal adapters convert canonical A/C/G/T inputs to the A/G/C/T channel
-order used by MPRALegNet in both scoring paths.
-
-**Output:**
-```
-  algorithm     score  activity_K562  activity_HepG2  activity_WTC11
-0   adalead  2.942906       6.026797       -1.372510       -1.429412
-1   adalead  2.941358       5.981269       -1.401444       -1.441360
-2   adalead  2.932116       6.054406       -1.337788       -1.404153
-```
-
-## More Task Examples
-
-Pretrained models available via `bioseq-models`:
-
-- [Optimus 5-Prime](docs/models/optimus.md) - 5′UTR MRL optimization
-- [UTR-CODE](docs/models/utr_code.md) - Translation optimization
-- [CDS Stability](docs/models/cds_stability.md) - CDS stability
-- [DeepSTARR](docs/models/deepstarr.md) - Enhancer activity
-- [DREAM LegNet](docs/models/dream_legnet.md) - Promoter activity
-- [Cetnar](docs/models/cetnar_stability.md) - mRNA stability
-- [Agarwal lentiMPRA](docs/models/agarwal.md) - Cell-type specificity
-- [DeepSTARR Mouse](docs/models/deepstarr_mouse.md) - Tissue specificity (mouse)
-- [DeepSTARR-Embryo](docs/models/deepstarr_embryo.md) - Tissue specificity (embryo)
-- [Malinois](docs/models/malinois.md) - Cell-type specificity
-
-## Custom Models
-
-Use your own PyTorch CNN model:
-
-```python
-import torch
-from torch import nn
-from sequence_optimization import SequencePredictor, generate_designs, random_seed_sequences
-
-class SimpleCNN(nn.Module):
-    def __init__(self):
-        super().__init__()
-        self.conv1 = nn.Conv1d(4, 64, kernel_size=8)
-        self.pool = nn.AdaptiveMaxPool1d(1)
-        self.fc = nn.Linear(64, 1)
-
-    def forward(self, x):
-        x = torch.relu(self.conv1(x))
-        x = self.pool(x).squeeze(-1)
-        x = self.fc(x)
-        return x
-
-model = SimpleCNN()
-predictor = SequencePredictor(model, device="cuda")
-initial = random_seed_sequences(length=50, count=100, seed=42)
-result_df = generate_designs(
-    predictor,
-    length=50,
-    initial=initial,
-    objective=["maximize"],
-    tasks=["test"],  # Omit to use task_0, task_1, ... automatically.
-    seed=42,
-)
-
-print(result_df.head(20))
-```
-
-See [custom models guide](docs/custom_models.md) for input format details.
-
-## Advanced Features
-
-`generate_designs()` accepts optional arguments to constrain the search space and shape the
-objective: sequence constraint functions, fixed regions, diversity thresholds, saturation
-screening, threshold-based multi-task objectives, objective weights, CDS synonymous-codon
-optimization, fixed query budgets, and custom model input channels.
-
-See the [advanced features guide](docs/advanced_features.md) for details and examples.
-
-## Output Format
-
-`generate_designs()` returns a pandas DataFrame with:
-
-| Column | Description |
-|--------|-------------|
-| `sequence` | DNA/RNA sequence |
-| `algorithm` | Which algorithm found this sequence |
-| `score` | Scalarized objective score |
-| `activity_*` | Raw model predictions (for multi-task models) |
-
-**Default settings:**
-- **13 algorithms**: 9 black-box + 4 gradient-based
-- **100 candidates** per algorithm
-- **Random search**: 100,000 proposals (including initial seeds) → top 100 by default
-- **Other algorithms**: stop on plateau without an implicit query cap; select diverse candidates around a late relaxed knee, with run-relative quality guards
-- **Diversity**: minimum Hamming distance of 5 within each algorithm
-- **Shared model caching** across algorithms for efficiency
-
-**Algorithms:**
-- Black-box (9): random, genetic_algorithm, ism_greedy, simulated_annealing, adalead, basesearch, beam_search, cross_entropy_method, cbas
-- Gradient-based (4): vanilla_activation_maximization, fast_seqprop, den, ledidi
+完整示例解释每个参数、保留原始预测值，并给出后续选择与导出步骤。没有可靠motif catalog时，promoter和5′UTR示例明确使用DNA序列多样性；它不等同于motif机制多样性。模型高分属于预测结果，需要实验验证。

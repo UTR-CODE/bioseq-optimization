@@ -151,9 +151,17 @@ class MultiTaskObjective:
     temperature: float = 0.1
     directions: Sequence[str] | None = None
     weights: Sequence[float] | None = None
-    stop_values: Sequence[float | None] | None = None
+    stop_values: Sequence[float | tuple[float | None, float | None] | None] | None = None
+    stop_tolerance: float | None = 0.5
 
     def __post_init__(self):
+        if self.stop_tolerance is not None and (
+            isinstance(self.stop_tolerance, bool)
+            or not isinstance(self.stop_tolerance, Real)
+            or not np.isfinite(self.stop_tolerance)
+            or self.stop_tolerance < 0
+        ):
+            raise ValueError("stop_tolerance must be finite and non-negative, or None")
         if self.directions is not None:
             if isinstance(self.directions, str) or not self.directions:
                 raise ValueError(
@@ -186,18 +194,25 @@ class MultiTaskObjective:
             if len(stops) != len(directions):
                 raise ValueError("stop_values must match directions length")
             for direction, value in zip(directions, stops):
-                if value is not None and (
-                    isinstance(value, bool)
-                    or not isinstance(value, Real)
-                    or not np.isfinite(value)
-                ):
+                bounds = value if isinstance(value, (list, tuple)) else (value,)
+                if len(bounds) not in (1, 2) or any(
+                    bound is not None and (
+                        isinstance(bound, bool)
+                        or not isinstance(bound, Real)
+                        or not np.isfinite(bound)
+                    ) for bound in bounds
+                ) or (isinstance(value, (list, tuple)) and len(bounds) != 2):
                     raise ValueError(
-                        "stop_values entries must be finite numbers or None"
+                        "stop_values entries must be finite numbers, (lower, upper), or None"
                     )
+                if len(bounds) == 2 and all(b is not None for b in bounds) and bounds[0] > bounds[1]:
+                    raise ValueError("stop_values lower bound must not exceed upper bound")
                 if direction == "ignore" and value is not None:
                     raise ValueError("ignored outputs must have stop_values=None")
             if self.stop_values is not None:
-                object.__setattr__(self, "stop_values", tuple(stops))
+                object.__setattr__(self, "stop_values", tuple(
+                    tuple(v) if isinstance(v, (list, tuple)) else v for v in stops
+                ))
         elif self.stop_values is not None:
             raise ValueError("stop_values requires directions")
         if self.aggregation not in {"worst", "mean", "smoothmin"}:
@@ -276,7 +291,7 @@ class MultiTaskObjective:
                 "positive scales"
             )
         bounded = self.lower_bounds is not None or self.upper_bounds is not None
-        direction_targets = self.target_thresholds(n_tasks)
+        direction_targets = self.prediction_bounds(n_tasks)
         if direction_targets and bounded:
             raise ValueError(
                 "stop_values cannot be combined with lower_bounds or upper_bounds"
@@ -293,16 +308,11 @@ class MultiTaskObjective:
                 if not np.isfinite(value):
                     raise ValueError("bounds must be finite")
                 center[k] = value
-        elif direction_targets:
-            center = center.copy()
-            for k, value in direction_targets.items():
-                center[k] = value
-            bounded = True
         signs = np.asarray([1.0] * len(high) + [-1.0] * len(low))
         return selected, signs, center, scale, bounded
 
     def target_thresholds(self, n_tasks: int | None = None) -> dict[int, float]:
-        """Return per-output directional stopping thresholds."""
+        """Return scalar directional bounds (not search termination targets)."""
         if self.directions is None:
             return {}
         if n_tasks is not None and len(self.directions) != n_tasks:
@@ -312,8 +322,61 @@ class MultiTaskObjective:
         return {
             index: float(value)
             for index, value in enumerate(self.stop_values or ())
-            if value is not None
+            if value is not None and not isinstance(value, (list, tuple))
         }
+
+    def prediction_bounds(self, n_tasks=None):
+        """Inclusive raw-output bounds; scalar caps follow objective direction."""
+        if n_tasks is not None and self.directions is not None and len(self.directions) != n_tasks:
+            raise ValueError("directions must contain exactly one entry per model output")
+        bounds = {}
+        for index, value in enumerate(self.stop_values or ()):
+            if value is None:
+                continue
+            if isinstance(value, (list, tuple)):
+                lower, upper = value
+            elif self.directions[index] == "maximize":
+                lower, upper = None, value
+            else:
+                lower, upper = value, None
+            if lower is not None or upper is not None:
+                bounds[index] = (lower, upper)
+        return bounds
+
+    def feasible(self, activities):
+        values = np.asarray(activities, dtype=float)
+        passed = np.isfinite(values).all(axis=1)
+        for index, (lower, upper) in self.prediction_bounds(values.shape[1]).items():
+            if lower is not None:
+                passed &= values[:, index] >= lower
+            if upper is not None:
+                passed &= values[:, index] <= upper
+        return passed
+
+    def maintenance_targets(self, n_tasks=None):
+        """Inner edges of the one-sided maintenance bands in raw model units.
+
+        No global reached state: each row stops earning reward independently,
+        and immediately earns a deficit again on falling back outside its band.
+        None explicitly opts into hard-bounds-only behavior.
+        """
+        if self.stop_tolerance is None:
+            return {}
+        targets = {}
+        for i, (lower, upper) in self.prediction_bounds(n_tasks).items():
+            if self.directions[i] == "maximize" and upper is not None:
+                targets[i] = max(upper - self.stop_tolerance, lower) if lower is not None else upper - self.stop_tolerance
+            elif self.directions[i] == "minimize" and lower is not None:
+                targets[i] = min(lower + self.stop_tolerance, upper) if upper is not None else lower + self.stop_tolerance
+        return targets
+
+    def _maintenance_margins(self, activities, task_names=None):
+        margins = self.margins(activities, task_names)
+        ids, signs, _, scales, _ = self._resolve(activities.shape[1], task_names)
+        for i, edge in self.maintenance_targets(activities.shape[1]).items():
+            pos = ids.index(i)
+            margins[:, pos] = np.minimum((activities[:, i] - edge) * signs[pos] / scales[i], 0.0)
+        return margins
 
     def target_sign(self, index):
         return -1.0 if self.directions[index] == "minimize" else 1.0
@@ -335,11 +398,8 @@ class MultiTaskObjective:
         ids: Sequence[int],
         reached_targets: set[int] | frozenset[int] | None,
     ) -> np.ndarray:
-        reached = set() if reached_targets is None else set(reached_targets)
-        return np.asarray(
-            [position for position, task in enumerate(ids) if task not in reached],
-            dtype=int,
-        )
+        # Bounds never deactivate a task, even after a candidate touches a line.
+        return np.arange(len(ids), dtype=int)
 
     def _active_weights(
         self, ids: Sequence[int], active: np.ndarray, n_tasks: int
@@ -370,7 +430,8 @@ class MultiTaskObjective:
         return (values[:, ids] - center[ids]) / scale[ids] * signs
 
     def scalarize(self, activities, task_names=None, reached_targets=None):
-        margins = self.margins(activities, task_names)
+        activities = np.asarray(activities, dtype=float)
+        margins = self._maintenance_margins(activities, task_names)
         ids, _, _, _, _ = self._resolve(np.asarray(activities).shape[1], task_names)
         active = self._active_positions(ids, reached_targets)
         if not len(active):
@@ -403,6 +464,14 @@ class MultiTaskObjective:
             / tensor(scale[ids])
             * tensor(signs)
         )
+        targets = self.maintenance_targets(activities.shape[1])
+        if targets:
+            margins = torch.stack([
+                torch.minimum((activities[:, i] - targets[i]) * signs[pos] / scale[i],
+                              torch.zeros_like(activities[:, i]))
+                if i in targets else margins[:, pos]
+                for pos, i in enumerate(ids)
+            ], dim=1)
         active = self._active_positions(ids, reached_targets)
         if not len(active):
             return activities[:, 0] * 0.0
@@ -429,7 +498,8 @@ class MultiTaskObjective:
         self, activities, uncertainties, task_names=None, reached_targets=None
     ):
         # First-order independent-output approximation, not joint confidence.
-        margins = self.margins(activities, task_names)
+        activities = np.asarray(activities, dtype=float)
+        margins = self._maintenance_margins(activities, task_names)
         ids, _, _, scale, _ = self._resolve(np.asarray(activities).shape[1], task_names)
         active = self._active_positions(ids, reached_targets)
         if not len(active):
@@ -458,6 +528,11 @@ class MultiTaskObjective:
             if objective_weights is not None:
                 aggregation_weights = aggregation_weights * objective_weights
             aggregation_weights /= aggregation_weights.sum(axis=1, keepdims=True)
+        aggregation_weights = np.array(aggregation_weights, copy=True)
+        for i, edge in self.maintenance_targets(activities.shape[1]).items():
+            pos = ids.index(i)
+            ready = (activities[:, i] - edge) * self.target_sign(i) >= 0
+            aggregation_weights[ready, pos] = 0.0
         return np.sqrt(
             (
                 (np.asarray(uncertainties)[:, ids] / scale[ids] * aggregation_weights)
@@ -481,6 +556,14 @@ class MultiTaskObjective:
             "centers_or_bounds": center.tolist(),
             "scales": scale.tolist(),
             "thresholded": bounded,
+            "stop_values_semantics": "inclusive_prediction_bounds",
+            "stop_tolerance": self.stop_tolerance,
+            "maintenance_targets": self.maintenance_targets(n_tasks),
+            "maintenance_semantics": "per_candidate_capped_deficit_with_reversible_penalty",
+            "prediction_bounds": {
+                (task_names[i] if task_names else f"task_{i}"): list(bounds)
+                for i, bounds in self.prediction_bounds(n_tasks).items()
+            },
             "temperature": self.temperature,
             "uncertainty_method": "independent_first_order",
             "target_thresholds": {
@@ -491,6 +574,32 @@ class MultiTaskObjective:
 
     def evaluate(self, activities, task_names=None):
         ids, _, _, _, bounded = self._resolve(activities.shape[1], task_names)
+        bounds = self.prediction_bounds(activities.shape[1])
+        if bounds:
+            ids = list(bounds)
+            targets = self.maintenance_targets(activities.shape[1])
+            ready = np.stack([
+                (activities[:, i] - edge) * self.target_sign(i) >= 0
+                for i, edge in targets.items()
+            ], axis=1) if targets else None
+            margins = np.stack([
+                np.minimum(
+                    activities[:, i] - lower if lower is not None else np.full(len(activities), np.inf),
+                    upper - activities[:, i] if upper is not None else np.full(len(activities), np.inf),
+                ) for i, (lower, upper) in bounds.items()
+            ], axis=1)
+            return {
+                "task_names": [task_names[i] if task_names else f"task_{i}" for i in ids],
+                "margins": margins.tolist(),
+                "worst_margin": margins.min(axis=1).tolist(),
+                "satisfied": (margins >= 0).tolist(),
+                "all_satisfied": self.feasible(activities).tolist(),
+                "maintenance_task_indices": list(targets),
+                "maintenance_satisfied": None if ready is None else ready.tolist(),
+                "all_maintenance_satisfied": None if ready is None else (
+                    ready.all(axis=1) & self.feasible(activities)
+                ).tolist(),
+            }
         margins = self.margins(activities, task_names)
         targets = self.target_thresholds(activities.shape[1])
         if targets:
@@ -520,7 +629,8 @@ class ObjectiveScorer:
         scorer: SequenceScorer,
         objective: TargetObjective | MultiTaskObjective | list[str] | tuple[str, ...],
         weights: Sequence[float] | None = None,
-        stop_values: Sequence[float | None] | None = None,
+        stop_values: Sequence[float | tuple[float | None, float | None] | None] | None = None,
+        stop_tolerance: float | None = 0.5,
     ) -> None:
         self.scorer = scorer
         if isinstance(objective, (list, tuple)):
@@ -529,12 +639,13 @@ class ObjectiveScorer:
                 aggregation="mean",
                 weights=weights,
                 stop_values=stop_values,
+                stop_tolerance=stop_tolerance,
             )
         else:
             if stop_values is not None:
                 if not isinstance(objective, MultiTaskObjective):
                     raise ValueError("stop_values requires a directions objective")
-                objective = replace(objective, stop_values=stop_values)
+                objective = replace(objective, stop_values=stop_values, stop_tolerance=stop_tolerance)
             if weights is not None:
                 if not isinstance(objective, MultiTaskObjective):
                     raise TypeError(
@@ -559,27 +670,15 @@ class ObjectiveScorer:
         return self.objective.target_thresholds(n_tasks)
 
     def _update_targets(self, activities: np.ndarray) -> None:
-        targets = self._targets(activities.shape[1])
-        if not targets:
-            return
-        eligible = np.ones(len(activities), dtype=bool)
-        for index in self._reached_targets:
-            eligible &= (
-                activities[:, index] - targets[index]
-            ) * self.objective.target_sign(index) >= 0
-        newly_reached: set[int] = set()
-        for index, target in targets.items():
-            if index in self._reached_targets:
-                continue
-            reaches_target = (
-                activities[:, index] - target
-            ) * self.objective.target_sign(index) >= 0
-            if np.any(eligible & reaches_target):
-                newly_reached.add(index)
-                eligible &= reaches_target
-        if newly_reached:
-            self._reached_targets.update(newly_reached)
-            self._objective_version += 1
+        # Kept for compatibility: prediction bounds are stationary and never
+        # deactivate objectives or latch state across unrelated candidates.
+        return
+
+    @property
+    def has_prediction_bounds(self) -> bool:
+        return isinstance(self.objective, MultiTaskObjective) and bool(
+            self.objective.prediction_bounds()
+        )
 
     def _activities_array(self) -> np.ndarray:
         if not self._activities:
@@ -598,33 +697,17 @@ class ObjectiveScorer:
     def _apply_target_gate(
         self, activities: np.ndarray, utilities: np.ndarray
     ) -> np.ndarray:
-        targets = self._targets(activities.shape[1])
-        if not self._reached_targets:
+        if not self.has_prediction_bounds:
             return utilities
-        reached = sorted(self._reached_targets)
-        passed = np.ones(len(activities), dtype=bool)
-        gaps = np.zeros(len(activities), dtype=np.float64)
-        for index in reached:
-            gap = np.maximum(
-                (targets[index] - activities[:, index])
-                * self.objective.target_sign(index),
-                0.0,
-            )
-            passed &= gap == 0
-            gaps += gap
-        if passed.all():
-            return utilities
-        all_activities = self._activities_array()
-        all_utilities = self._scalarize(all_activities)
-        floor = float(all_utilities.min()) - max(
-            1.0, float(np.ptp(all_utilities)) if len(all_utilities) else 1.0
-        )
+        passed = self.objective.feasible(activities)
         gated = np.asarray(utilities, dtype=np.float64).copy()
-        gated[~passed] = floor - gaps[~passed]
+        # A finite sentinel is useful for diagnostics, but never substitutes
+        # for the explicit feasibility mask used by candidate selection.
+        gated[~passed] = -1e30
         return gated
 
     def scores_for(self, sequences) -> np.ndarray:
-        """Re-evaluate cached activities under the currently reached targets."""
+        """Score cached activities with stationary objectives and hard bounds."""
         activities = self.activities_for(sequences)
         return self._apply_target_gate(activities, self._scalarize(activities))
 
@@ -648,52 +731,23 @@ class ObjectiveScorer:
         return np.sqrt((uncertainties**2) @ (coefficients**2))
 
     def thresholds_passed(self, sequences) -> np.ndarray:
-        """Return whether sequences satisfy every target activated so far."""
+        """Return feasibility from the first round; unscored rows fail closed."""
         values = np.asarray(sequences, dtype=str).reshape(-1)
-        if not self._reached_targets:
+        if not self.has_prediction_bounds:
             return np.ones(len(values), dtype=bool)
-        passed = np.ones(len(values), dtype=bool)
+        passed = np.zeros(len(values), dtype=bool)
         present = np.asarray(
             [str(value) in self._activities for value in values], dtype=bool
         )
         if present.any():
             activities = self.activities_for(values[present])
-            targets = self._targets(activities.shape[1])
-            passed[present] = np.asarray(
-                [
-                    all(
-                        (row[index] - targets[index])
-                        * self.objective.target_sign(index)
-                        >= 0
-                        for index in self._reached_targets
-                    )
-                    for row in activities
-                ],
-                dtype=bool,
-            )
+            passed[present] = self.objective.feasible(activities)
         return passed
 
     @property
     def target_stop_reached(self) -> bool:
-        """Whether a target-only objective has reached all thresholds jointly."""
-        if not isinstance(self.objective, MultiTaskObjective):
-            return False
-        targets = self.objective.target_thresholds()
-        if not targets or self.objective.has_open_objectives() or not self._activities:
-            return False
-        activities = self._activities_array()
-        return bool(
-            np.any(
-                np.logical_and.reduce(
-                    [
-                        (activities[:, index] - target)
-                        * self.objective.target_sign(index)
-                        >= 0
-                        for index, target in targets.items()
-                    ]
-                )
-            )
-        )
+        """Prediction bounds do not terminate search; budget/plateau still do."""
+        return False
 
     def score(self, sequences) -> ScoreBatch:
         values = np.asarray(sequences, dtype=str).reshape(-1)
@@ -737,6 +791,22 @@ class ObjectiveScorer:
                 self.task_names,
                 reached_targets=self._reached_targets,
             )
+            if self.has_prediction_bounds:
+                # Differentiable guidance only. Hard decoded candidates are
+                # separately scored and rejected before selection/training.
+                # Reflect the utility outside the box so overshoot is not
+                # rewarded even for a soft PWM whose prediction differs from
+                # its argmax sequence.
+                violation = torch.zeros_like(utilities)
+                _, _, _, scales, _ = self.objective._resolve(
+                    activities.shape[1], self.task_names
+                )
+                for index, (lower, upper) in self.objective.prediction_bounds().items():
+                    if lower is not None:
+                        violation = violation + torch.relu(lower - activities[:, index]) / scales[index]
+                    if upper is not None:
+                        violation = violation + torch.relu(activities[:, index] - upper) / scales[index]
+                utilities = utilities - 2.0 * violation
             uncertainty = None
             if uncertainties is not None:
                 if uncertainties.shape != activities.shape:
@@ -762,17 +832,33 @@ class ObjectiveScorer:
                     / tensor(scale[ids])
                     * tensor(signs)
                 )
+                targets = self.objective.maintenance_targets(activities.shape[1])
+                if targets:
+                    margins = torch.stack([
+                        torch.minimum((activities[:, i] - targets[i]) * signs[pos] / scale[i],
+                                      torch.zeros_like(activities[:, i]))
+                        if i in targets else margins[:, pos]
+                        for pos, i in enumerate(ids)
+                    ], dim=1)
                 if self.objective.aggregation == "mean":
-                    weights = torch.full_like(margins, 1 / len(active))
+                    row = self.objective._active_weights(ids, np.arange(len(ids)), activities.shape[1])
+                    weights = torch.full_like(margins, 1 / len(active)) if row is None else tensor(row).expand_as(margins)
                 elif self.objective.aggregation == "worst":
                     weights = (margins == margins.amin(dim=1, keepdim=True)).to(
                         activities.dtype
                     )
                     weights = weights / weights.sum(dim=1, keepdim=True)
                 else:
+                    row = self.objective._active_weights(ids, np.arange(len(ids)), activities.shape[1])
                     weights = torch.softmax(
-                        -margins / self.objective.temperature, dim=1
+                        -margins / self.objective.temperature + (0 if row is None else torch.log(tensor(row).clamp_min(1e-12))), dim=1
                     )
+                mask = torch.stack([
+                    ((activities[:, i] - targets[i]) * signs[pos] < 0).to(activities.dtype)
+                    if i in targets else torch.ones_like(activities[:, i])
+                    for pos, i in enumerate(ids)
+                ], dim=1)
+                weights = weights * mask
                 uncertainty = torch.linalg.vector_norm(
                     uncertainties[:, ids] / tensor(scale[ids]) * weights, dim=1
                 )

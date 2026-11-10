@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import copy
 import heapq
-import math
 from itertools import islice
 
 import numpy as np
@@ -239,7 +238,9 @@ def _stored_utilities_are_stationary(scorer: CachedScorer) -> bool:
     return (
         isinstance(objective, ObjectiveScorer)
         and bool(objective._activities)
-        and not objective._targets(len(next(iter(objective._activities.values()))))
+        # Bounds and per-candidate maintenance deficits are stationary. The
+        # archive admits only feasible rows, so stored utilities remain exact.
+        and objective.objective_version == 0
         and scorer.constraint_evaluator is None
     )
 
@@ -266,6 +267,7 @@ class _TopArchiveTracker:
         additions = sorted(
             (-self.archive[str(sequence)][0], str(sequence))
             for sequence in novel_sequences
+            if str(sequence) in self.archive
         )
         if additions:
             self.ranking = list(
@@ -478,183 +480,6 @@ def _torch_device(scorer: CachedScorer):
     return torch.device("cpu" if configured is None else configured)
 
 
-def _fit_autoregressive(
-    model,
-    encoded,
-    *,
-    epochs: int,
-    learning_rate: float,
-    weights=None,
-) -> None:
-    import torch
-
-    if epochs == 0 or len(encoded) == 0:
-        return
-    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
-    for _ in range(epochs):
-        log_probability = model.log_prob(encoded)
-        if weights is None:
-            loss = -log_probability.mean()
-        else:
-            loss = -(weights * log_probability).sum() / weights.sum().clamp_min(1e-8)
-        optimizer.zero_grad(set_to_none=True)
-        loss.backward()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), 5.0)
-        optimizer.step()
-
-
-def _autoregressive_generator(length: int, alphabet_size: int, device):
-    import torch
-    from torch import nn
-    from torch.nn import functional as functional
-
-    class AutoregressiveGenerator(nn.Module):
-        def __init__(self) -> None:
-            super().__init__()
-            self.start_token = alphabet_size
-            self.embedding = nn.Embedding(alphabet_size + 1, 16)
-            self.recurrent = nn.GRU(16, 64, batch_first=True)
-            self.output = nn.Linear(64, alphabet_size)
-
-        def logits(self, encoded):
-            start = torch.full(
-                (len(encoded), 1),
-                self.start_token,
-                dtype=torch.long,
-                device=encoded.device,
-            )
-            inputs = torch.cat([start, encoded[:, :-1]], dim=1)
-            hidden, _ = self.recurrent(self.embedding(inputs))
-            return self.output(hidden)
-
-        def log_prob(self, encoded):
-            return -functional.cross_entropy(
-                self.logits(encoded).transpose(1, 2), encoded, reduction="none"
-            ).sum(dim=1)
-
-        @torch.no_grad()
-        def sample(self, count: int):
-            token = torch.full(
-                (count, 1), self.start_token, dtype=torch.long, device=device
-            )
-            hidden = None
-            output = []
-            for _ in range(length):
-                state, hidden = self.recurrent(self.embedding(token), hidden)
-                logits = self.output(state[:, -1])
-                token = torch.multinomial(torch.softmax(logits, dim=-1), 1)
-                output.append(token)
-            return torch.cat(output, dim=1)
-
-    return AutoregressiveGenerator().to(device)
-
-
-@register_algorithm("cbas")
-def cbas(initial, scorer, space, config, rng):
-    """Condition an autoregressive sequence generator on high activity."""
-    import torch
-
-    archive: dict[str, tuple[float, float]] = {}
-    initial_batch = _score(scorer, archive, initial)
-    if scorer.remaining is not None and scorer.remaining == 0:
-        return _finalize("cbas", archive, config, scorer, {"rounds": 0}, [])
-
-    device = _torch_device(scorer)
-    torch.manual_seed(int(rng.integers(0, 2**31 - 1)))
-    encoded = torch.as_tensor(space.encode(initial), dtype=torch.long, device=device)
-    prior = _autoregressive_generator(space.length, space.alphabet_size, device)
-    _fit_autoregressive(
-        prior,
-        encoded,
-        epochs=config.generator_pretrain_epochs,
-        learning_rate=config.generator_learning_rate,
-    )
-    search = copy.deepcopy(prior)
-    threshold = float(np.quantile(initial_batch.scores, config.cbas_quantile))
-    trajectory = []
-    rounds = 0
-    while scorer.remaining is None or scorer.remaining > 0:
-        count = (
-            config.cbas_batch_size
-            if scorer.remaining is None
-            else min(config.cbas_batch_size, scorer.remaining)
-        )
-        samples = search.sample(count)
-        constrain_encoded = getattr(space, "constrain_encoded", None)
-        if constrain_encoded is not None:
-            samples = constrain_encoded(samples)
-        sequences = space.decode(samples.cpu().numpy())
-        before = scorer.query_count
-        batch = _score(scorer, archive, sequences)
-        passed = scorer.constraints_passed(sequences)
-        if not passed.any():
-            if scorer.query_count == before:
-                break
-            continue
-        samples = samples[
-            torch.as_tensor(passed, dtype=torch.bool, device=samples.device)
-        ]
-        batch = ScoreBatch(
-            batch.scores[passed],
-            None if batch.uncertainties is None else batch.uncertainties[passed],
-        )
-        threshold = max(
-            threshold, float(np.quantile(batch.scores, config.cbas_quantile))
-        )
-        standard_deviation = np.zeros_like(batch.scores)
-        if batch.uncertainties is not None:
-            standard_deviation = batch.uncertainties
-        floor = max(float(np.median(standard_deviation)) * 0.1, 1e-3)
-        standard_deviation = np.maximum(standard_deviation, floor)
-        z_score = (batch.scores - threshold) / standard_deviation
-        success_probability = 0.5 * (
-            1.0 + np.asarray([math.erf(value / math.sqrt(2.0)) for value in z_score])
-        )
-        success_probability = np.clip(success_probability, 1e-12, 1.0)
-        with torch.no_grad():
-            log_prior = prior.log_prob(samples).cpu().numpy()
-            log_search = search.log_prob(samples).cpu().numpy()
-        log_weights = np.log(success_probability) + log_prior - log_search
-        log_weights = np.clip(log_weights - log_weights.max(), -30.0, 0.0)
-        weights = torch.as_tensor(
-            np.exp(log_weights), dtype=torch.float32, device=device
-        )
-        _fit_autoregressive(
-            search,
-            samples,
-            epochs=config.generator_update_epochs,
-            learning_rate=config.generator_learning_rate,
-            weights=weights,
-        )
-        rounds += 1
-        top_sequences, top_scores = _top_archive(
-            archive, config.num_candidates, scorer
-        )
-        trajectory.append(
-            {
-                "query_count": scorer.query_count,
-                "best_score": float(top_scores.max()),
-                "mean_score": float(top_scores.mean()),
-            }
-        )
-        if scorer.query_count == before:
-            break
-    return _finalize(
-        "cbas",
-        archive,
-        config,
-        scorer,
-        {
-            "rounds": rounds,
-            "conditioning_quantile": config.cbas_quantile,
-            "final_threshold": threshold,
-            "generator": "autoregressive_gru",
-            "batch_size": config.cbas_batch_size,
-        },
-        trajectory,
-    )
-
-
 def _differentiable_objective(scorer: CachedScorer) -> ObjectiveScorer:
     objective = scorer.scorer
     if not isinstance(objective, ObjectiveScorer) or not hasattr(
@@ -738,7 +563,29 @@ def vanilla_activation_maximization(initial, scorer, space, config, rng):
         probabilities = _constrain_probabilities(
             space, torch.softmax(logits, dim=-1)
         )
-        if scorer.constraint_evaluator is None:
+        if objective.has_prediction_bounds:
+            # A PWM update is a proposal, not an accepted next-generation
+            # sequence. Reject decoded overshoots and restore the affected
+            # logits AND Adam moments so the next iteration starts feasible.
+            previous = logits.detach().clone()
+            previous_state = copy.deepcopy(optimizer.state_dict())
+            utilities, _ = objective.score_soft(probabilities)
+            (-utilities.mean()).backward()
+            optimizer.step()
+            sampled = logits.detach().argmax(dim=-1)
+            sequences = space.decode(sampled.cpu().numpy())
+            batch = _score(scorer, archive, sequences)
+            passed = scorer.constraints_passed(sequences)
+            if not passed.all():
+                rejected = torch.as_tensor(~passed, dtype=torch.bool, device=device)
+                with torch.no_grad():
+                    logits[rejected] = previous[rejected]
+                    state = optimizer.state[logits]
+                    old = next(iter(previous_state["state"].values()), {})
+                    for key in ("exp_avg", "exp_avg_sq", "max_exp_avg_sq"):
+                        if key in state:
+                            state[key][rejected] = old[key][rejected] if key in old else 0
+        elif scorer.constraint_evaluator is None:
             utilities, _ = objective.score_soft(probabilities)
             (-utilities.mean()).backward()
             optimizer.step()
@@ -753,7 +600,8 @@ def vanilla_activation_maximization(initial, scorer, space, config, rng):
                 utilities, _ = objective.score_soft(probabilities[mask])
                 (-utilities.mean()).backward()
                 optimizer.step()
-        batch = _score(scorer, archive, sequences)
+        if not objective.has_prediction_bounds:
+            batch = _score(scorer, archive, sequences)
         best_score, mean_score = _accepted_score_summary(
             batch, scorer, sequences, archive
         )
@@ -809,13 +657,13 @@ def fast_seqprop(initial, scorer, space, config, rng):
         )
         straight_through, sampled = _straight_through(probabilities, space)
         sequences = space.decode(sampled.detach().cpu().numpy())
+        batch = _score(scorer, archive, sequences)
         passed = scorer.constraints_passed(sequences)
         if passed.any():
             mask = torch.as_tensor(passed, dtype=torch.bool, device=device)
             utilities, _ = objective.score_soft(straight_through[mask])
             (-utilities.mean()).backward()
             optimizer.step()
-        batch = _score(scorer, archive, sequences)
         best_score, mean_score = _accepted_score_summary(
             batch, scorer, sequences, archive
         )
@@ -876,6 +724,7 @@ def ledidi(initial, scorer, space, config, rng):
         )
         straight_through = hard - probabilities.detach() + probabilities
         sequences = space.decode(sampled.detach().cpu().numpy())
+        batch = _score(scorer, archive, sequences)
         passed = scorer.constraints_passed(sequences)
         edit_loss_value = loss_value = 0.0
         if passed.any():
@@ -894,7 +743,6 @@ def ledidi(initial, scorer, space, config, rng):
             optimizer.step()
             edit_loss_value = float(edit_loss.detach().cpu())
             loss_value = float(loss.detach().cpu())
-        batch = _score(scorer, archive, sequences)
         best_score, mean_score = _accepted_score_summary(
             batch, scorer, sequences, archive
         )
@@ -998,6 +846,7 @@ def den(initial, scorer, space, config, rng):
         )
         straight_through, sampled = _straight_through(probabilities, space)
         sequences = space.decode(sampled.detach().cpu().numpy())
+        batch = _score(scorer, archive, sequences)
         passed = scorer.constraints_passed(sequences)
         if passed.any():
             mask = torch.as_tensor(passed, dtype=torch.bool, device=device)
@@ -1009,7 +858,6 @@ def den(initial, scorer, space, config, rng):
             loss.backward()
             torch.nn.utils.clip_grad_norm_(generator.parameters(), 5.0)
             optimizer.step()
-        batch = _score(scorer, archive, sequences)
         best_score, mean_score = _accepted_score_summary(
             batch, scorer, sequences, archive
         )

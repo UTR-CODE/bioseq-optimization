@@ -209,7 +209,6 @@ def test_every_optimizer_preserves_the_initial_cds_translation(algorithm):
         generator_pretrain_epochs=1,
         generator_update_epochs=1,
         den_seed_pretrain_epochs=1,
-        cbas_batch_size=4,
         seed=7,
     )
     assert all(_protein(value) == _protein(reference) for value in result.sequences)

@@ -1,0 +1,27 @@
+{
+  "source": "Malinois K562 design run 2026-11-05; motif analysis from same local study",
+  "source_records": 1100,
+  "unique_DNA": 1084,
+  "algorithms": [
+    "adalead",
+    "basesearch",
+    "beam_search",
+    "cross_entropy_method",
+    "den",
+    "fast_seqprop",
+    "genetic_algorithm",
+    "ism_greedy",
+    "ledidi",
+    "simulated_annealing",
+    "vanilla_activation_maximization"
+  ],
+  "note": "DNA and model predictions unchanged; stable SHA256 IDs replace historical IDs. Physical FIMO sites already pass p<=0.001,q<=0.05 and same-ID NMS. Original full-catalog q-values retained.",
+  "files": {
+    "k562_candidates_1100.csv": "1b74873471429b1480cc97d3a600d9dcc9b092bbb130cee8d85c026debd76be5",
+    "k562_catalog.meme": "5d0d4ea0c468f35399a959441ccdb9a41bff15f8b3d54cd64ba7d7c6d4e6a4b8",
+    "k562_expected_top10.csv": "835139b7320a890aa26b022f76c372be74d88d53dafcc76a3b680247d4a5f18f",
+    "k562_fimo_sites.csv": "d55c416412ab6036e2be039b03b8ad0880dc1e5e3ca79304441602492a6889bd",
+    "model_validation.json": "505119614e14bf7751da7e751a30d1237bb9b3c9e76f22d76adc21f72fb4d941",
+    "README.md": "3f8e2a809ef1f81ea3dbb52fe2a92a69d2b0429dbc4c9792366c5db519f5ac02"
+  }
+}

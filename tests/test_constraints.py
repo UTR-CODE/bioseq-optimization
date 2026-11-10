@@ -203,7 +203,6 @@ def test_all_public_optimizers_expose_constraint_parameter():
         so.beam_search_optimize,
         so.cross_entropy_optimize,
         so.basesearch_optimize,
-        so.cbas_optimize,
         so.vanilla_activation_maximization_optimize,
         so.fast_seqprop_optimize,
         so.den_optimize,

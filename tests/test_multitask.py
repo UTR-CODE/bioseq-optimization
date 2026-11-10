@@ -110,7 +110,7 @@ def test_single_output_list():
     np.testing.assert_array_equal(result.scores, result.activities[:, 0])
 
 
-def test_numeric_objective_target_stops_and_is_reported():
+def test_numeric_objective_bound_continues_and_is_reported():
     scorer = CallableScorer(
         lambda values: np.asarray([value.count("G") for value in values]),
         task_names=("activity",),
@@ -126,28 +126,28 @@ def test_numeric_objective_target_stops_and_is_reported():
         diversity=0,
         seed=3,
     )
-    assert result.query_count == 4
-    assert result.metadata["stop_reason"] == "target_reached"
+    assert result.query_count > 4
+    assert result.metadata["stop_reason"] != "target_reached"
     assert result.metadata["objective"]["target_thresholds"] == {"activity": 4.0}
     frame = result.to_frame()
     assert frame.iloc[0].activity_activity == 4
     assert frame.iloc[0].satisfied_activity
 
 
-def test_numeric_target_becomes_a_gate_for_remaining_objectives():
+def test_numeric_bound_is_stationary_for_all_objectives():
     scorer = CallableScorer(
         lambda values: np.asarray(
             [[value.count("G"), value.count("C")] for value in values]
         )
     )
-    wrapped = ObjectiveScorer(scorer, ["maximize", "maximize"], stop_values=[2.0, None])
+    wrapped = ObjectiveScorer(scorer, ["maximize", "maximize"], stop_values=[2.0, None], stop_tolerance=None)
     before = wrapped.score(["AAAA", "GCCC", "CCCC"])
-    np.testing.assert_allclose(before.scores[:2], [-1.0, 1.0])
+    np.testing.assert_allclose(before.scores[:2], [0.0, 2.0])
     wrapped.score(["GGAA", "GGCC"])
     rescored = wrapped.scores_for(["CCCC", "GGAA", "GGCC"])
-    assert rescored[0] < rescored[1] < rescored[2]
+    np.testing.assert_allclose(rescored, [2, 1, 2])
     assert wrapped.thresholds_passed(["CCCC", "GGAA", "GGCC"]).tolist() == [
-        False,
+        True,
         True,
         True,
     ]
@@ -162,24 +162,24 @@ def test_numeric_target_rescores_cached_uncertainty():
         )
     )
     cached = CachedScorer(
-        ObjectiveScorer(scorer, ["maximize", "maximize"], stop_values=[2.0, None]),
+        ObjectiveScorer(scorer, ["maximize", "maximize"], stop_values=[2.0, None], stop_tolerance=None),
         budget=2,
     )
     first = cached.score(["CCCC"])
     np.testing.assert_allclose(first.uncertainties, [np.sqrt(0.5)])
     cached.score(["GGCC"])
     rescored = cached.score(["CCCC"])
-    np.testing.assert_allclose(rescored.uncertainties, [1.0])
+    np.testing.assert_allclose(rescored.uncertainties, [np.sqrt(0.5)])
 
 
-def test_numeric_targets_lock_only_a_jointly_feasible_prefix():
+def test_numeric_bounds_reject_each_violating_candidate():
     activities = {"LEFT": [3.0, 0.0], "RIGHT": [0.0, 3.0]}
     scorer = CallableScorer(
         lambda values: np.asarray([activities[str(value)] for value in values])
     )
     wrapped = ObjectiveScorer(scorer, ["maximize", "maximize"], stop_values=[2.0, 2.0])
     wrapped.score(["left", "right"])
-    assert wrapped.thresholds_passed(["left", "right"]).tolist() == [True, False]
+    assert wrapped.thresholds_passed(["left", "right"]).tolist() == [False, False]
     assert not wrapped.target_stop_reached
 
 
@@ -194,11 +194,12 @@ def test_numeric_target_can_return_default_knee_fraction_selection():
         num_candidates=4,
         diversity=0,
     )
-    assert result.query_count == 4
+    assert result.query_count > 4
     assert result.metadata["saturation_fraction"] == 0.9
     assert result.metadata["selection"] == "quality_diversity_near_knee_gain"
-    assert result.metadata["stop_reason"] == "target_reached"
-    assert result.activities[0, 0] == 4
+    assert result.metadata["stop_reason"] != "target_reached"
+    assert (result.activities[:, 0] <= 4).all()
+    np.testing.assert_allclose(result.scores, np.minimum(result.activities[:, 0] - 3.5, 0))
 
 
 @pytest.mark.parametrize(

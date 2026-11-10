@@ -9,6 +9,11 @@ from typing import Any, Protocol, TypeAlias
 import numpy as np
 from numpy.typing import ArrayLike
 
+try:
+    from ._sequence_kernels import single_mutants as _native_single_mutants
+except ImportError:
+    _native_single_mutants = None
+
 
 def normalize_nucleotide_sequences(
     sequences: Sequence[str] | np.ndarray,
@@ -577,6 +582,9 @@ class SequenceSpace:
         return self.decode(rng.integers(self.alphabet_size, size=(count, self.length)))
 
     def single_mutants(self, sequences: Sequence[str] | np.ndarray) -> np.ndarray:
+        if _native_single_mutants is not None and self.alphabet.isascii():
+            values = self.validate(sequences)
+            return np.asarray(_native_single_mutants(values, self.alphabet, tuple(range(self.length))), dtype=str)
         encoded = self.encode(sequences)
         blocks = []
         for sequence in encoded:
@@ -836,6 +844,9 @@ class FixedRegionSequenceSpace:
     def single_mutants(self, sequences: Sequence[str] | np.ndarray) -> np.ndarray:
         if hasattr(self.base, "choices"):
             return self.validate(self.base.single_mutants(sequences))
+        if _native_single_mutants is not None and self.alphabet.isascii():
+            values = self.validate(sequences)
+            return np.asarray(_native_single_mutants(values, self.alphabet, self.mutable_positions), dtype=str)
         encoded = self.encode(sequences)
         candidates = []
         for sequence in encoded:
@@ -897,12 +908,25 @@ class OptimizationConfig:
     mutation_rate: float = 0.02
     elite_fraction: float = 0.2
     parent_pool_multiplier: int = 5
+    adalead_mu: float = 1.0
+    adalead_max_rollout: int = 8
+    adalead_allow_equal: bool = True
+    adalead_lineages: int | None = None
+    adalead_exploration_fraction: float = 0.2
+    adalead_quality_power: float = 4.0
+    ism_lineage_stopping: bool = True
+    ism_min_sweeps: int = 10
+    ism_patience: int = 5
+    ism_absolute_gain: float = 0.01
+    ism_relative_gain: float = 0.001
+    ism_knee_slope_ratio: float = 0.1
+    annealing_iterations: int = 1000
+    annealing_initial_temperature: float = 0.1
+    annealing_final_temperature: float = 0.05
     learning_rate: float = 0.1
     generator_learning_rate: float = 3e-3
     generator_pretrain_epochs: int = 20
     generator_update_epochs: int = 5
-    cbas_quantile: float = 0.8
-    cbas_batch_size: int = 256
     cross_entropy_batch_size: int = 256
     den_seed_pretrain_epochs: int = 100
     den_diversity_weight: float = 0.1
@@ -917,12 +941,57 @@ class OptimizationConfig:
     is_CDS_optimized: bool = False
 
     def __post_init__(self) -> None:
+        if not isinstance(self.ism_lineage_stopping, bool):
+            raise ValueError("ism_lineage_stopping must be boolean")
+        for name in ("ism_min_sweeps", "ism_patience"):
+            value = getattr(self, name)
+            if isinstance(value, (bool, np.bool_)) or not isinstance(value, (int, np.integer)) or value < 2:
+                raise ValueError(f"{name} must be an integer at least 2")
+        for name in ("ism_absolute_gain", "ism_relative_gain", "ism_knee_slope_ratio"):
+            value = getattr(self, name)
+            if isinstance(value, (bool, np.bool_)) or not isinstance(value, (int, float, np.number)) or not np.isfinite(value) or value < 0:
+                raise ValueError(f"{name} must be finite and non-negative")
+        if self.ism_knee_slope_ratio > 1:
+            raise ValueError("ism_knee_slope_ratio must not exceed 1")
         if not isinstance(self.is_CDS_optimized, bool):
             raise ValueError("is_CDS_optimized must be a boolean")
         if isinstance(self.parent_pool_multiplier, (bool, np.bool_)) or not isinstance(
             self.parent_pool_multiplier, (int, np.integer)
         ) or self.parent_pool_multiplier < 1:
             raise ValueError("parent_pool_multiplier must be a positive integer")
+        if isinstance(self.adalead_mu, (bool, np.bool_)) or not isinstance(self.adalead_mu, (int, float, np.number)) or not np.isfinite(self.adalead_mu) or self.adalead_mu <= 0:
+            raise ValueError("adalead_mu must be finite and positive")
+        if (isinstance(self.adalead_max_rollout, (bool, np.bool_))
+                or not isinstance(self.adalead_max_rollout, (int, np.integer))
+                or self.adalead_max_rollout < 1):
+            raise ValueError("adalead_max_rollout must be a positive integer")
+        if not isinstance(self.adalead_allow_equal, (bool, np.bool_)):
+            raise ValueError("adalead_allow_equal must be boolean")
+        value = self.adalead_exploration_fraction
+        if isinstance(value, (bool, np.bool_)) or not isinstance(value, (int, float, np.number)) or not np.isfinite(value) or not 0 <= value < 1:
+            raise ValueError("adalead_exploration_fraction must lie in [0, 1)")
+        value = self.adalead_quality_power
+        if isinstance(value, (bool, np.bool_)) or not isinstance(value, (int, float, np.number)) or not np.isfinite(value) or value <= 0:
+            raise ValueError("adalead_quality_power must be finite and positive")
+        if self.adalead_lineages is not None and (
+            isinstance(self.adalead_lineages, (bool, np.bool_))
+            or not isinstance(self.adalead_lineages, (int, np.integer))
+            or self.adalead_lineages < 1
+        ):
+            raise ValueError("adalead_lineages must be a positive integer or None")
+        if (isinstance(self.annealing_iterations, (bool, np.bool_))
+                or not isinstance(self.annealing_iterations, (int, np.integer))
+                or self.annealing_iterations < 1):
+            raise ValueError("annealing_iterations must be a positive integer")
+        for name in ("annealing_initial_temperature", "annealing_final_temperature"):
+            value = getattr(self, name)
+            if (isinstance(value, (bool, np.bool_)) or not np.isfinite(value)
+                    or value <= 0):
+                raise ValueError(f"{name} must be finite and positive")
+        if self.annealing_final_temperature > self.annealing_initial_temperature:
+            raise ValueError(
+                "annealing_final_temperature must not exceed annealing_initial_temperature"
+            )
         if self.fixed_region is not None:
             if isinstance(self.fixed_region, (str, bytes)) or not isinstance(
                 self.fixed_region, Sequence
@@ -967,8 +1036,6 @@ class OptimizationConfig:
             raise ValueError("generator_learning_rate must be positive")
         if self.generator_pretrain_epochs < 0 or self.generator_update_epochs < 0:
             raise ValueError("generator epoch counts must be non-negative")
-        if not 0 < self.cbas_quantile < 1 or self.cbas_batch_size < 1:
-            raise ValueError("invalid CbAS hyperparameters")
         if (
             isinstance(self.cross_entropy_batch_size, bool)
             or not isinstance(self.cross_entropy_batch_size, (int, np.integer))

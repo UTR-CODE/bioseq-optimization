@@ -45,6 +45,7 @@ class SaturationConfig:
     fractions: tuple[float, ...] = (0.99,)
     minimum_queries: int | None = None
     plateau_patience_queries: int | None = None
+    plateau_patience_rounds: int | None = 20
     maximum_queries: int | None = None
     material_improvement: float = 1e-2
     relative_material_improvement: float = 1e-3
@@ -60,6 +61,12 @@ class SaturationConfig:
         self, num_candidates: int, population_size: int | None = None
     ) -> tuple[int, int, int | None]:
         fractions = tuple(float(value) for value in self.fractions)
+        if self.plateau_patience_rounds is not None and (
+            isinstance(self.plateau_patience_rounds, bool)
+            or not isinstance(self.plateau_patience_rounds, (int, np.integer))
+            or self.plateau_patience_rounds < 10
+        ):
+            raise ValueError("plateau_patience_rounds must be at least 10, or None for query-based patience")
         if not isinstance(self.relaxed_knee, bool):
             raise ValueError("relaxed_knee must be boolean")
         if self.selection not in {"knee_fraction", "knee", "fraction"}:
@@ -170,12 +177,16 @@ class _SaturationMonitor:
         material_improvement: float,
         diversity: int,
         relative_material_improvement: float = 1e-3,
+        patience_rounds: int | None = None,
     ) -> None:
         self.num_candidates = num_candidates
         self.minimum_queries = minimum_queries
         self.patience_queries = patience_queries
         self.material_improvement = max(1e-2, material_improvement)
         self.relative_material_improvement = relative_material_improvement
+        self.patience_rounds = patience_rounds
+        self.observation_round = 0
+        self.last_material_round = 0
         self.diversity = diversity
         self.archive: dict[str, tuple[float, float]] = {}
         self.discovery_queries: dict[str, int] = {}
@@ -230,6 +241,7 @@ class _SaturationMonitor:
         self._collection_level = -np.inf
         self._collection_peak = -np.inf
         self._collection_query = query_count
+        self.observation_round = self.last_material_round = 0
 
     def _dynamic_material_threshold(self, current: float, reference: float) -> float:
         scale = max(
@@ -243,8 +255,11 @@ class _SaturationMonitor:
         )
 
     def observe(
-        self, sequences: np.ndarray, batch: ScoreBatch, query_count: int
+        self, sequences: np.ndarray, batch: ScoreBatch, query_count: int,
+        *, advance_round: bool = True,
     ) -> None:
+        if advance_round:
+            self.observation_round += 1
         uncertainty = (
             np.zeros_like(batch.scores)
             if batch.uncertainties is None
@@ -383,18 +398,24 @@ class _SaturationMonitor:
                 (query_count, selected_sequences, selected_scores, selected_stds)
             )
         top_mean = float(selected_scores.mean())
-        threshold = self._dynamic_material_threshold(top_mean, self.observed_peak)
+        threshold = self._dynamic_material_threshold(top_mean, self.material_level)
         self.last_material_threshold = threshold
         if not np.isfinite(self.observed_peak):
             self.material_level = top_mean
             self.last_material_query = query_count
-        elif top_mean - self.observed_peak >= threshold:
+            self.last_material_round = self.observation_round
+        elif top_mean - self.material_level > threshold:
             self.material_level = top_mean
             self.last_material_query = query_count
+            self.last_material_round = self.observation_round
         self.observed_peak = max(self.observed_peak, top_mean)
-        if (
+        if advance_round and (
             query_count >= self.minimum_queries
-            and query_count - self.last_material_query >= self.patience_queries
+            and (
+                self.observation_round - self.last_material_round >= self.patience_rounds
+                if self.patience_rounds is not None
+                else query_count - self.last_material_query >= self.patience_queries
+            )
         ):
             raise _SaturationReached
 
@@ -404,6 +425,21 @@ class _TrackingScorer(CachedScorer):
         super().__init__(*args, **kwargs)
         self.monitor = monitor
         self._monitor_objective_version = self.objective_version
+        self._observation_group_depth = 0
+
+    def begin_observation_group(self) -> None:
+        """Group several dependent model batches into one optimizer round."""
+        self._observation_group_depth += 1
+
+    def end_observation_group(self) -> None:
+        if self._observation_group_depth < 1:
+            raise RuntimeError("observation group was not started")
+        self._observation_group_depth -= 1
+        if self._observation_group_depth == 0 and self.monitor.archive:
+            self.monitor.observe(
+                np.empty(0, dtype=str), ScoreBatch(np.empty(0), np.empty(0)),
+                self.query_count, advance_round=True,
+            )
 
     def score(self, sequences) -> ScoreBatch:
         values = np.asarray(sequences, dtype=str).reshape(-1)
@@ -415,7 +451,7 @@ class _TrackingScorer(CachedScorer):
         tracked = (
             np.asarray(list(self._cache), dtype=str) if objective_changed else values
         )
-        passed = self.hard_constraints_passed(tracked)
+        passed = self.constraints_passed(tracked)
         if passed.any():
             accepted = tracked[passed]
             self.monitor.observe(
@@ -425,6 +461,16 @@ class _TrackingScorer(CachedScorer):
                     self.current_uncertainties(accepted),
                 ),
                 self.query_count,
+                advance_round=self._observation_group_depth == 0,
+            )
+        elif self.monitor.archive:
+            # Rejected proposals still consume queries and plateau patience.
+            # Otherwise an all-infeasible generator can run forever when the
+            # saturation configuration has no maximum query count.
+            self.monitor.observe(
+                np.empty(0, dtype=str), ScoreBatch(np.empty(0), np.empty(0)),
+                self.query_count,
+                advance_round=self._observation_group_depth == 0,
             )
         return batch
 
@@ -936,6 +982,7 @@ def _optimize_with_saturation(
         _constraint_initial,
         _configured_space,
         _initial,
+        _prediction_initial,
         available_algorithms,
     )
 
@@ -948,8 +995,15 @@ def _optimize_with_saturation(
     minimum, patience, maximum = options.resolve(
         num_candidates, None if initial is None else len(initial)
     )
+    default_budget = max(1000 * num_candidates, minimum + patience)
+    if key == "simulated_annealing" and maximum is None:
+        default_budget = max(
+            default_budget,
+            (int(optimizer_parameters.get("annealing_iterations", 1000)) + 1)
+            * max(num_candidates, 1),
+        )
     config = OptimizationConfig(
-        budget=maximum or max(1000 * num_candidates, minimum + patience),
+        budget=maximum or default_budget,
         num_candidates=num_candidates,
         **optimizer_parameters,
     )
@@ -978,8 +1032,6 @@ def _optimize_with_saturation(
         batch_size = len(prepared)
         if key == "basesearch":
             batch_size = config.basesearch_batch_size
-        elif key == "cbas":
-            batch_size = config.cbas_batch_size
         elif key == "cross_entropy_method":
             batch_size = max(config.cross_entropy_batch_size, num_candidates)
         elif key in {"beam_search", "ism_greedy"}:
@@ -1005,10 +1057,10 @@ def _optimize_with_saturation(
         options.material_improvement,
         config.diversity,
         options.relative_material_improvement,
+        patience_rounds=(options.plateau_patience_rounds if options.plateau_patience_queries is None else None),
     )
     proposal_count_algorithms = {
         "ledidi",
-        "cbas",
         "vanilla_activation_maximization",
         "fast_seqprop",
         "den",
@@ -1022,9 +1074,12 @@ def _optimize_with_saturation(
         monitor=monitor,
     )
     prepared = _constraint_initial(prepared, budgeted, space, config, rng)
+    prepared = _prediction_initial(prepared, budgeted, space, config, rng)
     stop_reason = "algorithm_stopped"
     try:
-        _REGISTRY[key](prepared, budgeted, space, config, rng)
+        algorithm_result = _REGISTRY[key](prepared, budgeted, space, config, rng)
+        if algorithm_result is not None and algorithm_result.metadata.get("stop_reason") == "lineage_saturation":
+            stop_reason = "plateau"
         if objective_scorer.target_stop_reached:
             stop_reason = "target_reached"
         elif maximum is not None and budgeted.query_count >= maximum:
@@ -1116,6 +1171,8 @@ def _optimize_with_saturation(
     knee.metadata.update(
         minimum_queries=minimum,
         plateau_patience_queries=patience,
+        plateau_patience_rounds=monitor.patience_rounds,
+        observed_rounds=monitor.observation_round,
         maximum_queries=maximum,
         initial_population_size=len(prepared),
         material_improvement_floor=options.material_improvement,
@@ -1190,18 +1247,49 @@ def _optimize_with_saturation(
         selection_target_mean=knee_target,
         minimum_queries=minimum,
         plateau_patience_queries=patience,
+        plateau_patience_rounds=monitor.patience_rounds,
+        observed_rounds=monitor.observation_round,
         maximum_queries=maximum,
         initial_population_size=len(prepared),
         plateau_confirmed=stop_reason == "plateau",
         knee_fraction_tolerance=options.knee_fraction_tolerance,
         diversity_pool_size=options.diversity_pool_size,
         parent_pool_multiplier=config.parent_pool_multiplier,
-        **({"offspring_comparison": "own_parent", "survivor_selection": "family_round_robin"}
+        **({"offspring_comparison": "rollout_root",
+            "rollout": "accepted_child", "rollout_max_depth": config.adalead_max_rollout,
+            "rollout_expected_mutations": config.adalead_mu, "rollout_allow_equal": config.adalead_allow_equal,
+            "rollout_lineages": config.adalead_lineages or len(prepared),
+            "parent_selection": "rank_weighted_quality_with_novelty_exploration",
+            "survivor_selection": "rank_weighted_quality_with_novelty_exploration",
+            "exploration_fraction": config.adalead_exploration_fraction,
+            "quality_rank_power": config.adalead_quality_power,
+            "best_anchor_preserved": True}
            if key == "adalead" else {}),
         **({"diversity_penalty": "nearest_neighbor_similarity"} if key == "den" else {}),
+        **({
+            "iterations": max(0, monitor.observation_round - 1),
+            "maximum_iterations": config.annealing_iterations,
+            "initial_temperature": config.annealing_initial_temperature,
+            "final_temperature": config.annealing_final_temperature,
+            "temperature_schedule": "linear_by_iteration",
+            "last_temperature": (
+                config.annealing_initial_temperature
+                if monitor.observation_round <= 1
+                else config.annealing_initial_temperature
+                + min(
+                    (monitor.observation_round - 2)
+                    / max(config.annealing_iterations - 1, 1),
+                    1.0,
+                )
+                * (
+                    config.annealing_final_temperature
+                    - config.annealing_initial_temperature
+                )
+            ),
+        } if key == "simulated_annealing" else {}),
         **({"parent_selection": ("quality_progress_weighted_clusters" if key == "basesearch" else "cluster_round_robin"), "parent_cluster_cap": 10,
             "parent_cluster_diameter_fraction": 0.2}
-           if key in {"adalead", "beam_search", "basesearch"} else {}),
+           if key in {"beam_search", "basesearch"} else {}),
         material_improvement_floor=options.material_improvement,
         relative_material_improvement=options.relative_material_improvement,
         final_material_improvement_threshold=monitor.last_material_threshold,
@@ -1211,6 +1299,16 @@ def _optimize_with_saturation(
         selection_target_reached=bool(diverse_snapshot[2].mean() >= knee_target - 1e-12),
         **diversity_metadata,
     )
+    if key == "adalead":
+        fields = ("parent_selection", "survivor_selection", "exploration_fraction",
+                  "quality_rank_power", "best_anchor_preserved", "offspring_comparison",
+                  "rollout", "rollout_max_depth", "rollout_expected_mutations",
+                  "rollout_allow_equal", "rollout_lineages", "parent_pool_multiplier")
+        for result in [*selections.values(), knee]:
+            result.metadata.update({name: knee_fraction_result.metadata[name] for name in fields})
+    if key == "ism_greedy" and hasattr(budgeted, "ism_diagnostics"):
+        for result in [*selections.values(), knee, knee_fraction_result]:
+            result.metadata["ism_lineage_diagnostics"] = budgeted.ism_diagnostics
     fixed_positions = tuple(getattr(space, "fixed_positions", ()))
     if fixed_positions:
         for result in [*selections.values(), knee, knee_fraction_result]:

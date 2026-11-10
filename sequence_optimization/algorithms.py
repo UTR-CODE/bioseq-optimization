@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import inspect
+import logging
 from dataclasses import replace
 import random
 from collections.abc import Callable, Iterable, Sequence
@@ -79,7 +80,7 @@ def _score(
     scorer: CachedScorer, archive: dict[str, tuple[float, float]], sequences: np.ndarray
 ) -> ScoreBatch:
     batch = scorer.score(sequences)
-    passed = scorer.hard_constraints_passed(sequences)
+    passed = scorer.constraints_passed(sequences)
     if passed.any():
         _record(
             archive,
@@ -468,7 +469,7 @@ def _constraint_initial(
 ) -> np.ndarray:
     if scorer.constraint_evaluator is None:
         return initial
-    passed = scorer.constraints_passed(initial)
+    passed = scorer.hard_constraints_passed(initial)
     target_count = len(initial)
     accepted = [str(sequence) for sequence, keep in zip(initial, passed) if keep]
     seen = {str(sequence) for sequence in initial}
@@ -497,7 +498,7 @@ def _constraint_initial(
         seen.update(map(str, novel))
         if not len(novel):
             continue
-        keep = scorer.constraints_passed(novel)
+        keep = scorer.hard_constraints_passed(novel)
         accepted.extend(str(sequence) for sequence, value in zip(novel, keep) if value)
     if len(accepted) < target_count:
         raise ValueError(
@@ -505,6 +506,49 @@ def _constraint_initial(
             "supply less restrictive constraints or feasible initial sequences"
         )
     return np.asarray(accepted[:target_count], dtype=str)
+
+
+def _prediction_initial(initial, scorer, space, config, rng):
+    """Build a feasible seed population, charging all prediction queries.
+
+    Bypass saturation tracking during this initialization-only screen. Search
+    sees only feasible seeds, and its first scored batch establishes baseline.
+    Never fill missing slots with infeasible sequences.
+    """
+    if not getattr(scorer.scorer, "has_prediction_bounds", False):
+        return initial
+    count = len(initial)
+    accepted = {}
+    seen = set()
+    proposals = initial
+    max_draws = max(10000, 1000 * count)
+    draws = 0
+    # Reserve one batch for the optimizer's initial score call (including
+    # optimizers that count repeated proposals).
+    while len(accepted) < count and draws < max_draws:
+        room = max_draws - draws
+        if scorer.remaining is not None:
+            room = min(room, scorer.remaining - count)
+        if room <= 0:
+            break
+        proposals = np.asarray([s for s in proposals if str(s) not in seen], dtype=str)[:room]
+        if len(proposals):
+            seen.update(map(str, proposals))
+            CachedScorer.score(scorer, proposals)
+            keep = scorer.constraints_passed(proposals)
+            accepted.update((str(s), None) for s in proposals[keep])
+        if len(accepted) >= count:
+            break
+        size = min(max(64, count - len(accepted)), room, max_draws - draws)
+        proposals = space.random(size, rng)
+        draws += size
+    if len(accepted) < count:
+        raise ValueError(
+            f"stop_values admitted only {len(accepted)} feasible initial sequences; "
+            f"{count} required. Supply feasible initial sequences, increase the "
+            "budget, or relax prediction bounds. No out-of-bounds seeds retained."
+        )
+    return np.asarray(list(accepted)[:count], dtype=str)
 
 
 @register_algorithm("random")
@@ -522,73 +566,127 @@ def random_search(initial, scorer, space, config, rng):
     )
 
 
+def _ism_curve_stop(history, config):
+    """Online stopping: confirm a low slope or a knee with a sustained slow tail.
+
+    This uses only observed gains; it does not claim a global optimum or a
+    fixed fraction of future achievable gain. A linear curve has no knee.
+    """
+    y = np.asarray(history, dtype=float)
+    rounds = len(y) - 1
+    window = config.ism_patience
+    if rounds < max(config.ism_min_sweeps, window + 2):
+        return None, None
+    gain = max(0.0, float(y[-1] - y[0]))
+    tail_slope = float(y[-1] - y[-1-window]) / window
+    floor = max(config.ism_absolute_gain, config.ism_relative_gain * gain)
+    if tail_slope <= floor:
+        return "small_gain", None
+    if gain <= 0:
+        return None, None
+    x = np.arange(len(y), dtype=float) / rounds
+    distance = (y - y[0]) / gain - x
+    knee = int(np.argmax(distance))
+    if knee >= 2 and rounds - knee >= window and distance[knee] >= 0.05:
+        head_slope = float(y[knee] - y[0]) / knee
+        post_slope = float(y[-1] - y[knee]) / (rounds - knee)
+        if max(tail_slope, post_slope) <= config.ism_knee_slope_ratio * head_slope:
+            return "knee_slow_tail", knee
+    return None, None
+
+
 @register_algorithm("ism_greedy")
 def ism_greedy(initial, scorer, space, config, rng):
     archive: dict[str, tuple[float, float]] = {}
     current = initial.copy()
     current_scores = _score(scorer, archive, current).scores
-    trajectory = [
-        {
-            "query_count": scorer.query_count,
-            "best_score": float(current_scores.max()),
-            "mean_score": float(current_scores.mean()),
-        }
-    ]
+    lineages = [dict(lineage=i, initial_sequence=str(s), scores=[float(v)],
+                     stop_reason=None, stop_sweep=None, knee_sweep=None)
+                for i, (s, v) in enumerate(zip(current, current_scores))]
+    ids = np.arange(len(current))
+    active = np.ones(len(current), dtype=bool)
+    objective_version = scorer.objective_version
+    diagnostics = dict(lineages=lineages, rounds=[], objective_resets=0,
+                       stopping_enabled=config.ism_lineage_stopping,
+                       minimum_sweeps=config.ism_min_sweeps, patience=config.ism_patience,
+                       absolute_gain=config.ism_absolute_gain, relative_gain=config.ism_relative_gain,
+                       knee_slope_ratio=config.ism_knee_slope_ratio)
+    scorer.ism_diagnostics = diagnostics  # Also survives global plateau exceptions.
+    trajectory = [dict(query_count=scorer.query_count, best_score=float(current_scores.max()),
+                       mean_score=float(current_scores.mean()), active_lineages=int(active.sum()))]
     mutable_count = len(getattr(space, "mutable_positions", tuple(range(space.length))))
-    block = int(
-        getattr(space, "single_mutant_count", mutable_count * (space.alphabet_size - 1))
-    )
+    block = int(getattr(space, "single_mutant_count", mutable_count * (space.alphabet_size - 1)))
     if block == 0:
-        return _finalize(
-            "ism_greedy",
-            archive,
-            config,
-            scorer,
-            {"sweeps": 0, "stop_reason": "fixed_region_exhausted"},
-            trajectory,
-        )
-    while scorer.remaining is None or scorer.remaining >= block:
+        return _finalize("ism_greedy", archive, config, scorer,
+                         {"sweeps": 0, "stop_reason": "fixed_region_exhausted"}, trajectory)
+    sweeps = 0
+    while (scorer.remaining is None or scorer.remaining >= block) and active.any():
         before = scorer.query_count
+        # Preserve seeded ordering over all lineages, then omit frozen branches.
         order = rng.permutation(len(current))
-        count = (
-            len(order)
-            if scorer.remaining is None
-            else min(len(order), scorer.remaining // block)
-        )
+        order = order[active[order]]
+        count = len(order) if scorer.remaining is None else min(len(order), scorer.remaining // block)
         chosen = order[:count]
+        if not len(chosen):
+            break
         mutants = space.single_mutants(current[chosen])
+        # Complete the lineage updates before notifying global plateau tracking.
+        grouped = hasattr(scorer, "begin_observation_group")
+        if grouped:
+            scorer.begin_observation_group()
         batch = _score(scorer, archive, mutants)
         passed = scorer.constraints_passed(mutants)
         current_scores = scorer.current_scores(current)
+        if scorer.objective_version != objective_version:
+            objective_version = scorer.objective_version
+            active[:] = True
+            diagnostics['objective_resets'] += 1
+            for index, lineage in enumerate(ids):
+                item = lineages[int(lineage)]
+                item.update(scores=[float(current_scores[index])], stop_reason=None,
+                            stop_sweep=None, knee_sweep=None)
+        sweeps += 1
         for offset, index in enumerate(chosen):
-            values = batch.scores[offset * block : (offset + 1) * block]
-            valid = passed[offset * block : (offset + 1) * block]
-            if not valid.any():
-                continue
-            best = int(np.flatnonzero(valid)[np.argmax(values[valid])])
-            if values[best] > current_scores[index]:
-                current[index] = mutants[offset * block + best]
-                current_scores[index] = values[best]
+            values = batch.scores[offset * block:(offset + 1) * block]
+            valid = passed[offset * block:(offset + 1) * block]
+            old = float(current_scores[index])
+            if valid.any():
+                best = int(np.flatnonzero(valid)[np.argmax(values[valid])])
+                if values[best] > old:
+                    current[index] = mutants[offset * block + best]
+                    current_scores[index] = values[best]
+            item = lineages[int(ids[index])]
+            item['scores'].append(float(current_scores[index]))
+            if config.ism_lineage_stopping:
+                reason, knee = _ism_curve_stop(item['scores'], config)
+                # An exhaustive neighborhood with no improvement is terminal too.
+                if current_scores[index] <= old:
+                    reason = "no_improving_neighbor"
+                if reason:
+                    active[index] = False
+                    item.update(stop_reason=reason, stop_sweep=sweeps, knee_sweep=knee)
         retained = scorer.constraints_passed(current)
-        current = current[retained]
+        for lineage in ids[~retained]:
+            lineages[int(lineage)].update(stop_reason='constraint_rejected', stop_sweep=sweeps)
+        current, active, ids = current[retained], active[retained], ids[retained]
         current_scores = scorer.current_scores(current)
-        trajectory.append(
-            {
-                "query_count": scorer.query_count,
-                "best_score": float(current_scores.max()),
-                "mean_score": float(current_scores.mean()),
-            }
-        )
-        if not len(chosen) or scorer.query_count == before:
+        diagnostics['rounds'].append(dict(sweep=sweeps, scanned_lineages=len(chosen),
+            active_lineages=int(active.sum()), proposals=len(mutants), query_count=scorer.query_count))
+        trajectory.append(dict(query_count=scorer.query_count,
+            best_score=float(current_scores.max()) if len(current_scores) else float('-inf'),
+            mean_score=float(current_scores.mean()) if len(current_scores) else float('-inf'),
+            active_lineages=int(active.sum())))
+        logging.getLogger(__name__).info(
+            'ISM sweep=%d scanned=%d active=%d mean=%.6f proposals=%d',
+            sweeps, len(chosen), int(active.sum()),
+            float(current_scores.mean()) if len(current_scores) else float('nan'), len(mutants))
+        if grouped:
+            scorer.end_observation_group()
+        if scorer.query_count == before:
             break
-    return _finalize(
-        "ism_greedy",
-        archive,
-        config,
-        scorer,
-        {"sweeps": len(trajectory) - 1},
-        trajectory,
-    )
+    return _finalize("ism_greedy", archive, config, scorer,
+        {"sweeps": sweeps, "stop_reason": "lineage_saturation" if not active.any() else "algorithm_stopped",
+         "ism_lineage_diagnostics": diagnostics}, trajectory)
 
 
 @register_algorithm("simulated_annealing")
@@ -599,16 +697,27 @@ def simulated_annealing(initial, scorer, space, config, rng):
     archive: dict[str, tuple[float, float]] = {}
     current = initial.copy()
     current_scores = _score(scorer, archive, current).scores
-    temperature = max(float(np.std(current_scores)), 1e-3)
     trajectory = []
-    while scorer.remaining is None or scorer.remaining >= len(current):
+    iterations = 0
+    while (
+        (iterations < config.annealing_iterations or scorer.remaining is None)
+        and (scorer.remaining is None or scorer.remaining >= len(current))
+    ):
+        progress = (
+            1.0
+            if config.annealing_iterations == 1
+            else min(1.0, iterations / (config.annealing_iterations - 1))
+        )
+        temp = (
+            config.annealing_initial_temperature
+            + progress
+            * (config.annealing_final_temperature - config.annealing_initial_temperature)
+        )
         proposals = space.mutate_one(current, rng)
         values = _score(scorer, archive, proposals).scores
         passed = scorer.constraints_passed(proposals)
         current_scores = scorer.current_scores(current)
         current_passed = scorer.constraints_passed(current)
-        progress = scorer.query_count / max(config.budget, 1)
-        temp = max(temperature * (0.001**progress), 1e-6)
         accept = np.zeros(len(current), dtype=bool)
         accept[passed] = (
             (~current_passed[passed])
@@ -625,9 +734,12 @@ def simulated_annealing(initial, scorer, space, config, rng):
         retained = scorer.constraints_passed(current)
         current = current[retained]
         current_scores = scorer.current_scores(current)
+        iterations += 1
         trajectory.append(
             {
                 "query_count": scorer.query_count,
+                "iteration": iterations,
+                "temperature": float(temp),
                 "best_score": float(current_scores.max()),
                 "mean_score": float(current_scores.mean()),
             }
@@ -637,7 +749,16 @@ def simulated_annealing(initial, scorer, space, config, rng):
         archive,
         config,
         scorer,
-        {"initial_temperature": temperature},
+        {
+            "iterations": iterations,
+            "maximum_iterations": config.annealing_iterations,
+            "initial_temperature": config.annealing_initial_temperature,
+            "final_temperature": config.annealing_final_temperature,
+            "last_temperature": (
+                None if not trajectory else trajectory[-1]["temperature"]
+            ),
+            "temperature_schedule": "linear_by_iteration",
+        },
         trajectory,
     )
 
@@ -768,13 +889,90 @@ def _cluster_parent_subset(sequences, scores, count, *, offset=0, cap=10, return
     return values, np.asarray([lookup[s] for s in values])
 
 
+def _quality_exploration_subset(
+    sequences, scores, count, *, rng, exploration_fraction=0.2,
+    quality_power=4.0, quality_pool_multiplier=5,
+):
+    """Keep one best anchor, then sample quality and sequence novelty.
+
+    Quality uses tied empirical percentile ranks, so positive affine score
+    transformations leave the sampling distribution unchanged. Exploration
+    draws from all remaining feasible candidates, with a soft Hamming-novelty
+    preference and no family quota or exclusion radius.
+    """
+    sequences = np.asarray(sequences, dtype=str)
+    scores = np.asarray(scores, dtype=float)
+    if len(sequences) != len(scores) or not np.isfinite(scores).all():
+        raise ValueError("selection requires aligned finite scores")
+    # Canonical identity order makes tied scores/input permutations reproducible.
+    lookup = {}
+    for sequence, score in zip(sequences, scores):
+        key = str(sequence)
+        lookup[key] = max(lookup.get(key, -np.inf), float(score))
+    values = np.asarray(sorted(lookup), dtype=str)
+    fitness = np.asarray([lookup[s] for s in values])
+    count = min(int(count), len(values))
+    if count <= 0:
+        return values[:0], fitness[:0]
+    best = int(np.argmax(fitness))
+    selected = [best]
+    remaining = np.ones(len(values), dtype=bool)
+    remaining[best] = False
+    exploration_count = (min(count-1, max(1, int(np.floor(count*exploration_fraction))))
+                         if exploration_fraction > 0 and count > 1 else 0)
+    quality_count = count - exploration_count - 1
+    ranks = np.searchsorted(np.sort(fitness), fitness, side='right') / len(fitness)
+    # Limit only the quality pool; exploration can reach the entire population.
+    pool_size = min(len(values), max(count, int(quality_pool_multiplier*count)))
+    cutoff = np.partition(fitness, len(fitness)-pool_size)[len(fitness)-pool_size]
+    quality_mask = (fitness >= cutoff) & remaining
+    if quality_count:
+        eligible = np.flatnonzero(quality_mask)
+        weights = np.maximum(ranks[eligible] ** quality_power, 1e-12)
+        chosen = rng.choice(eligible, size=quality_count, replace=False, p=weights/weights.sum())
+        selected.extend(chosen.tolist())
+        remaining[chosen] = False
+    if exploration_count:
+        codes = np.asarray([list(s) for s in values])
+        distances = np.full(len(values), codes.shape[1], dtype=int)
+        for index in selected:
+            distances = np.minimum(distances, np.count_nonzero(codes != codes[index], axis=1))
+        for _ in range(exploration_count):
+            eligible = np.flatnonzero(remaining)
+            weights = (0.05 + distances[eligible]/max(codes.shape[1], 1)) ** 2
+            index = int(rng.choice(eligible, p=weights/weights.sum()))
+            selected.append(index)
+            remaining[index] = False
+            distances = np.minimum(distances, np.count_nonzero(codes != codes[index], axis=1))
+    return values[selected], fitness[selected]
+
+
+def _mutate_expected(sequences, space, expected_mutations, rng):
+    """Poisson number of space-native mutation operations (mean mu).
+
+    Unlike FLEXS per-position mutation, this preserves custom, fixed-region
+    and synonymous-codon spaces. Zero operations are possible; the rollout's
+    bounded novelty retry rejects unchanged or previously evaluated proposals.
+    """
+    values = np.asarray(sequences, dtype=str).copy()
+    counts = rng.poisson(expected_mutations, len(values))
+    for step in range(int(counts.max()) if len(counts) else 0):
+        mask = counts > step
+        values[mask] = space.mutate_one(values[mask], rng)
+    return values
+
+
 @register_algorithm("adalead")
 def adalead(initial, scorer, space, config, rng):
     archive: dict[str, tuple[float, float]] = {}
     population = initial.copy()
     scores = _score(scorer, archive, population).scores
     trajectory = []
-    while scorer.remaining is None or scorer.remaining >= len(population):
+    accepted_total = 0
+    rollout_steps = 0
+    seen = set(map(str, initial))
+    stop_reason = "budget"
+    while scorer.remaining is None or scorer.remaining > 0:
         before = scorer.query_count
         retained = scorer.constraints_passed(population)
         population = population[retained]
@@ -782,31 +980,73 @@ def adalead(initial, scorer, space, config, rng):
             break
         scores = scorer.current_scores(population)
         elite_count = max(1, int(round(len(population) * config.elite_fraction)))
-        order = np.lexsort((population, -scores))
-        pool = order[:min(len(population), config.parent_pool_multiplier * elite_count)]
-        elite, _ = _cluster_parent_subset(population[pool], scores[pool], elite_count,
-                                          offset=len(trajectory))
-        parents = np.resize(elite, len(population))
-        proposals = space.mutate_one(parents, rng)
-        values = _score(scorer, archive, proposals).scores
-        passed = scorer.constraints_passed(proposals)
-        # Compare against the actual generating parent, under the current
-        # objective version (scoring proposals may activate stopping lines).
-        parent_scores = scorer.current_scores(parents)
-        parent_passed = scorer.constraints_passed(parents)
-        improved = passed & ((~parent_passed) | (values > parent_scores))
+        elite, _ = _quality_exploration_subset(
+            population, scores, elite_count, rng=rng,
+            exploration_fraction=config.adalead_exploration_fraction,
+            quality_power=config.adalead_quality_power,
+            quality_pool_multiplier=config.parent_pool_multiplier,
+        )
+        begin_group = getattr(scorer, "begin_observation_group", None)
+        end_group = getattr(scorer, "end_observation_group", None)
+        if begin_group is not None:
+            begin_group()
+        proposals_list = []
+        # Each elite parent gets an accepted-child rollout. The root score is
+        # fixed for the lineage, matching FLEXS and allowing neutral steps.
+        current = np.resize(elite, config.adalead_lineages or len(population))
+        roots = current.copy()
+        for depth in range(config.adalead_max_rollout):
+            if not len(current) or scorer.remaining == 0:
+                break
+            # Batch all active lineages; cap by remaining budget even if
+            # repeated proposals count. Bounded retries terminate tiny spaces.
+            limit = len(current) if scorer.remaining is None else min(len(current), scorer.remaining)
+            pending = list(range(len(current)))
+            proposed, indices = [], []
+            for attempt in range(32):
+                if not pending or len(proposed) >= limit:
+                    break
+                draws = _mutate_expected(current[pending], space, config.adalead_mu, rng)
+                retry = []
+                for idx, child in zip(pending, draws):
+                    if str(child) in seen:
+                        retry.append(idx)
+                    else:
+                        seen.add(str(child))
+                        proposed.append(str(child))
+                        indices.append(idx)
+                        if len(proposed) == limit:
+                            break
+                pending = retry
+            if not proposed:
+                break
+            proposal = np.asarray(proposed, dtype=str)
+            values = _score(scorer, archive, proposal).scores
+            root_scores = scorer.current_scores(roots[indices])
+            accepted = scorer.constraints_passed(proposal) & (
+                values >= root_scores if config.adalead_allow_equal else values > root_scores
+            )
+            proposals_list.extend(proposal[accepted].tolist())
+            accepted_total += int(accepted.sum())
+            rollout_steps += 1
+            current = proposal[accepted]
+            roots = roots[indices][accepted]
+        proposals = np.asarray(proposals_list, dtype=str)
         population_size = len(population)
         retained = scorer.constraints_passed(population)
-        candidates = np.concatenate([population[retained], proposals[improved]])
+        candidates = np.concatenate([population[retained], proposals]) if len(proposals) else population[retained]
         if not len(candidates):
             break
-        # Round-robin survival balances families, with score ranking inside
-        # each family. Allow unused slots to flow to other families rather
-        # than shrinking a viable population to the parent-selection cap.
-        population, scores = _cluster_parent_subset(
-            candidates, scorer.current_scores(candidates), population_size,
-            offset=len(trajectory), cap=population_size,
+        # Use the same quality/exploration mixture for survivors, preserving
+        # the best while avoiding hard family quotas or deterministic truncation.
+        population, scores = _quality_exploration_subset(
+            candidates, scorer.current_scores(candidates), population_size, rng=rng,
+            exploration_fraction=config.adalead_exploration_fraction,
+            quality_power=config.adalead_quality_power,
+            quality_pool_multiplier=config.parent_pool_multiplier,
         )
+        if end_group is not None:
+            end_group()
         trajectory.append(
             {
                 "query_count": scorer.query_count,
@@ -815,14 +1055,26 @@ def adalead(initial, scorer, space, config, rng):
             }
         )
         if scorer.query_count == before:
+            stop_reason = "proposal_stall"
             break
     return _finalize(
         "adalead", archive, config, scorer,
         {"steps": len(trajectory), "parent_pool_multiplier": config.parent_pool_multiplier,
-         "parent_selection": "cluster_round_robin", "parent_cluster_cap": 10,
-         "offspring_comparison": "own_parent",
-         "survivor_selection": "family_round_robin",
-         "parent_cluster_diameter_fraction": 0.2}, trajectory
+         "rollout": "accepted_child",
+         "rollout_expected_mutations": config.adalead_mu,
+         "rollout_max_depth": config.adalead_max_rollout,
+         "rollout_allow_equal": config.adalead_allow_equal,
+         "rollout_lineages": config.adalead_lineages or len(initial),
+         "mutation_scheme": "poisson_space_native_operations",
+         "stop_reason": stop_reason,
+         "accepted_children": accepted_total,
+         "accepted_rollout_steps": rollout_steps,
+         "parent_selection": "rank_weighted_quality_with_novelty_exploration",
+         "offspring_comparison": "rollout_root",
+         "survivor_selection": "rank_weighted_quality_with_novelty_exploration",
+         "exploration_fraction": config.adalead_exploration_fraction,
+         "quality_rank_power": config.adalead_quality_power,
+         "best_anchor_preserved": True}, trajectory
     )
 
 
@@ -923,7 +1175,6 @@ def run(
         proposal_count_algorithms = {
             "random",
             "ledidi",
-            "cbas",
             "vanilla_activation_maximization",
             "fast_seqprop",
             "den",
@@ -938,6 +1189,7 @@ def run(
     if budgeted.budget is None:
         budgeted.budget = config.budget
     prepared = _constraint_initial(prepared, budgeted, space, config, rng)
+    prepared = _prediction_initial(prepared, budgeted, space, config, rng)
     result = _REGISTRY[key](prepared, budgeted, space, config, rng)
     fixed_positions = tuple(getattr(space, "fixed_positions", ()))
     if fixed_positions:
@@ -1016,7 +1268,8 @@ def optimize(
     num_candidates: int,
     *,
     algorithm: str = "genetic_algorithm",
-    stop_values: Sequence[float | None] | None = None,
+    stop_values: Sequence[float | tuple[float | None, float | None] | None] | None = None,
+    stop_tolerance: float | None = 0.5,
     budget: int | None = None,
     saturation: SaturationConfig | None = None,
     diversity: int = 5,
@@ -1027,12 +1280,25 @@ def optimize(
     mutation_rate: float = 0.02,
     elite_fraction: float = 0.2,
     parent_pool_multiplier: int = 5,
+    adalead_mu: float = 1.0,
+    adalead_max_rollout: int = 8,
+    adalead_allow_equal: bool = True,
+    adalead_lineages: int | None = None,
+    adalead_exploration_fraction: float = 0.2,
+    adalead_quality_power: float = 4.0,
+    ism_lineage_stopping: bool = True,
+    ism_min_sweeps: int = 10,
+    ism_patience: int = 5,
+    ism_absolute_gain: float = 0.01,
+    ism_relative_gain: float = 0.001,
+    ism_knee_slope_ratio: float = 0.1,
+    annealing_iterations: int = 1000,
+    annealing_initial_temperature: float = 0.1,
+    annealing_final_temperature: float = 0.05,
     learning_rate: float = 0.1,
     generator_learning_rate: float = 3e-3,
     generator_pretrain_epochs: int = 20,
     generator_update_epochs: int = 5,
-    cbas_quantile: float = 0.8,
-    cbas_batch_size: int = 256,
     cross_entropy_batch_size: int = 256,
     den_seed_pretrain_epochs: int = 100,
     den_diversity_weight: float = 0.1,
@@ -1052,14 +1318,14 @@ def optimize(
 
     ``diversity`` is the minimum pairwise Hamming distance among returned
     sequences. ``fixed_region`` holds zero-based positions or Python-style
-    slices to one shared sequence template. ``stop_values`` supplies directional
-    stopping thresholds, defaulting to None (unlimited) for every output.
+    slices to one shared sequence template. ``stop_values`` supplies inclusive
+    directional caps or (lower, upper) intervals; None means unlimited.
     """
     if stop_values is not None:
         if isinstance(objective, (list, tuple)):
-            objective = MultiTaskObjective(directions=objective, stop_values=stop_values)
+            objective = MultiTaskObjective(directions=objective, stop_values=stop_values, stop_tolerance=stop_tolerance)
         elif isinstance(objective, MultiTaskObjective):
-            objective = replace(objective, stop_values=stop_values)
+            objective = replace(objective, stop_values=stop_values, stop_tolerance=stop_tolerance)
         else:
             raise ValueError("stop_values requires a directions objective")
     parameters = dict(
@@ -1069,12 +1335,25 @@ def optimize(
         mutation_rate=mutation_rate,
         elite_fraction=elite_fraction,
         parent_pool_multiplier=parent_pool_multiplier,
+        adalead_mu=adalead_mu,
+        adalead_max_rollout=adalead_max_rollout,
+        adalead_allow_equal=adalead_allow_equal,
+        adalead_lineages=adalead_lineages,
+        adalead_exploration_fraction=adalead_exploration_fraction,
+        adalead_quality_power=adalead_quality_power,
+        ism_lineage_stopping=ism_lineage_stopping,
+        ism_min_sweeps=ism_min_sweeps,
+        ism_patience=ism_patience,
+        ism_absolute_gain=ism_absolute_gain,
+        ism_relative_gain=ism_relative_gain,
+        ism_knee_slope_ratio=ism_knee_slope_ratio,
+        annealing_iterations=annealing_iterations,
+        annealing_initial_temperature=annealing_initial_temperature,
+        annealing_final_temperature=annealing_final_temperature,
         learning_rate=learning_rate,
         generator_learning_rate=generator_learning_rate,
         generator_pretrain_epochs=generator_pretrain_epochs,
         generator_update_epochs=generator_update_epochs,
-        cbas_quantile=cbas_quantile,
-        cbas_batch_size=cbas_batch_size,
         cross_entropy_batch_size=cross_entropy_batch_size,
         den_seed_pretrain_epochs=den_seed_pretrain_epochs,
         den_diversity_weight=den_diversity_weight,
@@ -1242,7 +1521,6 @@ beam_search_optimize = _named_optimizer("beam_search", "beam_search_optimize")
 cross_entropy_optimize = _named_optimizer(
     "cross_entropy_method", "cross_entropy_optimize"
 )
-cbas_optimize = _named_optimizer("cbas", "cbas_optimize")
 vanilla_activation_maximization_optimize = _named_optimizer(
     "vanilla_activation_maximization", "vanilla_activation_maximization_optimize"
 )

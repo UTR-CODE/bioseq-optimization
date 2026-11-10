@@ -246,7 +246,6 @@ def test_default_relaxed_knee_applies_to_every_nonrandom_algorithm():
             generator_pretrain_epochs=1,
             generator_update_epochs=1,
             den_seed_pretrain_epochs=1,
-            cbas_batch_size=8,
             cross_entropy_batch_size=8,
             basesearch_batch_size=8,
         )

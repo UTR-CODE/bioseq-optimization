@@ -1,0 +1,26 @@
+{
+  "date": "2026-11-10",
+  "torch": "2.5.1",
+  "bioseq_models": "0.11.0",
+  "gpu": "NVIDIA GeForce RTX 4090",
+  "checks": {
+    "optimus5prime": {
+      "hard_soft_max_error": 0.0,
+      "gradient_max_abs": 0.8742051124572754
+    },
+    "malinois": {
+      "hard_soft_max_error": 0.0,
+      "gradient_max_abs": 7.186187744140625
+    },
+    "dream_legnet": {
+      "hard_soft_max_error": 0.0,
+      "gradient_max_abs": 4.611062049865723,
+      "full_construct_max_error": 0.0
+    }
+  },
+  "checkpoint_sha256": {
+    "optimus5prime": "7b58549d44e33addcf88876bb7ef35fd1dfa6404083da47619ef258ea513526c",
+    "malinois": "ae1244ec4895e0dcac3a9cda08c519cc679c2d97b45ccd7653fefb9918e93946",
+    "dream_legnet": "ce8bf7a2bee83bc4d47062b2a06d290e6af8d4d3ba198bbed2cd6299331bc5f4"
+  }
+}

@@ -41,13 +41,18 @@ def test_algorithms_expand_parent_pool_but_preserve_parent_count(monkeypatch, al
     import sequence_optimization.algorithms as algorithms
     import sequence_optimization.advanced as advanced
     module = advanced if algorithm == 'beam_search' else algorithms
-    helper = '_diverse_parent_subset' if algorithm == 'genetic_algorithm' else '_cluster_parent_subset'
+    helper = ('_diverse_parent_subset' if algorithm == 'genetic_algorithm' else
+              '_quality_exploration_subset' if algorithm == 'adalead' else '_cluster_parent_subset')
     original = getattr(module, helper)
     observed = []
 
     def capture(sequences, scores, count, **kwargs):
         selected, values = original(sequences, scores, count, **kwargs)
-        observed.append((len(sequences), count, len(selected)))
+        if kwargs.get('cap') == count or (algorithm == 'adalead' and count == 4):
+            # Rollout survivors include multiple depths, not a parent pool.
+            assert len(selected) <= count
+        else:
+            observed.append((len(sequences), count, len(selected)))
         return selected, values
 
     monkeypatch.setattr(module, helper, capture)

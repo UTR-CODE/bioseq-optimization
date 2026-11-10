@@ -96,7 +96,6 @@ def test_suite_cds_default_uses_per_reference_population(monkeypatch):
     [
         ("beam_search", 450),
         ("ism_greedy", 1800),
-        ("cbas", 768),
         ("cross_entropy_method", 768),
         ("basesearch", 768),
         ("genetic_algorithm", 160),

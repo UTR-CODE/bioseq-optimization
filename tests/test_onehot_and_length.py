@@ -60,7 +60,6 @@ def test_every_convenience_function_accepts_length(algorithm):
         generator_pretrain_epochs=1,
         generator_update_epochs=1,
         den_seed_pretrain_epochs=1,
-        cbas_batch_size=4,
     )
     assert all(len(sequence) == 8 for sequence in result.sequences)
     assert result.query_count <= 28

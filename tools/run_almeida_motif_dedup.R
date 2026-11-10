@@ -1,0 +1,26 @@
+#!/usr/bin/env Rscript
+# Apply the actual clustering core of bernardo-de-almeida/motif-clustering
+# to this project's motif catalog, replacing only its organism-specific I/O.
+args <- commandArgs(trailingOnly=TRUE)
+if (length(args) != 4) stop("Expected E-value CSV, output directory, height, upstream R script")
+simsq <- as.matrix(read.csv(args[1], row.names=1, check.names=FALSE))
+if (any(!is.finite(simsq)) || any(simsq < 0)) stop("Invalid Tomtom E-values")
+upstream <- readLines(args[4], warn=FALSE)
+first <- grep("^mat = -log10\\(simsq\\)", upstream)
+last <- grep("^Z = hclust\\(as.dist\\(1-tmp_cor\\), method = 'complete'\\)", upstream)
+if (length(first) != 1 || length(last) != 1) stop("Upstream core changed; inspect source")
+writeLines(upstream[first:last], file.path(args[2], "executed_upstream_core.R"))
+eval(parse(text=upstream[first:last]))
+if (any(!is.finite(tmp_cor))) stop("Constant motif similarity profile")
+write.csv(tmp_cor, file.path(args[2], "motif_profile_correlation.csv"))
+labels <- cutree(Z, h=as.numeric(args[3]))
+write.csv(data.frame(motif_id=names(labels),raw_cluster=as.integer(labels)),
+          file.path(args[2], "motif_raw_clusters.csv"), row.names=FALSE)
+saveRDS(Z, file.path(args[2], "motif_hclust.rds"))
+sensitivity <- data.frame(height=seq(.5,1,.1))
+sensitivity$motif_groups <- sapply(sensitivity$height, function(h) length(unique(cutree(Z,h=h))))
+write.csv(sensitivity,file.path(args[2],"motif_dedup_sensitivity.csv"),row.names=FALSE)
+pdf(file.path(args[2],"motif_dedup_dendrogram.pdf"),width=12,height=7)
+plot(Z,main="Almeida motif-clustering: Pearson profile distance, complete linkage",xlab="",sub="")
+abline(h=as.numeric(args[3]),col="red")
+dev.off()

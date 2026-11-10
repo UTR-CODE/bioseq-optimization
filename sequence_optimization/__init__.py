@@ -25,7 +25,6 @@ from .algorithms import (
     available_algorithms,
     basesearch_optimize,
     beam_search_optimize,
-    cbas_optimize,
     cross_entropy_optimize,
     den_optimize,
     fast_seqprop_optimize,
@@ -47,8 +46,25 @@ from .objectives import MultiTaskObjective, TargetObjective
 from .saturation import SaturationConfig, SaturationResult
 from .seeds import load_seed_sequences, random_seed_sequences
 from .suite import DIFFERENTIABLE_ALGORITHMS, generate_designs
+from .families import FamilySelectionResult, kmer_position_features, select_diverse_families
+from .exploration import (
+    DiversitySearchConfig,
+    DiversitySearchResult,
+    MotifPositionDescriptor,
+    generate_diverse_designs,
+)
+from .panel import ClusteredDesignPanel, cluster_designs
+from .attribution import ISMContributions, ism_contributions
 
 __all__ = [
+    "ISMContributions",
+    "ism_contributions",
+    "ClusteredDesignPanel",
+    "cluster_designs",
+    "DiversitySearchConfig",
+    "DiversitySearchResult",
+    "MotifPositionDescriptor",
+    "generate_diverse_designs",
     "BudgetExceeded",
     "CallableScorer",
     "CombinedScorer",
@@ -82,7 +98,6 @@ __all__ = [
     "adalead_optimize",
     "beam_search_optimize",
     "cross_entropy_optimize",
-    "cbas_optimize",
     "vanilla_activation_maximization_optimize",
     "fast_seqprop_optimize",
     "den_optimize",
@@ -92,4 +107,7 @@ __all__ = [
     "random_seed_sequences",
     "DIFFERENTIABLE_ALGORITHMS",
     "generate_designs",
+    "FamilySelectionResult",
+    "select_diverse_families",
+    "kmer_position_features",
 ]

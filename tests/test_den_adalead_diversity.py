@@ -41,19 +41,21 @@ def test_adalead_rejects_child_better_than_slot_but_worse_than_parent(monkeypatc
     from sequence_optimization.api import SequenceSpace
 
     observed = []
-    original = module._cluster_parent_subset
+    original = module._quality_exploration_subset
 
     def capture(sequences, scores, count, **kwargs):
-        if kwargs.get('cap') == 2:
+        if count == 2:
             observed.append(list(sequences))
         return original(sequences, scores, count, **kwargs)
 
-    monkeypatch.setattr(module, '_cluster_parent_subset', capture)
-    monkeypatch.setattr(SequenceSpace, 'mutate_one', lambda self, parents, rng: np.array(['AAAC', 'AAAG']))
+    monkeypatch.setattr(module, '_quality_exploration_subset', capture)
+    monkeypatch.setattr(module, '_mutate_expected', lambda sequences, space, expected, rng: np.array(['AAAC']))
     values = {'AAAA': 10., 'CCCC': 0., 'AAAC': 9., 'AAAG': 8.}
     result = optimize(CallableScorer(lambda seqs: [values[s] for s in seqs]),
                       4, ['AAAA', 'CCCC'], ['maximize'], 2,
                       algorithm='adalead', budget=4, diversity=0, elite_fraction=.5)
-    assert observed == [['AAAA', 'CCCC']]
-    assert result.metadata['offspring_comparison'] == 'own_parent'
-    assert result.metadata['survivor_selection'] == 'family_round_robin'
+    assert observed[0] == ['AAAA', 'CCCC']
+    assert all('AAAC' not in batch for batch in observed)
+    assert result.metadata['offspring_comparison'] == 'rollout_root'
+    assert result.metadata['survivor_selection'] == 'rank_weighted_quality_with_novelty_exploration'
+    assert result.metadata['rollout'] == 'accepted_child'

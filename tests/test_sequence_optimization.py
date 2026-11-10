@@ -88,7 +88,6 @@ def test_builtin_algorithms_share_common_result_contract():
         diversity=0,
         generator_pretrain_epochs=1,
         generator_update_epochs=1,
-        cbas_batch_size=8,
     )
     scorer = CallableScorer(
         lambda values: np.asarray([value.count("G") for value in values])
@@ -102,7 +101,6 @@ def test_builtin_algorithms_share_common_result_contract():
         "adalead",
         "beam_search",
         "cross_entropy_method",
-        "cbas",
     }
 
     def no_t(values):
@@ -574,7 +572,6 @@ def test_fixed_region_is_preserved_by_every_black_box_optimizer():
         fixed_region=["0:2", "-2:"],
         generator_pretrain_epochs=1,
         generator_update_epochs=1,
-        cbas_batch_size=8,
     )
     names = (
         "basesearch",
@@ -585,7 +582,6 @@ def test_fixed_region_is_preserved_by_every_black_box_optimizer():
         "adalead",
         "beam_search",
         "cross_entropy_method",
-        "cbas",
     )
     for name in names:
         result = run(
@@ -717,7 +713,6 @@ def test_public_optimizers_expose_saturation_parameter():
         so.beam_search_optimize,
         so.cross_entropy_optimize,
         so.basesearch_optimize,
-        so.cbas_optimize,
         so.vanilla_activation_maximization_optimize,
         so.fast_seqprop_optimize,
         so.den_optimize,
