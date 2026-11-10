@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import json
+import shutil
 import subprocess
 
 import numpy as np
@@ -81,6 +82,20 @@ def _objective(designs, objective):
     return MultiTaskObjective(directions=objective) if isinstance(objective, (list, tuple)) else objective
 
 
+def _require_meme_tools(streme, fimo):
+    missing = [f"{name} ({command})" for name, command in
+               [('STREME', streme), ('FIMO', fimo)]
+               if shutil.which(str(command)) is None]
+    if missing:
+        raise FileNotFoundError(
+            "MEME Suite tools are missing or not executable: " + ', '.join(missing)
+            + "\nInstall MEME Suite in your active environment:\n"
+            "  conda install -c conda-forge -c bioconda meme\n"
+            "Then ensure streme and fimo are on PATH, or pass their executable "
+            "paths using call_motifs(..., streme='/path/to/streme', fimo='/path/to/fimo')."
+        )
+
+
 def call_motifs(designs, model=None, objective=None, *, contributions=None,
                 catalog=None, hits=None, output_dir=None, batch_size=512,
                 min_seqlets=10, min_parents=3, seqlet_threshold=.01,
@@ -98,6 +113,8 @@ def call_motifs(designs, model=None, objective=None, *, contributions=None,
     unique, records = _records(designs)
     if min_seqlets < 1 or min_parents < 1 or not 1 <= min_width <= max_width <= max_seqlet_len:
         raise ValueError('Invalid motif support or width parameters')
+    if catalog is None:
+        _require_meme_tools(streme, fimo)
     ids = tuple(unique.sequence_id)
     saved_dir = None if output_dir is None else Path(output_dir)
     with _output_folder(output_dir) as out:

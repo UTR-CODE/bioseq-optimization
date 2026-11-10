@@ -86,6 +86,8 @@ Run these cells in a notebook. For a standalone Python script, place model loadi
 
 ## 2. Call motifs
 
+The function checks that STREME and FIMO are executable before calculating contributions. If either is missing, it stops immediately and displays the MEME Suite installation command.
+
 ```python
 motifs = call_motifs(designs, model=model, output_dir="outputs/motifs")
 ```

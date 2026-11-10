@@ -78,13 +78,15 @@ def test_explicit_empty_catalog_does_not_switch_to_hamming():
         select_candidates(['AAAA','CCCC'],top_n=1,motifs={})
 
 
-def test_precomputed_contributions_shape():
+def test_precomputed_contributions_shape(monkeypatch):
+    monkeypatch.setattr('sequence_optimization.framework._require_meme_tools', lambda *args: None)
     with pytest.raises(ValueError,match='one row per input record'):
         call_motifs(['ACGTACGT','GGGGCCCC'],contributions=np.zeros((1,8)))
 
 
 def test_call_motifs_reuses_design_objective(monkeypatch):
     from sequence_optimization import framework
+    monkeypatch.setattr(framework, '_require_meme_tools', lambda *args: None)
     designs=pd.DataFrame(dict(sequence=['AAAACCCC','GGGGTTTT'],score=[1.,0.],algorithm=['a','a']))
     designs.attrs['objective']=MultiTaskObjective(high=[0],low=[1])
     class TwoOutput(nn.Module):

@@ -11,6 +11,14 @@ motifs = call_motifs(designs, model=scorer, output_dir="outputs/motifs")
 
 Use the same scorer as in `generate_designs`. The optimization objective stored with the designs defines the attribution target for single-task, multi-task, and combined-model predictions.
 
+Before calculating contributions, `call_motifs` checks that STREME and FIMO are executable. Missing tools produce an installation message immediately:
+
+```bash
+conda install -c conda-forge -c bioconda meme
+```
+
+Supply `streme="/path/to/streme"` and `fimo="/path/to/fimo"` when the executables are outside `PATH`. Reusing an existing catalog with `catalog=...` skips this discovery-tool check.
+
 ## Workflow
 
 ```text

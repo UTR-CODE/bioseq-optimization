@@ -24,6 +24,8 @@ fimo --version
 tomtom --version
 ```
 
+`call_motifs` checks for STREME and FIMO before computing contributions or creating output files. If either executable is missing, the error message provides the installation command above. Activate the environment containing MEME Suite, or supply executable paths with `streme="/path/to/streme"` and `fimo="/path/to/fimo"`. Loading an existing catalog with `catalog=...` does not require these tools.
+
 The [motif discovery workflow](motif-discovery.md) also describes optional motif-catalog clustering with R.
 
 ## Development
