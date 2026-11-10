@@ -75,9 +75,9 @@ Both modes return a selected design table. `output_dir` exports CSV, FASTA, dist
 
 | Tutorial | Design objective |
 |---|---|
-| [Single task](docs/examples/single-task.md) | Maximize one predicted activity |
-| [Multi-task](docs/examples/multi-task.md) | One output high, the remaining outputs low |
-| [Multiple models](docs/examples/multiple-models.md) | Joint activity, weighted ensemble, or selective optimization |
+| [Optimus 5-Prime: single task](docs/examples/single-task.md) | Maximize predicted MRL for 50-nt 5′UTRs |
+| [DeepSTARR: multi-task](docs/examples/multi-task.md) | Increase developmental activity and decrease housekeeping activity |
+| [Agarwal: multiple single-task models](docs/examples/multiple-models.md) | Increase K562 activity and decrease HepG2 and WTC11 activity |
 | [Enhancer](docs/examples/enhancer.md) | Target-cell specificity and motif-diverse panels |
 | [Promoter](docs/examples/promoter.md) | Activity optimization with fixed sequence contexts |
 | [5′UTR](docs/examples/5utr.md) | Translation activity and upstream AUG annotation |

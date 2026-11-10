@@ -1,103 +1,143 @@
-# Multi-task design: one output high, the others low
+# Example 2: DeepSTARR multi-task enhancer design
 
 [Home](../../README.md) · [Core API](../core-api.md) · [Notebook](../../examples/multi-task.ipynb)
 
-The trained PyTorch `model` returns three activities: `target`, `off1`, and `off2`.
+Design 249-nt enhancers that increase DeepSTARR developmental activity and decrease housekeeping activity. One model returns both outputs in the order `developmental`, `housekeeping`.
 
-## 1. Define the target and off-target objective
+## 1. Install the example dependencies
+
+From the optimization repository:
+
+```bash
+python -m pip install -e '.[analysis,motifs]'
+python -m pip install 'bioseq-models @ git+https://github.com/UTR-CODE/bioseq-models.git'
+conda install -c conda-forge -c bioconda meme
+```
+
+The examples load pretrained predictors from [bioseq-models](https://github.com/UTR-CODE/bioseq-models). Checkpoints are downloaded on first use. The optimization functions accept sequence scorers or PyTorch modules; model loading belongs to this example. Use a new output directory for each run.
+
+## 2. Load DeepSTARR and set opposing task directions
 
 ```python
-from pathlib import Path
 import numpy as np
 import pandas as pd
 import torch
-from sequence_optimization import generate_designs, call_motifs, select_candidates
-from sequence_optimization import SequencePredictor, MultiTaskObjective
-DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-scorer = SequencePredictor(model, tasks=["target", "off1", "off2"], device=DEVICE)
-objective = MultiTaskObjective(
-    high=["target"], low=["off1", "off2"], aggregation="mean",
+from bioseq_models import load_model
+from sequence_optimization import (
+    generate_designs, call_motifs, select_candidates,
+    MultiTaskObjective, random_seed_sequences,
 )
+
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+
+scorer = load_model("deepstarr", device=DEVICE)
+objective = MultiTaskObjective(
+    high=["developmental"],
+    low=["housekeeping"],
+    aggregation="mean",
+)
+initial = random_seed_sequences(249, 100, seed=42)
+initial_activity = scorer.score(initial)
+print("Tasks:", scorer.task_names)
+print(pd.DataFrame(initial_activity, columns=scorer.task_names).describe())
 ```
 
-With equal scales, the score is `(target - off1 - off2) / 3`. Add further off-target names to `low` for models with additional outputs.
+The score is `(developmental - housekeeping) / 2`. Increasing developmental prediction or decreasing housekeeping prediction improves this score. Swap the two task names to reverse the design direction.
 
-## 2. Generate candidate designs
+## 3. Generate candidate sequences
 
 ```python
 designs = generate_designs(
-    scorer, length=200, objective=objective,
-    num_candidates=100, seed=42, output_dir="outputs/multi_task",
+    scorer,
+    length=249,
+    initial=initial,
+    objective=objective,
+    num_candidates=100,
+    seed=42,
+    output_dir="outputs/deepstarr/designs",
 )
+
 timing = pd.DataFrame(designs.attrs["timing"])
 print(timing[["algorithm", "seconds", "queries", "stop_reason"]])
+print(designs.groupby("algorithm").score.agg(["count", "median", "max"]))
 ```
 
-The 11 optimizers share a starting population, run to a plateau, and each contribute 100 designs at the 90% observed-gain stage. The returned table contains sequences, individual activity predictions, scores, and algorithm provenance.
+All 11 optimizers start from the same 100 random sequences. Each runs to a plateau without a query budget and retains 100 candidates at the 90% observed-gain stage. The combined table contains 1,100 algorithm records; identical DNA sequences are combined during panel selection. Individual activities, objective scores, and algorithm provenance are retained.
 
-## 3. Call motifs from the designs
+## 4. Discover motifs for the design objective
 
 ```python
 motifs = call_motifs(
-    designs, model=scorer, output_dir="outputs/multi_task_motifs",
+    designs,
+    model=scorer,
+    min_seqlets=10,
+    min_parents=3,
+    output_dir="outputs/deepstarr/motifs",
 )
 print(motifs.support)
 ```
 
-This calculates contributions for the optimization objective, extracts positive seqlets, and discovers supported PWMs. The catalog is saved as `catalog.meme`.
+The function reuses the generation objective for ISM contributions, calls positive seqlets with tangermeme, discovers motifs with STREME against dinucleotide-shuffled controls, and retains motifs supported by at least 10 seqlets from at least 3 sequences. It saves the contributions, seqlets, support counts, and `catalog.meme`.
 
-## 4. Select a motif-diverse panel
+## 5. Select ten candidates
 
 ```python
-gate = float(designs.drop_duplicates("sequence").score.quantile(0.9))
+unique = designs.drop_duplicates("sequence")
+gate = float(unique.score.quantile(0.9))
 selected = select_candidates(
-    designs, top_n=10, motifs=motifs, min_score=gate,
-    output_dir="outputs/multi_task_top10",
+    designs,
+    motifs=motifs,
+    top_n=10,
+    min_score=gate,
+    output_dir="outputs/deepstarr/top10",
 )
-print(selected[["selection_rank", "activity_target", "activity_off1", "activity_off2", "score", "present_motifs"]])
+print(selected[['selection_rank', 'sequence_id', 'activity_developmental', 'activity_housekeeping', 'score', 'present_motifs']])
 ```
 
-The selector scans the catalog onto the designs and prioritizes motif composition, matched motif positions, and prediction score. CSV, FASTA, motif sites, distance matrices, and the selection trace are exported together.
+The score gate retains the highest-scoring 10% of unique candidates. Within this pool, selection prioritizes motif composition diversity, then motif positions matched by the Hungarian algorithm, then prediction score for diversity ties. Motifs with fewer than 30 physical sites across the design pool are excluded by default. Outputs include `selected_sequences.csv`, FASTA, motif sites, distance matrices, and the selection trace.
 
-## 5. Hamming selection without motifs
-
-For a sequence-distance panel, omit the `motifs` argument. This mode also works directly after design generation, independently of motif discovery.
+For Hamming Max-Min selection, omit `motifs`:
 
 ```python
 hamming_panel = select_candidates(
     designs, top_n=10, min_score=gate,
-    output_dir="outputs/multi_task_hamming",
+    output_dir="outputs/deepstarr/hamming_top10",
 )
-print(hamming_panel.attrs["selection_method"])  # hamming
 ```
 
-## 6. Threshold and specificity objectives
-
-A worst-margin objective can target probability thresholds of 0.8 for the target and 0.2 for each off-target:
+## 6. Inspect both activities and the specificity margin
 
 ```python
-bounded_objective = MultiTaskObjective(
-    high=["target"], low=["off1", "off2"],
-    lower_bounds={"target": 0.8},
-    upper_bounds={"off1": 0.2, "off2": 0.2},
-    aggregation="worst",
+tasks = list(scorer.task_names)
+activity_columns = [f"activity_{task}" for task in tasks]
+comparison = pd.DataFrame({
+    "starting_median": np.median(initial_activity, axis=0),
+    "selected_median": selected[activity_columns].median().to_numpy(),
+}, index=tasks)
+comparison["median_change"] = comparison.selected_median - comparison.starting_median
+print(comparison)
+
+selected["developmental_minus_housekeeping"] = (
+    selected.activity_developmental - selected.activity_housekeeping
 )
+print(selected[["sequence_id", *activity_columns, "developmental_minus_housekeeping"]])
 ```
 
-Its score is `min(target - 0.8, 0.2 - off1, 0.2 - off2)`. Pass it as `objective` during generation; motif calling then uses the same criterion.
-
-For direct specificity `target - max(off1, off2)`, construct pairwise activity contrasts:
+The per-task changes show how the combined score was achieved. Contributions and discovered motifs describe the same developmental-high, housekeeping-low objective.
 
 ```python
-def activity_and_contrasts(y):
-    return torch.cat([y, y[:, :1] - y[:, 1:]], dim=1)
+import matplotlib.pyplot as plt
 
-specificity_scorer = SequencePredictor(
-    model, device=DEVICE,
-    tasks=["target", "off1", "off2", "margin1", "margin2"],
-    output_transform=activity_and_contrasts,
-)
-specificity_objective = MultiTaskObjective(high=["margin1", "margin2"], aggregation="worst")
+fig, ax = plt.subplots(figsize=(5, 4))
+ax.scatter(initial_activity[:, 1], initial_activity[:, 0], alpha=0.4, label="Starting")
+ax.scatter(designs.activity_housekeeping, designs.activity_developmental,
+           s=10, alpha=0.25, label="Designed")
+ax.scatter(selected.activity_housekeeping, selected.activity_developmental,
+           s=60, marker="*", label="Selected")
+ax.set(xlabel="Predicted housekeeping activity", ylabel="Predicted developmental activity")
+ax.legend()
+fig.tight_layout()
+fig.savefig("outputs/deepstarr/top10/activity_tradeoff.png", dpi=200)
 ```
 
-Use `specificity_scorer` and `specificity_objective` for generation and the same scorer for motif calling. The [enhancer example](enhancer.md) uses this objective.
+High-developmental, low-housekeeping sequences appear toward the upper left of this plot. For explicit activity thresholds, set `lower_bounds={"developmental": target_minimum}` and `upper_bounds={"housekeeping": off_target_maximum}` in `MultiTaskObjective`, using values in the model's activity units.
