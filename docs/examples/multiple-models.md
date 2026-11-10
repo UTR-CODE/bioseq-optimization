@@ -1,80 +1,82 @@
 # Integrating multiple single-output models
 
-[Home](../../README.md) · [Notebook](../../examples/multiple-models.ipynb) · [Single task](single-task.md) · [Multi-task](multi-task.md)
+[Home](../../README.md) · [Core API](../core-api.md) · [Notebook](../../examples/multiple-models.ipynb)
 
-Evaluate each sequence with several independent PyTorch models, then optimize their combined predictions. Each model returns one activity. The models may represent replicate predictors of the same activity or different sequence properties.
+Use independent PyTorch predictors `model_a`, `model_b`, and `model_c`, each returning one activity for the same design region.
 
-## 1. Wrap each model
-
-`model_a`, `model_b`, and `model_c` are trained PyTorch modules. Each receives the same 200-nt design region and returns `[batch]` or `[batch,1]`.
+## 1. Combine the predictors
 
 ```python
 from pathlib import Path
 import numpy as np
 import pandas as pd
 import torch
-from sequence_optimization import SequencePredictor, CombinedScorer, MultiTaskObjective, random_seed_sequences
-
+from sequence_optimization import generate_designs, call_motifs, select_candidates
+from sequence_optimization import SequencePredictor, CombinedScorer, MultiTaskObjective
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-LENGTH = 200
-scorer_a = SequencePredictor(model_a, tasks=["assay_a"], device=DEVICE, batch_size=512)
-scorer_b = SequencePredictor(model_b, tasks=["assay_b"], device=DEVICE, batch_size=512)
-scorer_c = SequencePredictor(model_c, tasks=["assay_c"], device=DEVICE, batch_size=512)
-
-combined = CombinedScorer(
-    [scorer_a, scorer_b, scorer_c], names=["assay_a", "assay_b", "assay_c"],
+scorer = CombinedScorer(
+    [SequencePredictor(model_a, device=DEVICE),
+     SequencePredictor(model_b, device=DEVICE),
+     SequencePredictor(model_c, device=DEVICE)],
+    names=["assay_a", "assay_b", "assay_c"],
 )
-initial = random_seed_sequences(LENGTH, 100, seed=42)
-print(pd.DataFrame(combined.score(initial[:4]).scores, columns=combined.task_names))
-```
-
-`CombinedScorer` evaluates all models on the same sequences and concatenates their activity columns. Each child scorer can use its own input transform, fixed context, or device.
-
-## 2. Choose the integration objective
-
-For models predicting activities on a common scale, maximize their mean:
-
-```python
 objective = MultiTaskObjective(high="all", aggregation="mean")
 ```
 
-This defines `S(x) = (a(x) + b(x) + c(x)) / 3`. The raw prediction from every model remains in the candidate table.
+This objective maximizes the mean prediction of the three models. Each child scorer can use its own input transform or fixed context.
 
-## 3. Generate the combined candidate pool
+## 2. Generate candidate designs
 
 ```python
-from sequence_optimization.workflows import generate_candidates
-candidates, timing = generate_candidates(
-    combined, LENGTH, initial, objective,
-    output_dir="outputs/multiple_models", num_candidates=100,
-    diversity=5, seed=42,
+designs = generate_designs(
+    scorer, length=200, objective=objective,
+    num_candidates=100, seed=42, output_dir="outputs/multiple_models",
 )
-print(candidates[["algorithm", "activity_assay_a", "activity_assay_b", "activity_assay_c", "score"]].head())
-print(timing[["algorithm", "seconds", "queries"]])
+timing = pd.DataFrame(designs.attrs["timing"])
+print(timing[["algorithm", "seconds", "queries", "stop_reason"]])
 ```
 
-The 11 algorithms optimize the same combined objective and contribute 100 candidates each. Gradients from all child predictors propagate to the shared sequence probabilities.
+The 11 optimizers share a starting population, run to a plateau, and each contribute 100 designs at the 90% observed-gain stage. The returned table contains sequences, individual activity predictions, scores, and algorithm provenance.
 
-## 4. Select and export the panel
+## 3. Call motifs from the designs
 
 ```python
-from sequence_optimization.workflows import deduplicate_candidates, select_sequence_panel, write_fasta
-unique, provenance = deduplicate_candidates(candidates)
-gate = float(unique.score.quantile(0.9))
-selected, distances = select_sequence_panel(candidates, top_n=10, min_score=gate)
-
-panel = Path("outputs/multiple_models_top10")
-panel.mkdir(parents=True, exist_ok=True)
-selected.to_csv(panel / "selected_sequences.csv", index=False)
-write_fasta(panel / "selected_sequences.fa", selected.sequence_id, selected.sequence)
-print(selected[["selection_rank", "activity_assay_a", "activity_assay_b", "activity_assay_c", "score", "algorithms"]])
+motifs = call_motifs(
+    designs, model=scorer, output_dir="outputs/multiple_models_motifs",
+)
+print(motifs.support)
 ```
 
-## 5. Alternative integration objectives
+This calculates contributions for the optimization objective, extracts positive seqlets, and discovers supported PWMs. The catalog is saved as `catalog.meme`.
 
-### Weighted ensemble
+## 4. Select a motif-diverse panel
 
-For predictors of the same activity, assign model weights:
+```python
+gate = float(designs.drop_duplicates("sequence").score.quantile(0.9))
+selected = select_candidates(
+    designs, top_n=10, motifs=motifs, min_score=gate,
+    output_dir="outputs/multiple_models_top10",
+)
+print(selected[["selection_rank", "activity_assay_a", "activity_assay_b", "activity_assay_c", "score", "present_motifs"]])
+```
+
+The selector scans the catalog onto the designs and prioritizes motif composition, matched motif positions, and prediction score. CSV, FASTA, motif sites, distance matrices, and the selection trace are exported together.
+
+## 5. Hamming selection without motifs
+
+For a sequence-distance panel, omit the `motifs` argument. This mode also works directly after design generation, independently of motif discovery.
+
+```python
+hamming_panel = select_candidates(
+    designs, top_n=10, min_score=gate,
+    output_dir="outputs/multiple_models_hamming",
+)
+print(hamming_panel.attrs["selection_method"])  # hamming
+```
+
+## 6. Alternative integration objectives
+
+Weighted ensemble:
 
 ```python
 weighted_objective = MultiTaskObjective(
@@ -82,13 +84,12 @@ weighted_objective = MultiTaskObjective(
 )
 ```
 
-### Different properties on different scales
-
-Estimate a fixed reference mean and scale for each predictor, then maximize their standardized predictions:
+For different prediction scales, estimate fixed reference statistics and optimize standardized outputs:
 
 ```python
-reference = random_seed_sequences(LENGTH, 1000, seed=43)
-reference_activity = combined.score(reference).scores
+from sequence_optimization import random_seed_sequences
+reference = random_seed_sequences(200, 1000, seed=43)
+reference_activity = scorer.score(reference).scores
 normalized_objective = MultiTaskObjective(
     high="all", aggregation="mean",
     centers=reference_activity.mean(axis=0).tolist(),
@@ -96,11 +97,7 @@ normalized_objective = MultiTaskObjective(
 )
 ```
 
-The reference statistics remain fixed throughout optimization.
-
-### One model high, the other models low
-
-Treat the combined model columns as named tasks:
+For one model high and the others low:
 
 ```python
 selective_objective = MultiTaskObjective(
@@ -108,4 +105,4 @@ selective_objective = MultiTaskObjective(
 )
 ```
 
-Pass the selected objective to `generate_candidates` with a new output directory. All three configurations use the same candidate-generation and [motif-diversity selection](../motif-diversity.md) interfaces.
+Pass the chosen objective to `generate_designs`. `call_motifs` automatically reuses that objective when computing contributions.

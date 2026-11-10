@@ -1,81 +1,77 @@
 # 5′UTR design
 
-[Home](../../README.md) · [Notebook](../../examples/5utr.ipynb)
+[Home](../../README.md) · [Core API](../core-api.md) · [Notebook](../../examples/5utr.ipynb)
 
-Optimize 50-nt 5′UTRs for high predicted translation. This example uses mean ribosome load (MRL) as the activity output.
+Optimize a 50-nt UTR using a PyTorch `model` predicting mean ribosome load (MRL).
 
-Input: a trained PyTorch `model` mapping `[batch,4,50]` sequences to predicted MRL.
-
-## 1. Connect the predictor
+## 1. Connect the translation predictor
 
 ```python
 from pathlib import Path
 import numpy as np
 import pandas as pd
 import torch
-from sequence_optimization import SequencePredictor, random_seed_sequences
-from sequence_optimization.workflows import generate_candidates
-
+from sequence_optimization import generate_designs, call_motifs, select_candidates
+from sequence_optimization import SequencePredictor
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-scorer = SequencePredictor(model, tasks=["mrl"], device=DEVICE, batch_size=512)
-initial = random_seed_sequences(50, 100, seed=42)
+scorer = SequencePredictor(model, tasks=["mrl"], device=DEVICE)
+objective = ["maximize"]
 ```
 
-## 2. Generate 1,100 candidates
+## 2. Generate candidate designs
 
 ```python
-candidates, timing = generate_candidates(
-    scorer, 50, initial, ["maximize"],
-    output_dir="outputs/utr", num_candidates=100, seed=42,
+designs = generate_designs(
+    scorer, length=50, objective=objective,
+    num_candidates=100, seed=42, output_dir="outputs/utr",
 )
-print(timing[["algorithm", "seconds", "queries", "score_median"]])
+timing = pd.DataFrame(designs.attrs["timing"])
+print(timing[["algorithm", "seconds", "queries", "stop_reason"]])
 ```
 
-## 3. Select ten diverse high-MRL sequences
+The 11 optimizers share a starting population, run to a plateau, and each contribute 100 designs at the 90% observed-gain stage. The returned table contains sequences, individual activity predictions, scores, and algorithm provenance.
+
+## 3. Call motifs from the designs
 
 ```python
-from sequence_optimization.workflows import deduplicate_candidates, select_sequence_panel
-unique, provenance = deduplicate_candidates(candidates)
-gate = float(unique.score.quantile(0.9))
-selected, distances = select_sequence_panel(candidates, top_n=10, min_score=gate)
-print(selected[["selection_rank", "sequence_id", "score", "algorithms"]])
-print("Minimum pairwise Hamming distance:", distances[np.triu_indices(10, 1)].min())
+motifs = call_motifs(
+    designs, model=scorer, output_dir="outputs/utr_motifs",
+)
+print(motifs.support)
 ```
 
-This stage uses sequence diversity. A task-specific catalog of contribution-derived sequence patterns can also be supplied to the [motif-diversity workflow](../motif-diversity.md).
+This calculates contributions for the optimization objective, extracts positive seqlets, and discovers supported PWMs. The catalog is saved as `catalog.meme`.
 
-## 4. Annotate upstream AUGs and export
+## 4. Select a motif-diverse panel
 
 ```python
-from sequence_optimization.workflows import write_fasta
-panel = Path("outputs/utr_top10")
-panel.mkdir(parents=True, exist_ok=True)
+gate = float(designs.drop_duplicates("sequence").score.quantile(0.9))
+selected = select_candidates(
+    designs, top_n=10, motifs=motifs, min_score=gate,
+    output_dir="outputs/utr_top10",
+)
+print(selected[["selection_rank", "sequence_id", "score", "present_motifs", "algorithms"]])
+```
+
+The selector scans the catalog onto the designs and prioritizes motif composition, matched motif positions, and prediction score. CSV, FASTA, motif sites, distance matrices, and the selection trace are exported together.
+
+## 5. Hamming selection without motifs
+
+For a sequence-distance panel, omit the `motifs` argument. This mode also works directly after design generation, independently of motif discovery.
+
+```python
+hamming_panel = select_candidates(
+    designs, top_n=10, min_score=gate,
+    output_dir="outputs/utr_hamming",
+)
+print(hamming_panel.attrs["selection_method"])  # hamming
+```
+
+## 6. Annotate upstream AUGs
+
+```python
 selected["upstream_ATG_positions0"] = selected.sequence.map(
     lambda s: ";".join(str(i) for i in range(len(s)-2) if s[i:i+3] == "ATG")
 )
-selected["has_upstream_ATG"] = selected.upstream_ATG_positions0.ne("")
-selected.to_csv(panel / "selected_sequences.csv", index=False)
-write_fasta(panel / "selected_sequences.fa", selected.sequence_id, selected.sequence)
-np.savetxt(panel / "hamming_distances.csv", distances, delimiter=",", fmt="%d")
-```
-
-## 5. Calculate ISM contributions and plot a logo
-
-```python
-from sequence_optimization import ism_contributions
-import matplotlib.pyplot as plt
-import logomaker
-
-contribution = ism_contributions(
-    selected.sequence.to_numpy(),
-    lambda sequences: scorer.score(sequences).scores[:, 0],
-    batch_size=512,
-)
-np.savez_compressed(panel / "ism.npz", observed=contribution.observed, logo=contribution.logo)
-fig, ax = plt.subplots(figsize=(12, 2.5))
-logomaker.Logo(pd.DataFrame(contribution.logo[0], columns=list("ACGT")), ax=ax)
-ax.set_xlabel("Position in the 50-nt UTR")
-ax.set_ylabel("ISM contribution")
-fig.tight_layout()
-fig.savefig(panel / "sequence01_ism.png", dpi=180)
+selected.to_csv("outputs/utr_top10/selected_sequences.csv", index=False)
 ```

@@ -55,8 +55,12 @@ from .exploration import (
 )
 from .panel import ClusteredDesignPanel, cluster_designs
 from .attribution import ISMContributions, ism_contributions
+from .framework import MotifCatalog, call_motifs, select_candidates
 
 __all__ = [
+    "call_motifs",
+    "select_candidates",
+    "MotifCatalog",
     "ISMContributions",
     "ism_contributions",
     "ClusteredDesignPanel",

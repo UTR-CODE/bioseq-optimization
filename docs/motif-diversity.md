@@ -1,112 +1,92 @@
-# Motif composition and positional diversity
+# Candidate selection: sequence or motif diversity
 
-[Home](../README.md) · [Motif discovery](motif-discovery.md)
+[Home](../README.md) · [Core API](core-api.md)
 
-Select a panel that combines high predicted activity with diverse motif composition and positions.
+The third core function selects a high-quality diverse panel. Its distance representation is determined by the `motifs` argument.
 
-## 1. Scan motifs onto the candidate sequences
+## 1. Default Hamming selection
 
 ```python
-from sequence_optimization.motifs import read_meme, scan_fimo
-catalog = read_meme("outputs/motifs/catalog.meme")
-hits = scan_fimo(
-    "outputs/motifs/catalog.meme",
-    "outputs/enhancer/unique_candidates.fa",
-    "outputs/enhancer_fimo",
-    p_threshold=0.001,
+from sequence_optimization import select_candidates
+selected = select_candidates(designs, top_n=10, min_score=gate)
+```
+
+Without `motifs`, selection uses Hamming Max-Min: start with the highest-scoring design, then maximize minimum nucleotide distance to the selected panel. Near distance ties favor higher scores.
+
+## 2. Motif-based selection
+
+```python
+selected = select_candidates(
+    designs, top_n=10, motifs=motifs, min_score=gate,
+    output_dir="outputs/motif_panel",
 )
 ```
 
-The workflow uses FIMO hits with `p ≤ 0.001` and `q ≤ 0.05`. For the same motif and sequence, overlapping footprints covering at least 70% of the shorter hit are represented by the best-p-value hit. Motifs require at least 30 physical sites across the 1,100 source records. Exact-DNA multiplicity is retained for this record-level support count.
+With motifs, the function scans and filters motif occurrences, builds the composition and positional representations, and performs hierarchical Max-Min selection.
 
-## 2. Motif similarity
+## 3. Motif composition
 
-```python
-from sequence_optimization.motif_diversity import pwm_similarity_matrix
-motif_ids = list(catalog)
-similarity, alignments = pwm_similarity_matrix([catalog[m] for m in motif_ids], min_overlap=6)
-```
+A binary Sequence × Motif matrix records whether each motif occurs. PWM similarities are the best strand- and shift-aligned cosines of information-weighted contrasts, retaining informative flanks.
 
-The similarity is the maximum strand- and shift-aligned cosine between information-weighted PWM contrasts. Full informative flanks contribute to the normalization.
-
-## 3. Composition distance
-
-Construct a binary Sequence × Motif presence matrix. Propagate motif presence through PWM similarity:
+Presence propagates through the motif similarity matrix:
 
 \[
 F_{ik}=\max_{m\in M_i} S_{mk}.
 \]
 
-The Soft-Jaccard composition distance is
+Composition distance is the Soft-Jaccard distance:
 
 \[
 D_C(i,j)=1-\frac{\sum_k\min(F_{ik},F_{jk})}{\sum_k\max(F_{ik},F_{jk})}.
 \]
 
-With an identity motif similarity matrix, this becomes binary Jaccard distance. Motif counts and positions enter the next stage separately.
+## 4. Motif positions
 
-## 4. Positional distance
+Every occurrence is represented by its motif identity and center coordinate. Hungarian matching first maximizes the number of compatible motif pairs, then minimizes total positional displacement. The reported distance is mean displacement over matched occurrences. Repeated instances are retained; unmatched instances are omitted.
 
-Represent every motif occurrence by its motif ID and center coordinate. Match identical or similar motifs with Hungarian assignment, allowing multiple occurrences of each motif. Matching first maximizes the number of compatible pairs, then minimizes total absolute positional displacement.
+FIMO defaults are `p ≤ 0.001` and `q ≤ 0.05`. Same-motif overlapping footprints are consolidated, and motifs require at least 30 physical sites across the source records.
 
-The distance is the mean displacement of matched sites in base pairs. Unmatched sites are omitted. Match counts accompany the distance matrix and define which pairs contribute positional evidence.
+## 5. Hierarchical selection and outputs
 
-## 5. Hierarchical Max-Min selection
+Selection starts with the highest-scoring eligible design, then prioritizes:
+
+1. Maximum minimum composition distance to the selected panel.
+2. Maximum minimum matched positional distance among composition near-ties.
+3. Higher prediction score among positional near-ties.
 
 ```python
-import pandas as pd
-from sequence_optimization.motifs import select_motif_panel
-candidates = pd.read_csv("outputs/enhancer/all_candidates.csv")
-selected, trace = select_motif_panel(
-    candidates, hits, catalog,
-    output_dir="outputs/enhancer_top10",
-    top_n=10, min_score=20., min_sites=30,
-    match_similarity=0.5, composition_tie=0.02, position_tie_bp=2.0,
+selected = select_candidates(
+    designs, motifs=motifs, top_n=10, min_score=gate,
+    min_sites=30, match_similarity=0.5,
+    composition_tie=0.02, position_tie_bp=2.0,
 )
+print(selected.attrs["selection_method"])  # motif
 ```
 
-Set `min_score` in the predictor's activity units. Selection proceeds as follows:
-
-1. Start with the highest-scoring eligible sequence.
-2. Maximize minimum composition distance to the selected panel.
-3. Among composition distances within 0.02 of the best value, maximize minimum matched positional distance.
-4. Among positional distances within 2 bp of the best value, select the highest score.
-
-Sequences carrying catalog motifs form the eligible motif-supported pool. Pairwise positional comparisons use matched motifs; a candidate with no comparable selected sequence receives a positional value of zero.
+The returned table has the same sequence, score, and provenance columns as Hamming selection. An output directory additionally stores motif sites, presence matrices, PWM similarity, composition and position distances, match counts, CSV/FASTA, and the selection trace.
 
 ## 6. Reference-data example
 
-The bundled K562 data contain 1,100 candidate records, 1,084 unique sequences, 11 motif models, and 12,164 physical sites. This example reconstructs the ordered Top10 directly from the saved predictions and motif hits.
+Reuse saved designs and motifs from the K562 example to reconstruct its ordered Top10.
 
 ```python
 from pathlib import Path
 import pandas as pd
-from sequence_optimization.motifs import read_meme, select_motif_panel
+from sequence_optimization import call_motifs, select_candidates
 
 DATA = Path("examples/data")
-candidates = pd.read_csv(DATA / "k562_candidates_1100.csv")
-hits = pd.read_csv(DATA / "k562_fimo_sites.csv")
-catalog = read_meme(DATA / "k562_catalog.meme")
-selected, trace = select_motif_panel(
-    candidates, hits, catalog,
+designs = pd.read_csv(DATA / "k562_candidates_1100.csv")
+motifs = call_motifs(
+    designs, catalog=DATA / "k562_catalog.meme",
+    hits=pd.read_csv(DATA / "k562_fimo_sites.csv"),
+)
+selected = select_candidates(
+    designs, motifs=motifs, top_n=10, min_score=20.,
     output_dir="outputs/reference_top10",
-    top_n=10, min_score=20., min_sites=30,
 )
 print(selected[["selection_rank", "sequence_id", "score", "present_motifs"]])
 ```
 
-The [reference notebook](../examples/motif_diversity.ipynb) runs this selection and compares it with the saved Top10.
-
 ## Outputs
 
-| File | Contents |
-|---|---|
-| `selected_sequences.csv/fa` | Panel sequences, scores, motifs, algorithm provenance |
-| `presence_matrix.csv` | Unique-sequence motif presence |
-| `all_record_presence_matrix.csv` | Motif presence for every source record |
-| `motif_sites.csv` | Motif identities, strands, and coordinates |
-| `motif_similarity.csv` | PWM similarity matrix |
-| `distance_matrices.npz` | Composition distances, positional distances, and match counts |
-| `selection_trace.json` | Sequence chosen at every Max-Min step |
-
-Distance matrices are indexed by unique sequence IDs. Source-record provenance maps these matrices back to the complete 1,100-record pool.
+`selected_sequences.csv/fa` contain the panel. `motif_sites.csv`, `presence_matrix.csv`, `motif_similarity.csv`, `distance_matrices.npz`, and `selection_trace.json` describe the motif-based selection. Hamming mode exports `hamming_distances.csv` and the same sequence and trace files.

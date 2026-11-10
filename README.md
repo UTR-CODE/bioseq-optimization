@@ -1,26 +1,22 @@
 # bioseq-optimization
 
-Multi-algorithm optimization of biological sequences with motif composition and positional diversity.
+Sequence optimization with three core functions:
 
-A PyTorch sequence-to-activity model supplies the fitness landscape. Eleven optimization algorithms explore that landscape from a shared population. Their candidates are combined and selected using predicted activity, motif composition, and motif positions.
+| Function | Purpose | Returns |
+|---|---|---|
+| `generate_designs` | Optimize a PyTorch sequence-to-activity model | Design table |
+| `call_motifs` | Extract seqlets and discover motifs from the designs | Motif catalog |
+| `select_candidates` | Select a diverse, high-quality panel | Selected design table |
 
 ```text
-PyTorch model + 100 starting sequences + optimization objective
-                              ↓
-              11 optimizers, each run to a plateau
-                              ↓
-                100 candidates per optimizer
-                              ↓
-          1,100 candidate records → unique sequences
-                              ↓
-            attribution → seqlets → motif catalog
-                              ↓
-            FIMO → motif presence and positions
-                              ↓
-    activity threshold → composition diversity → positional diversity
-                              ↓
-                      Top N sequences
+PyTorch predictor → generate_designs → 1,100 candidate records
+                                      ↓
+                                  call_motifs
+                                      ↓
+                              select_candidates → Top N
 ```
+
+`select_candidates` uses Hamming Max-Min by default. Supplying `motifs` switches selection to motif composition and positional diversity.
 
 ## Installation
 
@@ -30,53 +26,71 @@ cd bioseq-optimization
 python -m pip install -e '.[analysis,motifs]'
 ```
 
-## Connect a PyTorch model
+Install MEME Suite for motif discovery and scanning; see [Installation](docs/installation.md).
 
-`model` is a trained `torch.nn.Module` that maps one-hot sequences `[batch, 4, length]` to activities `[batch, tasks]`. Wrap it once, then use the same interface for all optimization algorithms.
+## 1. Generate designs
+
+Supply a trained PyTorch `model` mapping `[batch,4,length]` sequences to activities:
 
 ```python
-from sequence_optimization import SequencePredictor, random_seed_sequences
-from sequence_optimization.workflows import generate_candidates
+from sequence_optimization import generate_designs, call_motifs, select_candidates
 
-scorer = SequencePredictor(model, tasks=["activity"], device="cuda")
-initial = random_seed_sequences(200, 100, seed=42)
-
-candidates, timing = generate_candidates(
-    scorer, 200, initial, ["maximize"],
-    output_dir="outputs/design", num_candidates=100,
+designs = generate_designs(
+    model, length=200, objective=["maximize"],
+    num_candidates=100, seed=42, output_dir="outputs/designs",
 )
 ```
 
-The default workflow runs 11 algorithms to a plateau, retains 100 candidates per algorithm at the 90% observed-gain stage, and records runtime and query counts. Exact sequence duplicates are combined with their algorithm provenance. Random search is available as a separate reference.
+By default, 11 optimizers share 100 random starting sequences, run to a plateau, and retain 100 designs each at the 90% observed-gain stage. The result contains 1,100 source records with individual activity predictions and algorithm provenance. Runtime and query counts are recorded per algorithm.
 
-`input_transform` adapts input layouts, fixed contexts, or embeddings. `output_transform` selects model outputs or constructs activity contrasts. Both transformations are shared by sequence scoring and gradient optimization.
+## 2. Call motifs
 
-## Three optimization settings
+```python
+motifs = call_motifs(designs, model=model, output_dir="outputs/motifs")
+```
 
-| Setting | Prediction model | Design objective | Tutorial |
-|---|---|---|---|
-| Single task | One model, one output | Maximize predicted activity | [Single-task design](docs/examples/single-task.md) |
-| Multi-task | One model, multiple outputs | Target high, remaining outputs low | [Multi-task design](docs/examples/multi-task.md) |
-| Multiple models | Several single-output models | Joint activity, weighted ensemble, or selective optimization | [Multiple-model design](docs/examples/multiple-models.md) |
+The function uses the design objective to calculate contributions, extracts positive seqlets, discovers PWMs against dinucleotide-shuffled controls, and retains supported motifs.
 
-Each tutorial shows model setup, objective definition, candidate generation, panel selection, and CSV/FASTA export.
+## 3. Select candidates
 
-Notebooks: [single task](examples/single-task.ipynb), [multi-task](examples/multi-task.ipynb), and [multiple models](examples/multiple-models.ipynb).
+With motifs, selection prioritizes motif composition diversity, matched motif-position diversity, and prediction score:
 
-## Workflow and examples
+```python
+gate = float(designs.drop_duplicates("sequence").score.quantile(0.9))
+selected = select_candidates(
+    designs, top_n=10, motifs=motifs, min_score=gate,
+    output_dir="outputs/selected",
+)
+```
 
-| Document | Contents |
+Without motifs, the same function selects by Hamming Max-Min:
+
+```python
+selected = select_candidates(designs, top_n=10, min_score=gate)
+```
+
+Both modes return a selected design table. `output_dir` exports CSV, FASTA, distances, and the selection trace.
+
+## Design settings and examples
+
+| Tutorial | Design objective |
 |---|---|
-| [Installation](docs/installation.md) | Python package and optional motif tools |
-| [PyTorch model interface](docs/pytorch-models.md) | Single- and multi-output models, input transforms, output transforms |
-| [Candidate generation](docs/candidate-generation.md) | Shared seeds, 11 optimizers, plateau stopping, gain selection, timing |
-| [Enhancer design](docs/examples/enhancer.md) | Cell-type specificity, motif diversity, activity and motif-position plots |
-| [Promoter design](docs/examples/promoter.md) | Activity maximization, fixed flanks, diverse panels, contribution logos |
-| [5′UTR design](docs/examples/5utr.md) | Translation optimization, diverse panels, upstream AUG annotation |
-| [Motif discovery](docs/motif-discovery.md) | ISM, seqlets, STREME, motif support, catalog construction |
-| [Motif diversity](docs/motif-diversity.md) | PWM similarity, Soft-Jaccard, Hungarian matching, hierarchical Max-Min |
-| [Parallel optimization](docs/parallel-scoring.md) | CPU optimization workers and a shared batched scoring service |
-| [Algorithms](docs/algorithms.md) | Algorithm names, gradient requirements, stopping parameters |
-| [Evaluation](docs/validation.md) | Activity, specificity, diversity, and computational metrics |
+| [Single task](docs/examples/single-task.md) | Maximize one predicted activity |
+| [Multi-task](docs/examples/multi-task.md) | One output high, the remaining outputs low |
+| [Multiple models](docs/examples/multiple-models.md) | Joint activity, weighted ensemble, or selective optimization |
+| [Enhancer](docs/examples/enhancer.md) | Target-cell specificity and motif-diverse panels |
+| [Promoter](docs/examples/promoter.md) | Activity optimization with fixed sequence contexts |
+| [5′UTR](docs/examples/5utr.md) | Translation activity and upstream AUG annotation |
 
-Step-by-step notebooks: [enhancer](examples/enhancer.ipynb), [promoter](examples/promoter.ipynb), [5′UTR](examples/5utr.ipynb), and [motif selection with reference data](examples/motif_diversity.ipynb).
+Each tutorial uses the same three core functions and has a corresponding [Notebook](examples).
+
+## Methods and API
+
+- [Three-function API](docs/core-api.md)
+- [PyTorch model interface](docs/pytorch-models.md)
+- [Candidate generation and timing](docs/candidate-generation.md)
+- [Motif discovery](docs/motif-discovery.md)
+- [Motif composition and positional selection](docs/motif-diversity.md)
+- [Algorithms and plateau stopping](docs/algorithms.md)
+- [Parallel scoring backend](docs/parallel-scoring.md)
+- [Evaluation](docs/validation.md)

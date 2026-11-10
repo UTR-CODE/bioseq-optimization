@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import replace
+from dataclasses import replace, asdict, is_dataclass
+from pathlib import Path
+import hashlib
+import json
+import time
 from typing import Any
 
 import numpy as np
@@ -14,6 +18,7 @@ from .api import (
     OptimizationResult,
     ScoreBatch,
     SequenceScorer,
+    SequencePredictor,
     as_score_batch,
     normalize_nucleotide_sequences,
 )
@@ -105,13 +110,15 @@ class _SharedScorer:
 def generate_designs(
     model: SequenceScorer,
     length: int,
-    initial: Sequence[str] | np.ndarray,
+    initial: Sequence[str] | np.ndarray | None = None,
     objective: TargetObjective
     | MultiTaskObjective
     | list[str]
     | tuple[str, ...]
-    | None,
+    | None = None,
     *,
+    output_dir: str | Path | None = None,
+    device: str | None = None,
     algorithms: Sequence[str] | None = None,
     num_candidates: int = 100,
     diversity: int = 5,
@@ -127,19 +134,19 @@ def generate_designs(
     saturation: SaturationConfig | None = None,
     fixed_region: Sequence[int | str | slice] | None = None,
     is_CDS_optimized: bool = False,
-    count_repeated: bool = False,
+    count_repeated: bool = True,
     exploration: DiversitySearchConfig | None = None,
     descriptor: MotifPositionDescriptor | None = None,
     **common_kwargs: Any,
 ):
-    """Run all 12 optimization algorithms and return one candidate DataFrame.
+    """Generate candidates with eleven optimizers and retain algorithm provenance.
 
     Args:
         model: Predictor model for sequence scoring
         length: Sequence length to optimize
-        initial: Initial population sequences
+        initial: Starting sequences; None generates num_candidates random seeds
         objective: Optimization objective (e.g., ["maximize"], ["minimize", "maximize"])
-        algorithms: Algorithm names to run (default: all registered algorithms)
+        algorithms: Algorithm names to run (default: eleven non-random optimizers)
         num_candidates: Candidates per algorithm (default: 100)
         diversity: Minimum Hamming distance between candidates (default: 5)
         weights: Relative importance per model output (default: equal weighting)
@@ -167,11 +174,27 @@ def generate_designs(
 
     Notes:
         - Random search: uses a finite 100,000-query default, returns top 100
-        - Other algorithms: auto-stop at plateau, return diverse relaxed-knee sets
+        - Other algorithms: stop at plateau and retain the 90% observed-gain stage
           with population-scaled minimum/patience windows (10N/40N), a
           three-proposal-batch patience floor, and no implicit query ceiling
         - Diversity control: ensures minimum Hamming distance of 5 within each algorithm
     """
+    import torch
+    if isinstance(model, torch.nn.Module):
+        tensor = next(model.parameters(), None)
+        if tensor is None:
+            tensor = next(model.buffers(), None)
+        inferred_device = tensor.device if tensor is not None else "cpu"
+        model = SequencePredictor(model, tasks=tasks, device=device or inferred_device)
+    if initial is None:
+        from .seeds import random_seed_sequences
+        initial = random_seed_sequences(length, num_candidates, seed=seed)
+    if objective is None:
+        objective = TargetObjective()
+    if output_dir is not None:
+        output_dir = Path(output_dir)
+        if output_dir.exists() and any(output_dir.iterdir()):
+            raise FileExistsError(f"Use an empty design output directory: {output_dir}")
     if exploration is not None:
         if descriptor is None:
             raise ValueError("descriptor is required with exploration")
@@ -197,9 +220,8 @@ def generate_designs(
         return frame
     if descriptor is not None:
         raise ValueError("descriptor requires exploration")
-    # The suite is the complete comparison unless the caller selects a subset.
     if algorithms is None:
-        algorithms = tuple(available_algorithms())
+        algorithms = tuple(n for n in available_algorithms() if n != "random")
 
     if isinstance(algorithms, (str, bytes)):
         raise TypeError("algorithms must be a sequence of algorithm names")
@@ -281,7 +303,9 @@ def generate_designs(
         shared_options["saturation"] = saturation
 
     # Collect results from all algorithms
-    all_rows = []
+    all_rows, timings = [], []
+    result_task_names = ()
+    suite_started = time.perf_counter()
 
     for offset, name in enumerate(names):
         # Select appropriate scorer
@@ -301,9 +325,10 @@ def generate_designs(
             algo_options["budget"] = 100_000
         else:
             # No implicit ceiling: stop on plateau and use relaxed-knee selection.
-            algo_options["saturation"] = SaturationConfig(fractions=(0.9,))
+            algo_options["saturation"] = SaturationConfig(fractions=(0.9,), selection="knee_fraction" if is_CDS_optimized else "fraction")
 
         # Run optimization
+        started = time.perf_counter()
         raw_result = optimize(
             scorer,
             length,
@@ -317,7 +342,11 @@ def generate_designs(
             **algo_options,
         )
 
+        elapsed = time.perf_counter()-started
         results = raw_result if isinstance(raw_result, list) else [raw_result]
+        queries = sum(r.total_query_count if isinstance(r, SaturationResult) else r.query_count for r in results)
+        reason = ";".join(sorted({getattr(r, "stop_reason", "budget") for r in results})) or "budget"
+        timings.append(dict(algorithm=name, seconds=elapsed, queries=queries, stop_reason=reason, seed=seed+offset))
         for result in results:
             if isinstance(result, SaturationResult):
                 result = result.selected
@@ -326,6 +355,7 @@ def generate_designs(
                     "generate_designs requires fixed-budget optimizer results"
                 )
 
+            result_task_names = result.task_names
             # Extract data from result
             for i, sequence in enumerate(result.sequences):
                 row = {
@@ -341,5 +371,24 @@ def generate_designs(
 
                 all_rows.append(row)
 
-    # Convert to DataFrame
-    return pd.DataFrame(all_rows)
+    frame = pd.DataFrame(all_rows) if all_rows else pd.DataFrame(columns=["sequence", "algorithm", "score"])
+    frame["record_id"] = [f"D{i+1:05}" for i in range(len(frame))]
+    frame["sequence_id"] = frame.sequence.map(lambda v: "S_"+hashlib.sha256(v.encode()).hexdigest()[:20])
+    frame.attrs.update(objective=objective, task_names=list(result_task_names),
+                       timing=timings, wall_seconds=time.perf_counter()-suite_started,
+                       length=length, seed=seed, algorithms=list(names),
+                       candidates_per_algorithm=num_candidates, initial_count=len(initial_values),
+                       minimum_hamming=diversity)
+    if output_dir is not None:
+        from .workflows import deduplicate_candidates, write_fasta
+        output_dir.mkdir(parents=True, exist_ok=True)
+        unique, _ = deduplicate_candidates(frame)
+        frame.to_csv(output_dir/"designs.csv", index=False)
+        unique.to_csv(output_dir/"unique_designs.csv", index=False)
+        write_fasta(output_dir/"designs.fa", frame.record_id, frame.sequence)
+        write_fasta(output_dir/"unique_designs.fa", unique.sequence_id, unique.sequence)
+        pd.DataFrame(timings).to_csv(output_dir/"timing.csv", index=False)
+        metadata = dict(frame.attrs)
+        metadata["objective"] = dict(type=type(objective).__name__, parameters=asdict(objective)) if is_dataclass(objective) else objective
+        (output_dir/"config.json").write_text(json.dumps(metadata, indent=2, default=lambda v: v.tolist())+"\n")
+    return frame

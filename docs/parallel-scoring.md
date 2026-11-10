@@ -2,7 +2,7 @@
 
 [Home](../README.md) · [Candidate generation](candidate-generation.md)
 
-Independent CPU workers generate sequence proposals. A shared scoring process collects their requests, combines compatible requests into batches, and evaluates the PyTorch model on the GPU. Gradient requests use the same service.
+The parallel backend accelerates the first stage of the three-function framework. Independent CPU workers generate sequence proposals. A shared scoring process collects their requests, combines compatible requests into batches, and evaluates the PyTorch model on the GPU. Gradient requests use the same service.
 
 ## 1. Define a scoring factory
 
@@ -28,7 +28,7 @@ from experiment_model import make_scorer
 
 if __name__ == "__main__":
     initial = random_seed_sequences(200, 100, seed=42)
-    candidates, timing = generate_candidates_parallel(
+    designs, timing = generate_candidates_parallel(
         make_scorer, 200, initial, ["maximize"],
         task_names=["activity"], output_dir="outputs/parallel_design",
         num_candidates=100, max_batch_size=512,
@@ -56,3 +56,14 @@ export MKL_NUM_THREADS=1
 ```
 
 `gpu_batches.csv/json` records batch sizes, model rows, worker composition, and scoring time. `algorithm_summary.csv` records each optimizer's runtime and query count. Parallel runtime includes queue waiting; `walltime.json` records the total elapsed time.
+
+## Continue the same discovery and selection stages
+
+The parallel backend returns the design table used by the remaining core functions:
+
+```python
+from sequence_optimization import call_motifs, select_candidates
+scorer = make_scorer()
+motifs = call_motifs(designs, model=scorer, objective=["maximize"], output_dir="outputs/parallel_motifs")
+selected = select_candidates(designs, motifs=motifs, top_n=10, output_dir="outputs/parallel_panel")
+```

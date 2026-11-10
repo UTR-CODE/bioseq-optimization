@@ -1,77 +1,72 @@
 # Single-task sequence design
 
-[Home](../../README.md) · [Notebook](../../examples/single-task.ipynb) · [Multi-task](multi-task.md) · [Multiple models](multiple-models.md)
+[Home](../../README.md) · [Core API](../core-api.md) · [Notebook](../../examples/single-task.ipynb)
 
-Optimize sequences using one predicted activity. The inputs are a trained PyTorch `model`, the sequence length, and a starting population. The model accepts `[batch,4,length]` and returns `[batch]` or `[batch,1]`.
+Use a trained PyTorch `model` to predict one activity from `[batch,4,200]` sequences. The design objective is activity maximization.
 
-## 1. Connect the model and generate starting sequences
+## 1. Connect the predictor
 
 ```python
 from pathlib import Path
 import numpy as np
+import pandas as pd
 import torch
-from sequence_optimization import SequencePredictor, random_seed_sequences
-
+from sequence_optimization import generate_designs, call_motifs, select_candidates
+from sequence_optimization import SequencePredictor
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-LENGTH = 200
-scorer = SequencePredictor(model, tasks=["activity"], device=DEVICE, batch_size=512)
-initial = random_seed_sequences(LENGTH, 100, seed=42)
+scorer = SequencePredictor(model, tasks=["activity"], device=DEVICE)
 objective = ["maximize"]
-print(scorer.score(initial[:4]).scores)
 ```
 
-The fitness is the predicted activity, `S(x) = a(x)`. Set `objective = ["minimize"]` to design low-activity sequences. Input layouts and fixed contexts are handled with [input transforms](../pytorch-models.md).
+Use `["minimize"]` for low-activity design. A standard channels-first PyTorch module can also be supplied directly to `generate_designs` and `call_motifs`.
 
-## 2. Optimize with one algorithm
-
-```python
-from sequence_optimization import optimize, SaturationConfig
-saturation = SaturationConfig(
-    fractions=(0.9,), selection="fraction", maximum_queries=None,
-)
-result = optimize(
-    scorer, LENGTH, initial, objective, 100,
-    algorithm="fast_seqprop", saturation=saturation,
-    diversity=5, seed=42,
-)
-retained = result.at(0.9)
-print(result.stop_reason, result.total_query_count)
-print(retained.to_frame().head())
-```
-
-This run retains 100 candidates at the 90% observed-gain stage. Change `algorithm` to any method in [the algorithm table](../algorithms.md).
-
-## 3. Generate candidates with all 11 algorithms
+## 2. Generate candidate designs
 
 ```python
-from sequence_optimization.workflows import generate_candidates
-candidates, timing = generate_candidates(
-    scorer, LENGTH, initial, objective,
-    output_dir="outputs/single_task", num_candidates=100,
-    saturation=saturation, diversity=5, seed=42,
+designs = generate_designs(
+    scorer, length=200, objective=objective,
+    num_candidates=100, seed=42, output_dir="outputs/single_task",
 )
-print(candidates.groupby("algorithm").size())
+timing = pd.DataFrame(designs.attrs["timing"])
 print(timing[["algorithm", "seconds", "queries", "stop_reason"]])
 ```
 
-The combined table contains 1,100 records with `sequence`, `algorithm`, `score`, and `activity_activity` columns, together with record and sequence identifiers.
+The 11 optimizers share a starting population, run to a plateau, and each contribute 100 designs at the 90% observed-gain stage. The returned table contains sequences, individual activity predictions, scores, and algorithm provenance.
 
-## 4. Select and export a high-activity panel
-
-Retain the upper activity decile, then select ten sequences by Hamming Max-Min diversity.
+## 3. Call motifs from the designs
 
 ```python
-from sequence_optimization.workflows import deduplicate_candidates, select_sequence_panel, write_fasta
-unique, provenance = deduplicate_candidates(candidates)
-gate = float(unique.score.quantile(0.9))
-selected, distances = select_sequence_panel(candidates, top_n=10, min_score=gate)
-
-panel = Path("outputs/single_task_top10")
-panel.mkdir(parents=True, exist_ok=True)
-selected.to_csv(panel / "selected_sequences.csv", index=False)
-write_fasta(panel / "selected_sequences.fa", selected.sequence_id, selected.sequence)
-np.savetxt(panel / "hamming_distances.csv", distances, delimiter=",", fmt="%d")
-print(selected[["selection_rank", "sequence_id", "activity_activity", "score", "algorithms"]])
+motifs = call_motifs(
+    designs, model=scorer, output_dir="outputs/single_task_motifs",
+)
+print(motifs.support)
 ```
 
-For motif-based panel selection, use the same candidate pool with [motif discovery](../motif-discovery.md) and [motif diversity](../motif-diversity.md). Single-task ISM contributions use `lambda sequences: scorer.score(sequences).scores[:, 0]` as the fitness function.
+This calculates contributions for the optimization objective, extracts positive seqlets, and discovers supported PWMs. The catalog is saved as `catalog.meme`.
+
+## 4. Select a motif-diverse panel
+
+```python
+gate = float(designs.drop_duplicates("sequence").score.quantile(0.9))
+selected = select_candidates(
+    designs, top_n=10, motifs=motifs, min_score=gate,
+    output_dir="outputs/single_task_top10",
+)
+print(selected[["selection_rank", "sequence_id", "score", "present_motifs", "algorithms"]])
+```
+
+The selector scans the catalog onto the designs and prioritizes motif composition, matched motif positions, and prediction score. CSV, FASTA, motif sites, distance matrices, and the selection trace are exported together.
+
+## 5. Hamming selection without motifs
+
+For a sequence-distance panel, omit the `motifs` argument. This mode also works directly after design generation, independently of motif discovery.
+
+```python
+hamming_panel = select_candidates(
+    designs, top_n=10, min_score=gate,
+    output_dir="outputs/single_task_hamming",
+)
+print(hamming_panel.attrs["selection_method"])  # hamming
+```
+
+To use one optimization method, set `algorithms=["fast_seqprop"]` in `generate_designs`. The remaining two core functions stay the same.

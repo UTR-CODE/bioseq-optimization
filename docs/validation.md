@@ -9,7 +9,9 @@ Evaluate the optimized pool and selected panel using prediction quality, sequenc
 Report activity and specificity distributions per algorithm. For a target-specific task, retain all target and off-target outputs together with the scalar specificity score.
 
 ```python
-summary = candidates.groupby("algorithm").score.agg(["min", "median", "max"])
+import pandas as pd
+timing = pd.DataFrame(designs.attrs["timing"])
+summary = designs.groupby("algorithm").score.agg(["min", "median", "max"])
 print(summary.join(timing.set_index("algorithm")[["seconds", "queries"]]))
 ```
 

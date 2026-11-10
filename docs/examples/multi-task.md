@@ -1,80 +1,79 @@
 # Multi-task design: one output high, the others low
 
-[Home](../../README.md) · [Notebook](../../examples/multi-task.ipynb) · [Single task](single-task.md) · [Multiple models](multiple-models.md)
+[Home](../../README.md) · [Core API](../core-api.md) · [Notebook](../../examples/multi-task.ipynb)
 
-Use a model predicting multiple activities for each sequence. This example has three outputs: `target`, `off1`, and `off2`. The goal is to increase target activity and decrease both off-target activities.
+The trained PyTorch `model` returns three activities: `target`, `off1`, and `off2`.
 
-## 1. Connect the multi-output model
-
-The trained PyTorch `model` returns `[batch,3]` in the named task order.
+## 1. Define the target and off-target objective
 
 ```python
 from pathlib import Path
 import numpy as np
 import pandas as pd
 import torch
-from sequence_optimization import SequencePredictor, MultiTaskObjective, random_seed_sequences
-
+from sequence_optimization import generate_designs, call_motifs, select_candidates
+from sequence_optimization import SequencePredictor, MultiTaskObjective
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-LENGTH = 200
-TASKS = ["target", "off1", "off2"]
-scorer = SequencePredictor(model, tasks=TASKS, device=DEVICE, batch_size=512)
-initial = random_seed_sequences(LENGTH, 100, seed=42)
-```
-
-## 2. Specify which output should be high or low
-
-```python
+scorer = SequencePredictor(model, tasks=["target", "off1", "off2"], device=DEVICE)
 objective = MultiTaskObjective(
     high=["target"], low=["off1", "off2"], aggregation="mean",
 )
-activities = scorer.score(initial[:4]).scores
-fitness = objective.scalarize(activities, scorer.task_names)
-print(pd.DataFrame(activities, columns=TASKS).assign(score=fitness))
 ```
 
-With equal task scales, the score is
+With equal scales, the score is `(target - off1 - off2) / 3`. Add further off-target names to `low` for models with additional outputs.
 
-\[
-S(x)=\frac{a_{\mathrm{target}}(x)-a_{\mathrm{off1}}(x)-a_{\mathrm{off2}}(x)}{3}.
-\]
-
-The equivalent directional form is `MultiTaskObjective(directions=["maximize", "minimize", "minimize"])`. For a model with more outputs, list the additional off-target names in `low`.
-
-## 3. Generate 1,100 candidates
+## 2. Generate candidate designs
 
 ```python
-from sequence_optimization.workflows import generate_candidates
-candidates, timing = generate_candidates(
-    scorer, LENGTH, initial, objective,
-    output_dir="outputs/multi_task", num_candidates=100,
-    diversity=5, seed=42,
+designs = generate_designs(
+    scorer, length=200, objective=objective,
+    num_candidates=100, seed=42, output_dir="outputs/multi_task",
 )
-print(timing[["algorithm", "seconds", "queries", "score_median"]])
-print(candidates[["algorithm", "activity_target", "activity_off1", "activity_off2", "score"]].head())
+timing = pd.DataFrame(designs.attrs["timing"])
+print(timing[["algorithm", "seconds", "queries", "stop_reason"]])
 ```
 
-Every candidate retains all three raw predictions and the scalar optimization score.
+The 11 optimizers share a starting population, run to a plateau, and each contribute 100 designs at the 90% observed-gain stage. The returned table contains sequences, individual activity predictions, scores, and algorithm provenance.
 
-## 4. Select and export candidates
+## 3. Call motifs from the designs
 
 ```python
-from sequence_optimization.workflows import deduplicate_candidates, select_sequence_panel, write_fasta
-unique, provenance = deduplicate_candidates(candidates)
-gate = float(unique.score.quantile(0.9))
-selected, distances = select_sequence_panel(candidates, top_n=10, min_score=gate)
-selected["specificity"] = selected.activity_target - selected[["activity_off1", "activity_off2"]].max(axis=1)
-
-panel = Path("outputs/multi_task_top10")
-panel.mkdir(parents=True, exist_ok=True)
-selected.to_csv(panel / "selected_sequences.csv", index=False)
-write_fasta(panel / "selected_sequences.fa", selected.sequence_id, selected.sequence)
-print(selected[["selection_rank", "activity_target", "activity_off1", "activity_off2", "score", "specificity"]])
+motifs = call_motifs(
+    designs, model=scorer, output_dir="outputs/multi_task_motifs",
+)
+print(motifs.support)
 ```
 
-## 5. Target thresholds
+This calculates contributions for the optimization objective, extracts positive seqlets, and discovers supported PWMs. The catalog is saved as `catalog.meme`.
 
-To optimize the weakest margin relative to desired activity thresholds, use a bounded worst-task objective. For outputs on a probability scale, an example is target activity at least 0.8 and each off-target activity at most 0.2:
+## 4. Select a motif-diverse panel
+
+```python
+gate = float(designs.drop_duplicates("sequence").score.quantile(0.9))
+selected = select_candidates(
+    designs, top_n=10, motifs=motifs, min_score=gate,
+    output_dir="outputs/multi_task_top10",
+)
+print(selected[["selection_rank", "activity_target", "activity_off1", "activity_off2", "score", "present_motifs"]])
+```
+
+The selector scans the catalog onto the designs and prioritizes motif composition, matched motif positions, and prediction score. CSV, FASTA, motif sites, distance matrices, and the selection trace are exported together.
+
+## 5. Hamming selection without motifs
+
+For a sequence-distance panel, omit the `motifs` argument. This mode also works directly after design generation, independently of motif discovery.
+
+```python
+hamming_panel = select_candidates(
+    designs, top_n=10, min_score=gate,
+    output_dir="outputs/multi_task_hamming",
+)
+print(hamming_panel.attrs["selection_method"])  # hamming
+```
+
+## 6. Threshold and specificity objectives
+
+A worst-margin objective can target probability thresholds of 0.8 for the target and 0.2 for each off-target:
 
 ```python
 bounded_objective = MultiTaskObjective(
@@ -85,24 +84,20 @@ bounded_objective = MultiTaskObjective(
 )
 ```
 
-Its score is `min(target - 0.8, 0.2 - off1, 0.2 - off2)`. A nonnegative score meets all three thresholds. Pass `bounded_objective` to the candidate-generation call to use this design criterion.
+Its score is `min(target - 0.8, 0.2 - off1, 0.2 - off2)`. Pass it as `objective` during generation; motif calling then uses the same criterion.
 
-## 6. Direct target specificity
-
-For the objective `target - max(off1, off2)`, append pairwise target-minus-off-target contrasts and maximize their minimum:
+For direct specificity `target - max(off1, off2)`, construct pairwise activity contrasts:
 
 ```python
 def activity_and_contrasts(y):
     return torch.cat([y, y[:, :1] - y[:, 1:]], dim=1)
 
 specificity_scorer = SequencePredictor(
-    model, device=DEVICE, batch_size=512,
-    tasks=["target", "off1", "off2", "target_minus_off1", "target_minus_off2"],
+    model, device=DEVICE,
+    tasks=["target", "off1", "off2", "margin1", "margin2"],
     output_transform=activity_and_contrasts,
 )
-specificity_objective = MultiTaskObjective(
-    high=["target_minus_off1", "target_minus_off2"], aggregation="worst",
-)
+specificity_objective = MultiTaskObjective(high=["margin1", "margin2"], aggregation="worst")
 ```
 
-Use this scorer and objective in the same optimization call, with a new output directory. The [enhancer workflow](enhancer.md) applies this criterion and then selects a motif-diverse panel.
+Use `specificity_scorer` and `specificity_objective` for generation and the same scorer for motif calling. The [enhancer example](enhancer.md) uses this objective.

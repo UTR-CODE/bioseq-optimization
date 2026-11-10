@@ -16,7 +16,7 @@
 | Simulated annealing | `simulated_annealing` | — |
 | Activation maximization | `vanilla_activation_maximization` | Required |
 
-`DESIGN_ALGORITHMS` contains these 11 methods. The registry also includes `random` for a separately budgeted random-search reference.
+`generate_designs` uses these 11 methods by default. Set `algorithms=[...]` to choose a subset. The registry also includes `random` for a separately budgeted random-search reference.
 
 ## Plateau stopping
 

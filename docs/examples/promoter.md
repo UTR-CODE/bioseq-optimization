@@ -1,21 +1,18 @@
 # Promoter design
 
-[Home](../../README.md) · [Notebook](../../examples/promoter.ipynb)
+[Home](../../README.md) · [Core API](../core-api.md) · [Notebook](../../examples/promoter.ipynb)
 
-Optimize an 80-nt promoter insert for high predicted activity. This example uses a predictor trained on a 110-nt construct with a 17-nt left flank and a 13-nt right flank.
+Optimize an 80-nt promoter insert with a model trained on a 110-nt construct. Fixed flanks are included by the input transform.
 
-Input: a trained PyTorch `model` mapping `[batch,4,110]` constructs to a single activity output.
-
-## 1. Define the optimization region and fixed flanks
+## 1. Define the design region
 
 ```python
 from pathlib import Path
 import numpy as np
 import pandas as pd
 import torch
-from sequence_optimization import SequencePredictor, onehot, random_seed_sequences
-from sequence_optimization.workflows import generate_candidates
-
+from sequence_optimization import generate_designs, call_motifs, select_candidates
+from sequence_optimization import SequencePredictor, onehot
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 LEFT = "TGCATTTTTTTCACATC"
 RIGHT = "GGTTACGGCTGTT"
@@ -23,78 +20,70 @@ left = torch.tensor(onehot([LEFT]))
 right = torch.tensor(onehot([RIGHT]))
 
 def promoter_input(p):
-    construct = torch.cat([
-        left.to(p).expand(len(p), -1, -1),
-        p,
-        right.to(p).expand(len(p), -1, -1),
-    ], dim=1)
-    return construct.transpose(1, 2)
+    return torch.cat([left.to(p).expand(len(p), -1, -1), p,
+                      right.to(p).expand(len(p), -1, -1)], dim=1).transpose(1, 2)
 
-scorer = SequencePredictor(
-    model, tasks=["promoter_activity"], device=DEVICE,
-    batch_size=512, input_transform=promoter_input,
-)
+scorer = SequencePredictor(model, tasks=["promoter_activity"], device=DEVICE,
+                           input_transform=promoter_input)
+objective = ["maximize"]
 ```
 
-The optimization variables cover the 80-nt insert. Fixed flanks are concatenated during both discrete and gradient scoring. For a predictor trained directly on the insert, use `SequencePredictor(model, tasks=["promoter_activity"], device=DEVICE)`.
+For a model trained directly on the insert, use the default input layout.
 
-## 2. Generate candidates and record runtime
+## 2. Generate candidate designs
 
 ```python
-initial = random_seed_sequences(80, 100, seed=42)
-candidates, timing = generate_candidates(
-    scorer, 80, initial, ["maximize"],
-    output_dir="outputs/promoter", num_candidates=100, seed=42,
+designs = generate_designs(
+    scorer, length=80, objective=objective,
+    num_candidates=100, seed=42, output_dir="outputs/promoter",
 )
-print(timing[["algorithm", "seconds", "queries", "score_median"]])
+timing = pd.DataFrame(designs.attrs["timing"])
+print(timing[["algorithm", "seconds", "queries", "stop_reason"]])
 ```
 
-## 3. Select a high-activity sequence-diverse panel
+The 11 optimizers share a starting population, run to a plateau, and each contribute 100 designs at the 90% observed-gain stage. The returned table contains sequences, individual activity predictions, scores, and algorithm provenance.
 
-Retain the upper activity decile and apply Hamming Max-Min selection. The first sequence has the highest activity; subsequent sequences maximize their minimum distance to the selected panel.
+## 3. Call motifs from the designs
 
 ```python
-from sequence_optimization.workflows import deduplicate_candidates, select_sequence_panel
-unique, provenance = deduplicate_candidates(candidates)
-gate = float(unique.score.quantile(0.9))
-selected, distances = select_sequence_panel(candidates, top_n=10, min_score=gate)
-print(selected[["selection_rank", "sequence_id", "score", "algorithms"]])
+motifs = call_motifs(
+    designs, model=scorer, output_dir="outputs/promoter_motifs",
+)
+print(motifs.support)
 ```
 
-A promoter motif catalog can replace this sequence-distance stage with the [motif composition and positional selection](../motif-diversity.md).
+This calculates contributions for the optimization objective, extracts positive seqlets, and discovers supported PWMs. The catalog is saved as `catalog.meme`.
 
-## 4. Export inserts and complete constructs
+## 4. Select a motif-diverse panel
+
+```python
+gate = float(designs.drop_duplicates("sequence").score.quantile(0.9))
+selected = select_candidates(
+    designs, top_n=10, motifs=motifs, min_score=gate,
+    output_dir="outputs/promoter_top10",
+)
+print(selected[["selection_rank", "sequence_id", "score", "present_motifs", "algorithms"]])
+```
+
+The selector scans the catalog onto the designs and prioritizes motif composition, matched motif positions, and prediction score. CSV, FASTA, motif sites, distance matrices, and the selection trace are exported together.
+
+## 5. Hamming selection without motifs
+
+For a sequence-distance panel, omit the `motifs` argument. This mode also works directly after design generation, independently of motif discovery.
+
+```python
+hamming_panel = select_candidates(
+    designs, top_n=10, min_score=gate,
+    output_dir="outputs/promoter_hamming",
+)
+print(hamming_panel.attrs["selection_method"])  # hamming
+```
+
+## 6. Export full constructs
 
 ```python
 from sequence_optimization.workflows import write_fasta
-panel = Path("outputs/promoter_top10")
-panel.mkdir(parents=True, exist_ok=True)
 selected["construct"] = LEFT + selected.sequence + RIGHT
-selected.to_csv(panel / "selected_sequences.csv", index=False)
-write_fasta(panel / "inserts.fa", selected.sequence_id, selected.sequence)
-write_fasta(panel / "constructs.fa", selected.sequence_id, selected.construct)
-np.savetxt(panel / "hamming_distances.csv", distances, delimiter=",", fmt="%d")
+selected.to_csv("outputs/promoter_top10/selected_sequences.csv", index=False)
+write_fasta("outputs/promoter_top10/constructs.fa", selected.sequence_id, selected.construct)
 ```
-
-## 5. Calculate contributions and plot a sequence logo
-
-```python
-from sequence_optimization import ism_contributions
-import matplotlib.pyplot as plt
-import logomaker
-
-contribution = ism_contributions(
-    selected.sequence.to_numpy(),
-    lambda sequences: scorer.score(sequences).scores[:, 0],
-    batch_size=512,
-)
-np.savez_compressed(panel / "ism.npz", observed=contribution.observed, logo=contribution.logo)
-fig, ax = plt.subplots(figsize=(14, 2.5))
-logomaker.Logo(pd.DataFrame(contribution.logo[0], columns=list("ACGT")), ax=ax)
-ax.set_xlabel("Position in the 80-nt insert")
-ax.set_ylabel("ISM contribution")
-fig.tight_layout()
-fig.savefig(panel / "sequence01_ism.png", dpi=180)
-```
-
-ISM evaluates three alternative nucleotides per position. The logo displays the contribution of the observed base relative to the four-base mean prediction.
