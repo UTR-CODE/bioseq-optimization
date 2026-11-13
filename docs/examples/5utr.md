@@ -40,7 +40,7 @@ motifs = call_motifs(
 print(motifs.support)
 ```
 
-This calculates contributions for the optimization objective, extracts positive seqlets, and discovers PWMs with official STREME and filters supporting seqlets using FIMO. The catalog is saved as `catalog.meme`.
+This calculates contributions for the optimization objective, extracts positive seqlets, and discovers PWMs with official XSTREME (MEME disabled), and filters supporting seqlets using FIMO. Candidate-wide FIMO filtering retains hits with p ≤ 0.001 and q ≤ 0.1, requires more than 30 physical sites per motif, and removes motifs with more than 80% site-set coverage. The catalog is saved as `catalog.meme`.
 
 ## 4. Select a motif-diverse panel
 

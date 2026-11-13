@@ -13,7 +13,7 @@ motifs = call_motifs(
 )
 ```
 
-The default backend uses official STREME to discover motifs and FIMO to identify supporting seqlets. The optional `motif_backend="builtin"` selects the independently implemented method described below. Use the same scorer as in `generate_designs`; the optimization objective stored with the designs defines the attribution target for single-task, multi-task, and combined-model predictions.
+The default backend uses official XSTREME with MEME disabled (`--meme-nmotifs 0`) to discover motifs and FIMO to identify supporting seqlets. The optional `motif_backend="builtin"` selects the independently implemented method described below. Use the same scorer as in `generate_designs`; the optimization objective stored with the designs defines the attribution target for single-task, multi-task, and combined-model predictions.
 
 ## Attribution and fragments
 
@@ -24,24 +24,58 @@ Unique designs → ISM contributions → positive tangermeme seqlets
 
 ISM scores the three alternative bases at each position. The projected observed-base contribution is the original score minus the four-base mean prediction. Positive fragments are extracted with tangermeme's recursive seqlet caller. Discovery uses fragment sequences without attribution weighting.
 
-## Official STREME backend (default)
+## Optional DeepLiftShap attribution
+
+ISM is the default and requires discrete predictions only. To use DeepLiftShap, keep the discovery and filtering stages unchanged:
 
 ```python
 motifs = call_motifs(
-    designs, model=scorer, motif_backend="streme",
-    output_dir="outputs/external_streme",
+    designs, model=scorer, attribution_method="deepliftshap",
+    n_references=20, attribution_batch_size=64, seed=42,
+    output_dir="outputs/motifs_deepliftshap",
 )
 ```
 
-This mode checks STREME and FIMO before attribution. Missing tools produce the installation command:
+The adapter uses `score_soft` with canonical `[batch, length, 4]` A/C/G/T probabilities and the same scalar objective as optimization. Each sequence receives 20 dinucleotide-shuffled references; scorer-supplied context remains fixed. `attribution_batch_size` counts sequence–reference pairs. The projected observed-base contributions feed the same positive-seqlet caller. `attribution.json` records reference settings, forward agreement and completeness errors.
+
+DeepLiftShap uses tangermeme's supported PyTorch nonlinear modules. Each nonlinear operation needs its own module instance; functional activations and reused nonlinear modules may require an attribution adapter. For a custom scorer or objective, supply `attribution_model=scalar_model`: a PyTorch module accepting `[batch, 4, length]` A/C/G/T inputs and returning `[batch, 1]` values for the **complete scalar design objective**, including fixed context and off-target penalties. Its predictions are checked against `score`; per-reference completeness errors must be below 0.001. The user's original model is kept intact through a private copy. ISM works with any discrete scorer and does not need this adapter.
+
+## Official XSTREME backend (default)
+
+```python
+motifs = call_motifs(
+    designs, model=scorer, motif_backend="xstreme",
+    output_dir="outputs/external_xstreme",
+)
+```
+
+This mode checks XSTREME and FIMO before attribution. Missing tools produce the installation command:
 
 ```bash
 conda install -c conda-forge -c bioconda meme
 ```
 
-Executable paths can be supplied as `streme="/path/to/streme"` and `fimo="/path/to/fimo"`. The external backend discovers motifs with STREME and counts supporting seqlets with FIMO. Its native discovery statistics and support criteria remain separate from the built-in paired-group validation.
+Executable paths can be supplied as `xstreme="/path/to/xstreme"` and `fimo="/path/to/fimo"`. The external backend discovers motifs with XSTREME and counts supporting seqlets with FIMO. Its native discovery statistics and support criteria remain separate from the built-in paired-group validation.
 
-The default output directory contains `contributions.npz`, `seqlets.csv/fa`, `background.fa`, STREME output, seqlet FIMO matches, `support.csv`, and the retained `catalog.meme`.
+The default output directory contains `contributions.npz`, `seqlets.csv/fa`, `background.fa`, XSTREME output, seqlet FIMO matches, `support.csv`, and the retained `catalog.meme`.
+
+## Candidate-wide site filtering
+
+FIMO scans the full native discovery catalog against the complete unique-DNA candidate pool. Seqlet-supported motifs then retain hits with `p <= 0.001` and `q <= 0.1` (`p_threshold` and `q_threshold`). Q-values are kept from that scan, without recalculation after motif removal. Each motif must have **more than 30** distinct physical matches (`min_sites=30`); exact-DNA duplicates do not increase this count. Same-motif overlapping hits are consolidated before counting.
+
+Motifs are then compared by their matched positions. On the same sequence, two footprints represent the same position when their overlap covers at least 80% of the shorter footprint; strand is ignored. If more than 80% of either motif's positions are covered by the other, only one is retained (`subset_threshold=0.8`). Representatives are considered in descending site count, then descending total PWM information content, then motif ID. Removed motifs cannot merge other groups through a chain of overlaps.
+
+`motif_site_support.csv` records site counts, retention and the retained representative for removed motifs. `motif_redundancy.csv` records the directional coverage fractions for the representative comparisons. `catalog.meme` contains the final motifs, and `motif_sites.csv` records their retained positions. Native PWM matrices, `nsites`, background and discovery statistics are preserved in exported MEME catalogs. Preserving `nsites` matters because FIMO uses it when applying its motif pseudocount. Candidate hits are cached in the returned catalog for selection; FIMO q-values remain those of the original candidate scan.
+
+```python
+motifs = call_motifs(
+    designs, model=scorer, motif_backend="xstreme",
+    min_sites=30, subset_threshold=0.8,
+    output_dir="outputs/motifs",
+)
+```
+
+XSTREME runs STREME discovery, enrichment assessment and motif grouping with the MEME engine disabled. `max_motifs` limits the STREME candidates, rather than fixing the final catalog size. Discovery statistics remain available in the native output; FIMO site support is a separate criterion. Its native nonredundant motifs are followed by the candidate-position filter above. The previous standalone backend remains available through `motif_backend="streme"`.
 
 ## Optional built-in discovery
 

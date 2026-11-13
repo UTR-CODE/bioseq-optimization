@@ -44,7 +44,7 @@ D_C(i,j)=1-\frac{\sum_k\min(F_{ik},F_{jk})}{\sum_k\max(F_{ik},F_{jk})}.
 
 Every occurrence is represented by its motif identity and center coordinate. Hungarian matching first maximizes the number of compatible motif pairs, then minimizes total positional displacement. The reported distance is mean displacement over matched occurrences. Repeated instances are retained; unmatched instances are omitted.
 
-FIMO defaults are `p ≤ 0.001` and `q ≤ 0.05`. Same-motif overlapping footprints are consolidated, and motifs require at least 30 physical sites across the source records.
+FIMO defaults are `p ≤ 0.001` and `q ≤ 0.1`. Same-motif overlapping footprints are consolidated, and motifs require more than 30 physical sites on unique DNA. Motifs are removed when more than 80% of either site set is covered by the other; representatives prioritize site count, PWM information and motif ID. See [candidate-wide filtering](motif-discovery.md#candidate-wide-site-filtering).
 
 ## 5. Hierarchical selection and outputs
 
@@ -67,7 +67,7 @@ The returned table has the same sequence, score, and provenance columns as Hammi
 
 ## 6. Reference-data example
 
-Reuse saved designs and motifs from the K562 example to reconstruct its ordered Top10.
+Reuse saved designs and motifs from the K562 example to select a panel with the current filtering rules. The archived Top10 used the earlier motif catalog and filtering rules.
 
 ```python
 from pathlib import Path

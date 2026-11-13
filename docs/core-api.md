@@ -61,12 +61,25 @@ Use the same model or scorer as in design generation. The design objective is ca
 2. Calculate ISM contributions for the design objective.
 3. Call positive tangermeme seqlets.
 4. Generate length- and dinucleotide-matched background fragments.
-5. Discover candidate PWMs with official STREME.
+5. Discover candidate PWMs with official XSTREME, with MEME disabled (`--meme-nmotifs 0`).
 6. Scan the seqlets with FIMO and retain motifs supported by at least ten seqlets from at least three parent sequences.
+7. Scan the full native catalog on unique candidate sequences with FIMO (`p ≤ 0.001`, `q ≤ 0.1`), require more than 30 physical matches, and remove motifs when more than 80% of either site set is covered by the other.
 
-The default `motif_backend="streme"` uses official STREME and FIMO. Missing executables produce an installation message before attribution starts. The optional `motif_backend="builtin"` uses the independently implemented discovery method described in [Motif discovery](motif-discovery.md).
+The default `motif_backend="xstreme"` uses official XSTREME and FIMO. Missing executables produce an installation message before attribution starts. The optional `motif_backend="builtin"` uses the independently implemented discovery method described in [Motif discovery](motif-discovery.md).
 
 The returned `MotifCatalog` contains `pwms`, `seqlets`, and `support`. With `output_dir="outputs/motifs"`, the function exports the retained PWMs to **`outputs/motifs/catalog.meme`** in MEME format, alongside contributions, fragment sequences, and the motif-support table. This file can be passed directly to `select_candidates` in a later session.
+
+ISM is the default. Set `attribution_method="deepliftshap"` to use 20 dinucleotide-shuffled references per sequence with the same downstream stages:
+
+```python
+motifs = call_motifs(
+    designs, model=model, attribution_method="deepliftshap",
+    n_references=20, attribution_batch_size=64,
+    output_dir="outputs/motifs_deepliftshap",
+)
+```
+
+DeepLiftShap uses the scorer's differentiable `score_soft` interface. Custom nonlinear models can supply `attribution_model`, a scalar-objective PyTorch module; see [attribution options](motif-discovery.md#optional-deepliftshap-attribution). Native MEME metadata are retained on export. Candidate selection inherits the returned catalog's scan thresholds; MEME-file inputs default to `p_threshold=0.001`, `q_threshold=0.1`.
 
 To reuse attribution scores:
 
@@ -108,7 +121,7 @@ selected = select_candidates(
 )
 ```
 
-`motifs` accepts the `MotifCatalog` returned by `call_motifs`, a MEME file, or a PWM dictionary. The selector performs FIMO scanning, physical-site consolidation, motif support filtering, PWM similarity, Soft-Jaccard composition distances, and Hungarian positional matching internally.
+`motifs` accepts the `MotifCatalog` returned by `call_motifs`, a MEME file, or a PWM dictionary. The selector performs FIMO scanning, physical-site consolidation, motif support filtering, site-set redundancy removal, PWM similarity, Soft-Jaccard composition distances, and Hungarian positional matching internally.
 
 ### Use your own motif-discovery workflow
 
@@ -128,7 +141,7 @@ selected = select_candidates(
 )
 ```
 
-This route needs the scored candidate sequences and FIMO. It does not require `call_motifs`, the prediction model, attribution scores, tangermeme, or STREME. FIMO identifies motif IDs and positions internally, followed by the same site-support filtering and diversity selection. The MEME file exported by step 2 works through exactly this interface:
+This route needs the scored candidate sequences and FIMO. It does not require `call_motifs`, the prediction model, attribution scores, tangermeme, or XSTREME. FIMO identifies motif IDs and positions internally, followed by the same site-support filtering and diversity selection. The MEME file exported by step 2 works through exactly this interface:
 
 ```python
 selected = select_candidates(

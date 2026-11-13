@@ -15,16 +15,16 @@ The optimization package uses NumPy, pandas, PyTorch, and Numba. The `analysis` 
 
 ## Motif discovery tools
 
-Default motif discovery uses tangermeme seqlets and official STREME. Install MEME Suite for STREME discovery, FIMO scanning, and optional Tomtom annotation:
+Default motif discovery uses ISM contributions, tangermeme seqlets and official XSTREME with MEME disabled. Optional DeepLiftShap uses the same `motifs` Python dependencies and is enabled with `attribution_method="deepliftshap"`. Install MEME Suite for XSTREME discovery, FIMO scanning, and optional Tomtom annotation:
 
 ```bash
 conda install -c conda-forge -c bioconda meme
-streme --version
+xstreme --help
 fimo --version
 tomtom --version
 ```
 
-`call_motifs` defaults to `motif_backend="streme"` and checks STREME and FIMO before computing contributions or creating output files. Missing tools produce the installation command above. Activate the environment containing MEME Suite, or supply executable paths with `streme="/path/to/streme"` and `fimo="/path/to/fimo"`. The optional `motif_backend="builtin"` and loading an existing catalog with `catalog=...` do not require these executables for discovery. Hamming candidate selection also works without MEME Suite.
+`call_motifs` defaults to `motif_backend="xstreme"` and checks XSTREME and FIMO before computing contributions or creating output files. Missing tools produce the installation command above. Activate the environment containing MEME Suite, or supply executable paths with `xstreme="/path/to/xstreme"` and `fimo="/path/to/fimo"`. The optional `motif_backend="builtin"` replaces the discovery executable but still uses FIMO for candidate-wide filtering. Loading an existing catalog with `catalog=...` does not invoke these tools; subsequent motif-aware selection uses FIMO. Hamming candidate selection also works without MEME Suite.
 
 The [motif discovery workflow](motif-discovery.md) also describes optional motif-catalog clustering with R.
 

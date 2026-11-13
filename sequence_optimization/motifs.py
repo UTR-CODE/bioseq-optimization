@@ -10,6 +10,22 @@ from .motif_diversity import (pwm_similarity_matrix, soft_jaccard_distance_matri
                               soft_position_distance_matrix)
 from .motif_evidence import select_with_motif_evidence
 
+class MemeMotifs(dict):
+    """PWM dictionary retaining native MEME blocks for reproducible FIMO scans."""
+
+    def __init__(self, *args, preamble=None, blocks=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.preamble = preamble
+        self.blocks = blocks or {}
+
+
+def subset_motifs(motifs, ids):
+    ids = list(ids)
+    return MemeMotifs({m: motifs[m] for m in ids},
+                      preamble=getattr(motifs, 'preamble', None),
+                      blocks={m: motifs.blocks[m] for m in ids if m in getattr(motifs, 'blocks', {})})
+
+
 FIMO_COLUMNS = ['motif_id','sequence_name','start','stop','strand','p-value','q-value']
 
 
@@ -30,10 +46,28 @@ def read_meme(path):
                 raise ValueError(f'Invalid probability matrix: {name}')
             motifs[name]=p/p.sum(1,keepdims=True)
     if not motifs:raise ValueError('No motif matrices found')
-    return motifs
+    starts = [i for i, line in enumerate(lines) if line.startswith('MOTIF ')]
+    blocks = {lines[i].split()[1]: '\n'.join(lines[i:starts[j+1] if j+1 < len(starts) else len(lines)])
+              for j, i in enumerate(starts)}
+    return MemeMotifs(motifs, preamble='\n'.join(lines[:starts[0]]), blocks=blocks)
 
 
 def write_meme(path, motifs):
+    blocks = getattr(motifs, 'blocks', {})
+    def unchanged(m):
+        if m not in blocks:
+            return False
+        rows = blocks[m].splitlines()
+        i = next(j for j, line in enumerate(rows) if line.startswith('letter-probability matrix:'))
+        width = int(re.search(r'\bw\s*=\s*(\d+)', rows[i]).group(1))
+        native = np.array([[float(v) for v in row.split()] for row in rows[i+1:i+1+width]])
+        native /= native.sum(1, keepdims=True)
+        return np.array_equal(np.asarray(motifs[m]), native)
+
+    if getattr(motifs, 'preamble', None) is not None and all(unchanged(m) for m in motifs):
+        # Reuse native matrices, nsites, background and discovery statistics.
+        Path(path).write_text(motifs.preamble + '\n' + '\n'.join(blocks[m] for m in motifs) + '\n')
+        return
     lines=['MEME version 5','','ALPHABET= ACGT','','strands: + -','',
            'Background letter frequencies','A 0.25 C 0.25 G 0.25 T 0.25','']
     for name,pwm in motifs.items():
@@ -69,7 +103,7 @@ def scan_fimo(motif_file, fasta_file, output_dir, *, p_threshold=.001, executabl
     return read_fimo(out/'fimo.tsv')
 
 
-def distinct_fimo_sites(hits, *, p_threshold=.001, q_threshold=.05):
+def distinct_fimo_sites(hits, *, p_threshold=.001, q_threshold=.1):
     """Keep best p among >=70% overlapping same-ID footprints, across strands."""
     if not 0<p_threshold<=1 or not 0<q_threshold<=1:raise ValueError('Invalid scan thresholds')
     d=hits[(hits['p-value']<=p_threshold)&(hits['q-value']<=q_threshold)].copy()
@@ -85,19 +119,75 @@ def distinct_fimo_sites(hits, *, p_threshold=.001, q_threshold=.05):
     return d.reset_index(drop=True)
 
 
+def filter_motif_sites(sites, pwms, *, min_sites=30, subset_threshold=.8):
+    """Require >min_sites unique-DNA sites; remove spatially redundant motifs.
+
+    Positions match on the same DNA when overlap covers >=80% of the shorter
+    footprint, irrespective of strand. A motif is redundant when either
+    directional covered-site fraction exceeds subset_threshold. Greedy
+    representatives prioritize site count, PWM information, then stable ID.
+    """
+    if isinstance(min_sites, bool) or not isinstance(min_sites, int) or min_sites < 0:
+        raise ValueError('min_sites must be a nonnegative integer')
+    if not 0 < subset_threshold <= 1:
+        raise ValueError('subset_threshold must be in (0, 1]')
+    counts = sites.groupby('motif_id').size().reindex(list(pwms), fill_value=0)
+    support = pd.DataFrame({'sites_on_unique_DNA': counts})
+    support['passes_site_support'] = counts.gt(min_sites)
+    support['retained'] = False
+    support['redundant_with'] = ''
+    spans = {m: {sid: g[['start0', 'end0']].to_numpy()
+                 for sid, g in group.groupby('sequence_name')}
+             for m, group in sites.groupby('motif_id')}
+
+    def information(m):
+        p = np.asarray(pwms[m], dtype=float)
+        return float((2 + (p * np.log2(np.maximum(p, 1e-300))).sum(1)).sum())
+
+    ranked = sorted(counts[counts.gt(min_sites)].index,
+                    key=lambda m: (-int(counts[m]), -information(m), m))
+    kept, comparisons = [], []
+    for m in ranked:
+        for representative in kept:
+            covered_m = covered_r = 0
+            for sid in spans[m].keys() & spans[representative].keys():
+                a, b = spans[m][sid], spans[representative][sid]
+                overlap = np.maximum(0, np.minimum(a[:, None, 1], b[None, :, 1])
+                                     - np.maximum(a[:, None, 0], b[None, :, 0]))
+                matched = overlap >= .8 * np.minimum(
+                    (a[:, 1]-a[:, 0])[:, None], (b[:, 1]-b[:, 0])[None, :])
+                covered_m += int(matched.any(1).sum())
+                covered_r += int(matched.any(0).sum())
+            fraction_m = covered_m / counts[m]
+            fraction_r = covered_r / counts[representative]
+            redundant = max(fraction_m, fraction_r) > subset_threshold
+            comparisons.append(dict(motif_id=m, representative=representative,
+                motif_covered_fraction=fraction_m, representative_covered_fraction=fraction_r,
+                redundant=redundant))
+            if redundant:
+                support.loc[m, 'redundant_with'] = representative
+                break
+        else:
+            kept.append(m)
+            support.loc[m, 'retained'] = True
+    columns = ['motif_id', 'representative', 'motif_covered_fraction',
+               'representative_covered_fraction', 'redundant']
+    return (sites[sites.motif_id.isin(kept)].copy(), support,
+            pd.DataFrame(comparisons, columns=columns))
+
+
 def select_motif_panel(records, hits, pwms, *, output_dir, top_n=10, min_score=20.,
-                       min_sites=30, p_threshold=.001, q_threshold=.05,
+                       min_sites=30, p_threshold=.001, q_threshold=.1,
                        min_overlap=6, match_similarity=.5,
-                       composition_tie=.02, position_tie_bp=2.):
+                       composition_tie=.02, position_tie_bp=2., subset_threshold=.8):
     """Quality gate -> motif composition Max-Min -> Hungarian positions -> score.
 
-    Motifs with fewer than min_sites physical hits across source RECORDS are
-    removed. Exact-DNA duplicates contribute according to record multiplicity
-    to this support statistic, but are selected only once. No-hit sequences are
+    Motifs must have >min_sites physical hits on unique DNA. Motifs with
+    redundant site sets are removed before distances are calculated. No-hit sequences are
     reported and excluded. Unmatched site pairs never create position evidence.
     """
-    if isinstance(min_sites,bool) or not isinstance(min_sites,int) or min_sites<1:
-        raise ValueError('min_sites must be a positive integer')
+    if isinstance(min_sites,bool) or not isinstance(min_sites,int) or min_sites<0:
+        raise ValueError('min_sites must be a nonnegative integer')
     unique,provenance=deduplicate_candidates(records)
     if 'sequence_id' in records and not np.array_equal(records.sequence_id.to_numpy(),provenance.sequence_id.to_numpy()):
         raise ValueError('Sequence IDs must be generated by deduplicate_candidates')
@@ -109,10 +199,12 @@ def select_motif_panel(records, hits, pwms, *, output_dir, top_n=10, min_score=2
         raise ValueError('FIMO site is outside its sequence')
     sites=distinct_fimo_sites(hits,p_threshold=p_threshold,q_threshold=q_threshold)
     multiplicity=provenance.sequence_id.value_counts()
-    support=sites.assign(source_records=sites.sequence_name.map(multiplicity)).groupby('motif_id').agg(
-        sites_on_unique_DNA=('sequence_name','size'),sites_on_source_records=('source_records','sum'),
+    extra_support=sites.assign(source_records=sites.sequence_name.map(multiplicity)).groupby('motif_id').agg(
+        sites_on_source_records=('source_records','sum'),
         unique_DNA_with_hit=('sequence_name','nunique')).reindex(motif_ids,fill_value=0).astype(int)
-    support['retained']=support.sites_on_source_records.ge(min_sites)
+    sites,support,redundancy=filter_motif_sites(sites,pwms,min_sites=min_sites,
+                                              subset_threshold=subset_threshold)
+    support=support.join(extra_support)
     motif_ids=[m for m in motif_ids if support.loc[m,'retained']]
     if not motif_ids:raise ValueError('No motifs pass the physical-site support threshold')
     sites=sites[sites.motif_id.isin(motif_ids)].copy()
@@ -138,7 +230,8 @@ def select_motif_panel(records, hits, pwms, *, output_dir, top_n=10, min_score=2
     write_fasta(out/'selected_sequences.fa',selected.sequence_id,selected.sequence)
     unique.to_csv(out/'unique_candidates.csv',index=False);provenance.to_csv(out/'source_records.csv',index=False)
     sites.to_csv(out/'motif_sites.csv',index=False);support.to_csv(out/'motif_site_support.csv')
-    write_meme(out/'retained_catalog.meme',{m:pwms[m] for m in motif_ids})
+    redundancy.to_csv(out/'motif_redundancy.csv',index=False)
+    write_meme(out/'retained_catalog.meme',subset_motifs(pwms, motif_ids))
     pd.DataFrame(presence,index=pd.Index(sequence_ids,name='sequence_id'),columns=motif_ids).to_csv(out/'presence_matrix.csv')
     expanded=pd.DataFrame(presence[[si[s] for s in provenance.sequence_id]],columns=motif_ids)
     expanded.insert(0,'sequence_id',provenance.sequence_id.to_numpy());expanded.insert(0,'record_id',provenance.record_id.to_numpy())
@@ -151,7 +244,8 @@ def select_motif_panel(records, hits, pwms, *, output_dir, top_n=10, min_score=2
     (out/'selection_trace.json').write_text(json.dumps(trace,indent=2)+'\n')
     receipt=dict(source_records=len(records),unique_DNA=len(unique),selected=top_n,
         no_catalog_hit=int((presence.sum(1)==0).sum()),min_score=min_score,min_sites=min_sites,
-        site_support_unit='NMS-filtered physical sites across source records, weighted by exact-DNA multiplicity',
+        site_support_unit='NMS-filtered physical sites on unique DNA; strictly greater than min_sites',
+        subset_threshold=subset_threshold,site_overlap_fraction=.8,
         fimo_p=p_threshold,fimo_q=q_threshold,q_values='unchanged from full prefilter catalog scan',
         composition_tie=composition_tie,position_tie_bp=position_tie_bp,match_similarity=match_similarity,
         positional_missing_evidence='ignore unmatched pairs; no comparable pairs gets no positional advantage')

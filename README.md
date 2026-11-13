@@ -26,7 +26,7 @@ cd bioseq-optimization
 python -m pip install -e '.[analysis,motifs]'
 ```
 
-Install MEME Suite for official STREME motif discovery and FIMO scanning; see [Installation](docs/installation.md).
+Install MEME Suite for official XSTREME motif discovery and FIMO scanning; see [Installation](docs/installation.md).
 
 ## 1. Generate designs
 
@@ -86,13 +86,13 @@ Run these cells in a notebook. For a standalone Python script, place model loadi
 
 ## 2. Call motifs
 
-The default backend uses official STREME for discovery and FIMO for seqlet support. It checks both executables before calculating contributions and provides an installation command when either is missing.
+Attribution defaults to ISM; `attribution_method="deepliftshap"` enables the optional DeepLiftShap route. The default backend uses official XSTREME with MEME disabled for discovery and FIMO for seqlet support. It checks both executables before calculating contributions and provides an installation command when either is missing.
 
 ```python
 motifs = call_motifs(designs, model=model, output_dir="outputs/motifs")
 ```
 
-The function uses the design objective to calculate contributions, extracts positive seqlets, discovers PWMs with STREME against dinucleotide-shuffled controls, and retains motifs supported by at least ten seqlets from three parent sequences using FIMO matches. It returns a motif catalog and writes the DNA PWMs to **`outputs/motifs/catalog.meme`** in MEME format. You can also discover motifs with your own method and supply its MEME file directly to step 3.
+The function uses the design objective to calculate contributions, extracts positive seqlets, discovers PWMs with XSTREME against dinucleotide-shuffled controls, and retains motifs supported by at least ten seqlets from three parent sequences using FIMO matches. It then retains FIMO hits with `p ≤ 0.001` and `q ≤ 0.1`, requires more than 30 physical matches on unique candidate DNA and removes motifs when more than 80% of either motif’s positions are covered by the other. It returns a motif catalog and writes the DNA PWMs to **`outputs/motifs/catalog.meme`** in MEME format. You can also discover motifs with your own method and supply its MEME file directly to step 3.
 
 ## 3. Select candidates
 

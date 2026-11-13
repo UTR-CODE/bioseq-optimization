@@ -73,7 +73,7 @@ motifs = call_motifs(
 print(motifs.support)
 ```
 
-The function reuses the generation objective for ISM contributions, calls positive seqlets with tangermeme, discovers motifs with official STREME against dinucleotide-shuffled controls, and retains motifs with FIMO support from at least 10 seqlets and at least 3 parent sequences. It saves the contributions, seqlets, support counts, and `catalog.meme`.
+The function reuses the generation objective for ISM contributions, calls positive seqlets with tangermeme, discovers motifs with official XSTREME (MEME disabled) against dinucleotide-shuffled controls, and retains motifs with FIMO support from at least 10 seqlets and at least 3 parent sequences. Candidate-wide filtering uses FIMO p ≤ 0.001 and q ≤ 0.1, more than 30 physical sites per motif, and 80% site-set redundancy removal. It saves the contributions, seqlets, support counts, and `catalog.meme`.
 
 The exported MEME file can also be passed as `motifs="outputs/optimus5prime/motifs/catalog.meme"` in the selection call below. To use your own motif-discovery method, skip this step and set `motifs="my_motifs.meme"` instead.
 

@@ -18,6 +18,9 @@ dev = ["pytest>=7.4", "build>=1", "ruff>=0.8"]
 [project.urls]
 Repository = "https://github.com/UTR-CODE/bioseq-optimization"
 
+[tool.setuptools]
+license-files = ["THIRD_PARTY_NOTICES.md"]
+
 [tool.setuptools.packages.find]
 include = ["sequence_optimization*"]
 
