@@ -285,10 +285,11 @@ class _DesignProgress:
         self.rendered = True
 
 
-def _design_worker(index, client, length, initial, objective, count, name,
-                   alphabet, constraint, seed, options, barrier, results, progress_state):
+def _design_worker(index, client, length, initial, score_settings, count, name,
+                   alphabet, seed, options, barrier, results, progress_state):
     """CPU-only proposals and remote scoring; no model is sent to this process."""
     import os
+    import cloudpickle
     import torch
     import numba
     from .algorithms import optimize
@@ -299,6 +300,7 @@ def _design_worker(index, client, length, initial, objective, count, name,
             progress_state[2 * index:2 * index + 2] = (round_number, mean)
         client.report_progress = report_progress
     try:
+        objective, constraint = cloudpickle.loads(score_settings)
         barrier.wait()
         began, cpu = time.perf_counter(), time.process_time()
         result = optimize(client, length, initial, objective, count, algorithm=name,
@@ -323,8 +325,11 @@ def run_batched_designs(scorer, gradient_scorer, length, initial, objective, cou
     import multiprocessing as mp
     import os
     import threading
+    import cloudpickle
     import torch
 
+    # Notebook-defined objectives and constraints must cross the spawn boundary.
+    score_settings = cloudpickle.dumps((objective, constraint))
     # Infer names once; the same central cache serves all subsequent requests.
     if getattr(scorer, 'task_names', None) is None:
         scorer.score(initial[:1])
@@ -370,8 +375,8 @@ def run_batched_designs(scorer, gradient_scorer, length, initial, objective, cou
                 discrete_kind='discrete_gradient' if name in DIFFERENTIABLE_ALGORITHMS
                     and gradient_scorer is not scorer else 'discrete')
             process = ctx.Process(target=_design_worker,
-                name=f'bioseq-{name}', args=(index, client, length, initial, objective,
-                    count, name, alphabet, constraint, seed+index, options, barrier, results,
+                name=f'bioseq-{name}', args=(index, client, length, initial, score_settings,
+                    count, name, alphabet, seed+index, options, barrier, results,
                     progress_state))
             process.start()
             workers.append(process)

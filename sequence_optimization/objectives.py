@@ -621,6 +621,34 @@ class MultiTaskObjective:
         }
 
 
+class CustomObjective:
+    """A tensor function of named model outputs, returning one score per sequence."""
+
+    def __init__(self, function):
+        self.function = function
+
+    def describe(self, n_tasks, task_names=None):
+        return {"type": "custom", "function": getattr(self.function, "__name__", type(self.function).__name__)}
+
+    def scalarize(self, activities, task_names=None):
+        import torch
+
+        with torch.no_grad():
+            values = self.scalarize_soft(torch.as_tensor(activities), task_names).numpy()
+        if not np.isfinite(values).all():
+            raise ValueError("The custom objective returned a non-finite score")
+        return values
+
+    def scalarize_soft(self, activities, task_names=None):
+        import torch
+
+        names = task_names or tuple(f"task_{i}" for i in range(activities.shape[1]))
+        scores = self.function(dict(zip(names, activities.unbind(dim=1))))
+        if not isinstance(scores, torch.Tensor) or scores.shape != (len(activities),):
+            raise ValueError("A custom objective must return a PyTorch tensor with one score per sequence")
+        return scores
+
+
 class ObjectiveScorer:
     """Turn raw model activities into scalar utilities and retain activities."""
 
@@ -713,6 +741,8 @@ class ObjectiveScorer:
 
     def uncertainties_for(self, sequences) -> np.ndarray | None:
         """Re-evaluate cached raw uncertainties for the current objective state."""
+        if isinstance(self.objective, CustomObjective):
+            return None
         values = np.asarray(sequences, dtype=str).reshape(-1)
         if not all(str(value) in self._activity_uncertainties for value in values):
             return None
@@ -863,6 +893,8 @@ class ObjectiveScorer:
                     uncertainties[:, ids] / tensor(scale[ids]) * weights, dim=1
                 )
             return utilities, uncertainty
+        if isinstance(self.objective, CustomObjective):
+            return self.objective.scalarize_soft(activities, self.task_names), None
         coefficients = torch.as_tensor(
             self.objective.coefficients(activities.shape[1], self.task_names),
             dtype=activities.dtype,

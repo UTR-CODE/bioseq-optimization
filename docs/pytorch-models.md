@@ -1,140 +1,32 @@
-# PyTorch model interface
+# Connect your own PyTorch model
 
-[Home](../README.md) · [Candidate generation](candidate-generation.md)
+Models from `bioseq_models` already implement MotifSift's scoring interface and can be used directly.
 
-The optimizer operates on nucleotide sequences. The default `SequencePredictor` adapter supports **four-channel A/C/G/T one-hot input**, in that order. For nonstandard representations or channel counts, implement `score` and `score_soft` as described in [Custom sequence scorers](custom-scorers.md).
-
-| Component | Interface |
-|---|---|
-| Model | A `torch.nn.Module` following the default input/output contract below |
-| Default input | Float32 `[batch, 4, length]`, A/C/G/T channels |
-| Model output | `[batch]` or `[batch, tasks]` activity tensor |
-| Predictor output | `[batch, tasks]` activity matrix |
-| Canonical probabilities | `[batch, length, 4]` |
-| Input adaptation | `input_transform(probabilities)` |
-| Output adaptation | `output_transform(model_output)` |
-
-## 1. A sequence-to-activity network
-
-This compact architecture illustrates the interface. Supply the trained model from your prediction workflow when designing experimental sequences.
+For your own PyTorch model, wrap it once with `SequencePredictor(model, tasks)`. List task names in the same order as the model outputs. The adapter implements `score()` for nucleotide strings and `score_soft()` for differentiable sequence optimization. It uses the device on which you placed the model.
 
 ```python
-import torch
-from torch import nn
-from sequence_optimization import SequencePredictor
+from MotifSift import SequencePredictor, generate_designs
 
-class ActivityCNN(nn.Module):
-    def __init__(self, outputs=1):
-        super().__init__()
-        self.network = nn.Sequential(
-            nn.Conv1d(4, 32, kernel_size=9, padding=4),
-            nn.ReLU(),
-            nn.Conv1d(32, 32, kernel_size=5, padding=2),
-            nn.ReLU(),
-            nn.AdaptiveAvgPool1d(1),
-            nn.Flatten(),
-            nn.Linear(32, outputs),
-        )
-
-    def forward(self, x):
-        return self.network(x)
-
-model = ActivityCNN(outputs=1)
-scorer = SequencePredictor(model, tasks=["activity"], device="cpu")
+scorer = SequencePredictor(my_model, tasks=["activity"])
+designs = generate_designs(scorer, length=200, objective="maximize")
 ```
 
-Model loading remains part of the prediction workflow. For example, load a trained architecture and its state dictionary, or reuse an already loaded `nn.Module`:
+By default, `forward()` receives A/C/G/T one-hot input of shape `[batch, 4, length]` and returns a tensor of shape `[batch]` or `[batch, tasks]`.
+
+## Model with a different input layout
+
+For a model trained on `[batch, length, 4]` in A/C/G/T order, override `prepare_input`. It receives base probabilities in that layout, so this example passes them through. Use PyTorch operations for layout changes so the gradients reach the sequence probabilities.
 
 ```python
-# model = YourActivityNetwork(...)
-# model.load_state_dict(torch.load("checkpoint.pt", weights_only=True))
-scorer = SequencePredictor(model, tasks=["activity"], device="cpu")
+from MotifSift import SequencePredictor
+
+
+class ChannelsLastPredictor(SequencePredictor):
+    def prepare_input(self, probabilities):
+        return probabilities
+
+
+scorer = ChannelsLastPredictor(my_model, tasks=["activity"])
 ```
 
-### Direct use with all eleven optimizers
-
-A trained `nn.Module` accepting four-channel `[batch,4,length]` A/C/G/T input can be supplied directly:
-
-```python
-from sequence_optimization import generate_designs
-
-designs = generate_designs(
-    model, length=200, objective=["maximize"], num_candidates=100,
-)
-```
-
-`generate_designs` constructs `SequencePredictor` automatically. For discrete scoring, it one-hot encodes DNA strings. For `score_soft`, it feeds continuous nucleotide probabilities through the same `forward` method and retains input gradients. Seven optimizers use discrete scores; DEN, Fast SeqProp, Ledidi, and activation maximization also request differentiable scores. The shared service batches both kinds of requests and returns gradients to CPU optimizer workers.
-
-The model only implements `forward`; users do not add `score` or `score_soft` methods to a standard CNN. Model weights stay fixed while the optimizers update sequences. The differentiable path uses PyTorch tensor operations throughout: use `argmax`, NumPy conversion, or `detach` only outside the model's input-to-activity computation. Simple layout changes can use `SequencePredictor(input_transform=...)` as below. For a complete model-specific interface, use a [custom scorer](custom-scorers.md).
-
-## 2. Input layouts
-
-A model accepting `[batch, length, 4]` uses an identity input transform:
-
-```python
-scorer = SequencePredictor(
-    model, tasks=["activity"], device="cpu",
-    input_transform=lambda p: p,
-)
-```
-
-For another channel order, reorder the canonical A/C/G/T probabilities before converting to channels-first:
-
-```python
-scorer = SequencePredictor(
-    model, tasks=["activity"], device="cpu",
-    input_transform=lambda p: p[:, :, [0, 2, 1, 3]].transpose(1, 2),
-)
-```
-
-Input transforms can also apply padding, concatenate fixed contexts, or map probabilities into model embeddings. They receive probabilities on the selected model device. Use PyTorch tensor operations to carry input gradients through the transformation.
-
-## 3. Structured outputs
-
-For a model returning a dictionary, select its activity tensor:
-
-```python
-scorer = SequencePredictor(
-    model, tasks=["activity"], device="cpu",
-    output_transform=lambda result: result["activity"],
-)
-```
-
-For multiple outputs, name the tasks and define the optimization objective separately:
-
-```python
-from sequence_optimization import MultiTaskObjective
-scorer = SequencePredictor(model, tasks=["target", "off_target"], device="cpu")
-objective = MultiTaskObjective(directions=["maximize", "minimize"])
-```
-
-An output transform can construct nonlinear contrasts such as target activity minus the largest off-target activity; see the [enhancer example](examples/enhancer.md).
-
-## 4. Sequence scoring and gradients
-
-```python
-from sequence_optimization import random_seed_sequences, onehot
-initial = random_seed_sequences(200, 4, seed=42)
-activities = scorer.score(initial).scores
-
-p = torch.tensor(onehot(initial), requires_grad=True)
-soft_activities, _ = scorer.score_soft(p)
-gradient, = torch.autograd.grad(soft_activities.sum(), p)
-```
-
-Both paths use the same model and transformations. The model is evaluated with fixed weights; gradient algorithms update sequence variables.
-
-## 5. String-based predictors
-
-Black-box algorithms can also use a function mapping sequence strings to activity values:
-
-```python
-from sequence_optimization import CallableScorer
-scorer = CallableScorer(predict_sequences, task_names=["activity"])
-```
-
-Here `predict_sequences` is your own prediction function. Select black-box algorithms for this interface, or provide a corresponding differentiable model for gradient algorithms.
-
-## Sequence-design workflows
-
-Continue with [single-task optimization](examples/single-task.md), [one-high/others-low multi-task optimization](examples/multi-task.md), or [integration of independent predictors](examples/multiple-models.md).
+If your model returns a dictionary or other structured output, make its PyTorch `forward()` return the activity tensor. To combine multiple activity outputs into an optimization score, use a [custom objective](core-api.md#choose-an-objective).

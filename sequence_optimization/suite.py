@@ -23,7 +23,7 @@ from .api import (
     normalize_nucleotide_sequences,
 )
 from .constraints import ConstraintSpec
-from .objectives import MultiTaskObjective, TargetObjective
+from .objectives import CustomObjective, MultiTaskObjective, TargetObjective
 from .saturation import SaturationConfig, SaturationResult, resolve_search_config
 from .exploration import DiversitySearchConfig, MotifPositionDescriptor
 
@@ -415,6 +415,9 @@ def generate_designs(
         if multiple_stages:
             pd.DataFrame(stage_timings).to_csv(output_dir/"gain_stage_timing.csv", index=False)
         metadata = dict(frame.attrs)
-        metadata["objective"] = dict(type=type(objective).__name__, parameters=asdict(objective)) if is_dataclass(objective) else objective
+        if isinstance(objective, CustomObjective):
+            metadata["objective"] = objective.describe(len(result_task_names), result_task_names)
+        elif is_dataclass(objective):
+            metadata["objective"] = dict(type=type(objective).__name__, parameters=asdict(objective))
         (output_dir/"config.json").write_text(json.dumps(metadata, indent=2, default=lambda v: v.tolist())+"\n")
     return frame

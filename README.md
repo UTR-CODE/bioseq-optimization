@@ -1,6 +1,6 @@
 # MotifSift
 
-Design sequences with a trained predictor, discover motifs in the candidates, and select a panel for experimental follow-up.
+Design sequences with a trained predictor, discover motifs in the candidates, and select a panel.
 
 ![MotifSift workflow](Fig.png)
 
@@ -12,32 +12,30 @@ cd bioseq-optimization
 python -m pip install '.[motifs]'
 ```
 
-See [installation](docs/installation.md) for MEME Suite and the pretrained models used in the notebooks.
+See [installation](docs/installation.md) for MEME Suite and the pretrained models.
 
 ## Design, discover motifs, and select
 
-Start with a trained [sequence-to-activity model](docs/pytorch-models.md) or [custom scorer](docs/custom-scorers.md).
+Use a predictor from `bioseq_models` directly. For your own PyTorch model, use [SequencePredictor](docs/pytorch-models.md).
 
 ```python
-from sequence_optimization import call_motifs, generate_designs, select_candidates
+from bioseq_models import load_model
+from MotifSift import call_motifs, generate_designs, select_candidates
 
-designs = generate_designs(
-    model, length=200, objective=["maximize"],
-    gain_fractions=(0.5, 0.9),
-)
-
-candidates = designs.loc[designs["gain_fraction"].eq(0.9)]
-motifs = call_motifs(candidates, model=model)
-selected = select_candidates(candidates, top_n=10, motifs=motifs)
+model = load_model("optimus5prime")
+designs = generate_designs(model, length=50, objective="maximize", gain_fractions=(0.5, 0.9))
+designs = designs.loc[designs["gain_fraction"].eq(0.9)].copy()
+motifs = call_motifs(designs, model, reverse_complement=False)
+panel = select_candidates(designs, motifs=motifs, top_n=10)
 ```
 
 ## Examples
 
 | Model | Notebook |
 |---|---|
-| Optimus 5-Prime | [Optimize a 5′ UTR for predicted ribosome load](examples/single-task.ipynb) |
-| DeepSTARR | [Optimize developmental and housekeeping enhancer activity](examples/multi-task.ipynb) |
-| MPRALegNet | [Optimize enhancer activity across K562, HepG2 and WTC11](examples/multiple-models.ipynb) |
-| Saluki | [Optimize the eGFP CDS with synonymous substitutions](examples/saluki-egfp.ipynb) |
+| Optimus 5-Prime | [5′ UTR design](examples/single-task.ipynb) |
+| DeepSTARR | [Multi-output enhancer design](examples/multi-task.ipynb) |
+| MPRALegNet | [Cell-selective enhancer design](examples/multiple-models.ipynb) |
+| Saluki | [Synonymous eGFP CDS design](examples/saluki-egfp.ipynb) |
 
-[API](docs/core-api.md) · [Motif discovery](docs/motif-discovery.md) · [Panel selection](docs/motif-diversity.md)
+[Objectives and API](docs/core-api.md) · [Motif discovery](docs/motif-discovery.md) · [Panel selection](docs/motif-diversity.md)

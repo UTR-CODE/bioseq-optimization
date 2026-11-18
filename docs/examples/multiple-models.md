@@ -2,36 +2,55 @@
 
 [Notebook](../../examples/multiple-models.ipynb) · [Installation](../installation.md)
 
-Combine the pretrained K562, HepG2 and WTC11 MPRALegNet predictors. Reference predictions put the three outputs on standardized scales before optimization.
+Favor K562 activity over HepG2 and WTC11. Each cell type uses its full ten-fold pretrained MPRALegNet ensemble. The objective combines the predictions on their native scale. Install MEME Suite with the notebook dependencies. The first model load downloads the pretrained checkpoint.
 
-## Load the predictors and set the objective
+## 1. Load the model
 
 ```python
-import numpy as np
-import torch
-from bioseq_models import load_model
-from sequence_optimization import CombinedScorer, MultiTaskObjective, generate_designs, random_seed_sequences
+from pathlib import Path
+from tempfile import mkdtemp
 
-device = "cuda" if torch.cuda.is_available() else "cpu"
+from MotifSift import CombinedScorer, MultiTaskObjective, call_motifs, select_candidates
+from reproduce import recorded_designs, recorded_model, recorded_seeds
+
 cells = ["K562", "HepG2", "WTC11"]
-model = CombinedScorer(
-    [load_model(f"agarwal_{cell.lower()}", device=device) for cell in cells],
-    names=cells,
-)
-reference = model.score(random_seed_sequences(230, 32, seed=43)).scores
-objective = MultiTaskObjective(
-    high=["K562"], low=["HepG2", "WTC11"], aggregation="mean",
-    centers=reference.mean(axis=0), scales=np.maximum(reference.std(axis=0), 1e-8),
-)
-seeds = random_seed_sequences(230, 4, seed=42)
+model = CombinedScorer({
+    cell: recorded_model(f"agarwal_{cell.lower()}")
+    for cell in cells
+})
+objective = MultiTaskObjective(high=["K562"], low=["HepG2", "WTC11"])
+seeds = recorded_seeds(230)
+run = Path(mkdtemp(prefix="motifsift-example-"))
 ```
 
-## Optimize and inspect the candidates
+## 2. Generate candidates
+
+Run the eleven optimizers and keep 100 candidates per optimizer. The notebook uses the recorded run settings from `examples/reproduce.py`.
 
 ```python
-designs = generate_designs(
-    model, length=230, initial=seeds, objective=objective,
-    algorithms=["simulated_annealing"], num_candidates=4, seed=42, parallel=False,
+designs = recorded_designs(
+    "mpralegnet", model, length=230, initial=seeds, objective=objective,
+    output_dir=run / "designs",
 )
-designs[["activity_K562", "activity_HepG2", "activity_WTC11", "score"]]
+designs.groupby("algorithm")["score"].agg(["size", "median", "max"])
+```
+
+## 3. Discover motifs
+
+Extract positive seqlets from in silico mutagenesis scores and discover motifs with XSTREME.
+
+```python
+motifs = call_motifs(
+    designs, model=model,
+    output_dir=run / "motifs",
+)
+motifs.support.query("retained")[["motif_id", "seqlets", "parents", "sites_on_unique_DNA"]]
+```
+
+## 4. Select a panel
+
+```python
+gate = float(designs.drop_duplicates("sequence").score.quantile(0.2))
+selected = select_candidates(designs, motifs=motifs, top_n=10, min_score=gate, output_dir=run / "selected")
+selected[["selection_rank", "sequence", "score", "present_motifs"]]
 ```

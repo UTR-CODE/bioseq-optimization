@@ -7,7 +7,7 @@ The third core function selects a high-quality diverse panel. Its distance repre
 ## 1. Default Hamming selection
 
 ```python
-from sequence_optimization import select_candidates
+from MotifSift import select_candidates
 selected = select_candidates(designs, top_n=10, min_score=gate)
 ```
 
@@ -59,8 +59,6 @@ Selection starts with the highest-scoring eligible design, then prioritizes:
 ```python
 selected = select_candidates(
     designs, motifs=motifs, top_n=10, min_score=gate,
-    min_sites=30, match_similarity=0.5,
-    composition_tie=0.02, position_tie_bp=2.0,
 )
 print(selected.attrs["selection_method"])  # motif
 ```
@@ -74,7 +72,7 @@ Reuse saved designs and motifs from the K562 example to select a panel with the 
 ```python
 from pathlib import Path
 import pandas as pd
-from sequence_optimization import call_motifs, select_candidates
+from MotifSift import call_motifs, select_candidates
 
 DATA = Path("examples/data")
 designs = pd.read_csv(DATA / "k562_candidates_1100.csv")

@@ -1,84 +1,13 @@
-# 5′UTR design
+# Optimize a 5′ UTR with your own model
 
-[Home](../../README.md) · [Core API](../core-api.md) · [Notebook](../../examples/5utr.ipynb)
-
-Optimize a 50-nt UTR using a PyTorch `model` predicting mean ribosome load (MRL).
-
-## 1. Connect the translation predictor
+For pretrained Optimus 5-Prime, see the [executed workflow](single-task.md). For your own PyTorch model, use the same workflow with a `SequencePredictor`.
 
 ```python
-from pathlib import Path
-import numpy as np
-import pandas as pd
-import torch
-from sequence_optimization import generate_designs, call_motifs, select_candidates
-from sequence_optimization import SequencePredictor
-DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-scorer = SequencePredictor(model, tasks=["mrl"], device=DEVICE)
-objective = ["maximize"]
+from MotifSift import SequencePredictor, call_motifs, generate_designs, select_candidates
+
+model = SequencePredictor(my_model, tasks=["mrl"])
+designs = generate_designs(model, length=50, objective="maximize")
+motifs = call_motifs(designs, model, reverse_complement=False)
+panel = select_candidates(designs, motifs=motifs, top_n=10)
+panel[["sequence", "score", "present_motifs"]]
 ```
-
-## 2. Generate candidate designs
-
-```python
-designs = generate_designs(
-    scorer, length=50, objective=objective,
-    num_candidates=100, seed=42, output_dir="outputs/utr",
-)
-timing = pd.DataFrame(designs.attrs["timing"])
-print(timing[["algorithm", "seconds", "queries", "stop_reason"]])
-```
-
-The 11 optimizers run in independent CPU processes with shared batched model scoring, share a starting population, run to a plateau, and each contribute 100 designs at the 90% observed-gain stage. The returned table contains sequences, individual activity predictions, scores, and algorithm provenance.
-
-## 3. Call motifs from the designs
-
-```python
-motifs = call_motifs(
-    designs, model=scorer, output_dir="outputs/utr_motifs",
-    reverse_complement=False,
-)
-print(motifs.support)
-```
-
-This calculates contributions for the optimization objective, extracts positive seqlets, and discovers PWMs with official XSTREME (MEME disabled), and filters supporting seqlets using FIMO. Candidate-wide FIMO filtering retains hits with p ≤ 0.001 and q ≤ 0.1, requires more than 30 physical sites per motif, and removes motifs with more than 80% site-set coverage. The catalog is saved as `catalog.meme`.
-
-RNA has a defined 5′→3′ orientation. `reverse_complement=False` uses single-strand RNA discovery and forward-only FIMO scanning. Sequences and the exported catalog use A/C/G/T encoding (U is represented as T); native A/C/G/U discovery output is preserved separately. Supply a strand-specific scorer: this parameter controls motif analysis and does not change the predictor's own strand handling.
-
-## 4. Select a motif-diverse panel
-
-```python
-gate = float(designs.drop_duplicates("sequence").score.quantile(0.2))
-selected = select_candidates(
-    designs, top_n=10, motifs=motifs, min_score=gate,
-    output_dir="outputs/utr_top10",
-)
-print(selected[["selection_rank", "sequence_id", "score", "present_motifs", "algorithms"]])
-```
-
-The selector scans the catalog onto the designs and prioritizes motif composition, matched motif positions, and prediction score. CSV, FASTA, motif sites, distance matrices, and the selection trace are exported together.
-
-Passing the `MotifCatalog` object automatically inherits `reverse_complement=False`, including forward-only PWM similarity. When reloading `catalog.meme` as a path instead, explicitly set `select_candidates(..., reverse_complement=False)`; file and PWM-dictionary inputs default to the DNA behavior (`True`).
-
-## 5. Hamming selection without motifs
-
-For a sequence-distance panel, omit the `motifs` argument. This mode also works directly after design generation, independently of motif discovery.
-
-```python
-hamming_panel = select_candidates(
-    designs, top_n=10, min_score=gate,
-    output_dir="outputs/utr_hamming",
-)
-print(hamming_panel.attrs["selection_method"])  # hamming
-```
-
-## 6. Annotate upstream AUGs
-
-```python
-selected["upstream_ATG_positions0"] = selected.sequence.map(
-    lambda s: ";".join(str(i) for i in range(len(s)-2) if s[i:i+3] == "ATG")
-)
-selected.to_csv("outputs/utr_top10/selected_sequences.csv", index=False)
-```
-
-For standalone Python scripts, place model loading and workflow calls under `if __name__ == "__main__":`. Notebook cells call the functions directly. See [Parallel scoring](../parallel-scoring.md) for batch-size controls and utilization metrics.

@@ -1,167 +1,53 @@
-# Three-function API
+# MotifSift API
 
-[Home](../README.md)
+## Choose an objective
 
-```python
-from sequence_optimization import generate_designs, call_motifs, select_candidates
-```
+For a single output, pass `objective="maximize"` or `objective="minimize"`.
 
-## 1. `generate_designs`
+For multiple outputs, name the outputs to increase and decrease. Use `weights` when some outputs matter more. Omitted weights default to 1. Model outputs outside `high` and `low` are excluded from the score.
 
 ```python
-designs = generate_designs(
-    model, length=200, initial=None, objective=["maximize"],
-    num_candidates=100, output_dir="outputs/designs", seed=42,
+from MotifSift import MultiTaskObjective
+
+objective = MultiTaskObjective(
+    high=["housekeeping"],
+    low=["developmental"],
+    weights={"housekeeping": 2, "developmental": 1},
 )
 ```
 
-`model` may be a PyTorch `nn.Module`, `SequencePredictor`, or `CombinedScorer`. A plain module using the standard four-channel A/C/G/T encoding is automatically wrapped: its `forward` accepts `[batch,4,length]` A/C/G/T inputs and returns `[batch]` or `[batch,tasks]` activity tensors. The wrapper supplies both discrete `score` and differentiable `score_soft`; users do not implement those methods on a standard CNN. For nonstandard encodings or channel counts, supply a [custom scorer](custom-scorers.md) implementing `score` and `score_soft`. Explicit scorer methods are used directly, including when the scorer is a PyTorch module. `initial=None` generates the shared random population. Select algorithms with `algorithms=[...]`; the default contains eleven non-random optimizers.
+This maximizes `(2 × housekeeping − developmental) / 3` in the model's prediction units. Omit `weights` to give both outputs equal weight.
 
-By default, `parallel=True` starts one CPU optimization process per algorithm. A single scoring service in the calling process retains the loaded model, receives requests through a shared queue, and combines compatible discrete or differentiable requests into batches. Model objects stay out of the worker processes.
-
-The default search runs to a plateau and retains the 90% observed-gain stage. Pass `gain_fraction` for a different stage or `score_threshold` for absolute score stopping. See [the two search modes](candidate-generation.md#search-modes). `num_candidates` is the count per algorithm. The design table includes:
-
-- `sequence`, `algorithm`, and scalar `score`.
-- `activity_<task>` for each individual prediction output.
-- `record_id` for each source record and `sequence_id` for each exact DNA sequence.
-
-Pass `gain_fractions=(0.5, 0.9)` to `generate_designs` to return both stages in one table with a `gain_fraction` column. At the lower-level `optimize` API, `gain_fractions` returns a `SaturationResult`. Access the archives with `result.at(0.5)` and `result.at(0.9)`.
-
-The output directory contains `designs.csv/fa`, `unique_designs.csv/fa`, `timing.csv`, and the run configuration. Parallel runs also export `gpu_batches.csv/json`; the returned table includes `designs.attrs["batching"]` and `designs.attrs["execution"]`.
+For a custom score, pass a function that receives a dictionary of named PyTorch prediction tensors and returns one score per sequence. The optimizer maximizes the returned score. Use tensor operations so gradient-based optimizers can differentiate through it.
 
 ```python
-import pandas as pd
-timing = pd.DataFrame(designs.attrs["timing"])
-print(timing[["algorithm", "seconds", "queries", "stop_reason"]])
+import torch
+
+
+def k562_specificity(y):
+    return y["K562_log2FC"] - torch.maximum(y["HepG2_log2FC"], y["SKNSH_log2FC"])
+
+
+def housekeeping_specificity(y):
+    return y["housekeeping"] - y["developmental"]
 ```
 
-Batch sizes and the collection window can be adjusted through the same function:
+Use `generate_designs(model, length=200, objective=k562_specificity)` with the [Malinois enhancer model](examples/enhancer.md). `designs` keeps the individual model predictions alongside the composite `score`.
+
+If the outputs come from separate predictors, combine them with `CombinedScorer({"K562": k562_model, "HepG2": hepg2_model})`. The dictionary keys become the output names used by the objective.
+
+## Generate, discover, and select
 
 ```python
-designs = generate_designs(
-    model, length=200, num_candidates=100,
-    max_batch_size=512, max_soft_batch_size=64, batch_wait_ms=5.0,
-    output_dir="outputs/batched_designs",
-)
-print(designs.attrs["batching"])
+from MotifSift import call_motifs, generate_designs, select_candidates
+
+designs = generate_designs(model, length=200, objective=objective)
+motifs = call_motifs(designs, model)
+panel = select_candidates(designs, motifs=motifs, top_n=10)
 ```
 
-`parallel=False` uses sequential optimization for comparison. Per-algorithm parallel runtimes include queue waiting; `wall_seconds` measures the whole generation call. Notebooks can call the function directly. In standalone Python scripts, place model loading and workflow calls under `if __name__ == "__main__":`.
+- `generate_designs` returns a pandas DataFrame. By default, eleven optimizers each retain up to 100 candidates at 90% of the observed gain. Use `num_candidates` to change the count, `gain_fractions=(0.5, 0.9)` to return both stages, or `score_threshold` to set a target score.
+- `call_motifs` uses the design objective for attribution. Use `reverse_complement=False` for RNA. When reloading designs from a CSV, pass the original `objective` explicitly to restore it.
+- `select_candidates` returns a DataFrame of the selected sequences. Use `top_n` for panel size and `min_score` to enforce a minimum score.
 
-## 2. `call_motifs`
-
-```python
-motifs = call_motifs(
-    designs, model=model, output_dir="outputs/motifs",
-    min_seqlets=10, min_parents=3,
-)
-```
-
-Use the same model or scorer as in design generation. The design objective is carried in `designs.attrs` and reused for attribution. The default workflow is:
-
-1. Combine exact-DNA duplicates.
-2. Calculate ISM contributions for the design objective.
-3. Call positive tangermeme seqlets.
-4. Generate length- and dinucleotide-matched background fragments.
-5. Discover candidate PWMs with official XSTREME, with MEME disabled (`--meme-nmotifs 0`).
-6. Scan the seqlets with FIMO and retain motifs supported by at least ten seqlets from at least three parent sequences.
-7. Scan the full native catalog on unique candidate sequences with FIMO (`p ≤ 0.001`, `q ≤ 0.1`), require more than 30 physical matches, and remove motifs when more than 80% of either site set is covered by the other.
-
-The default `motif_backend="xstreme"` uses official XSTREME and FIMO. Missing executables produce an installation message before attribution starts. The optional `motif_backend="builtin"` uses the independently implemented discovery method described in [Motif discovery](motif-discovery.md).
-
-The returned `MotifCatalog` contains `pwms`, `seqlets`, and `support`. With `output_dir="outputs/motifs"`, the function exports the retained PWMs to **`outputs/motifs/catalog.meme`** in MEME format, alongside contributions, fragment sequences, and the motif-support table. This file can be passed directly to `select_candidates` in a later session.
-
-For RNA, set `call_motifs(..., reverse_complement=False)`. The default is `True` for DNA. The setting controls all three discovery backends and FIMO scanning, is stored in `MotifCatalog.reverse_complement` and `config.json`, and is inherited by `select_candidates`. The exported catalog uses A/C/G/T encoding (U represented as T); external RNA discovery output is preserved unchanged alongside a separate DNA-encoded MEME file. The parameter does not alter strand handling inside the supplied predictor.
-
-ISM is the default. Set `attribution_method="deepliftshap"` to use 20 dinucleotide-shuffled references per sequence with the same downstream stages:
-
-```python
-motifs = call_motifs(
-    designs, model=model, attribution_method="deepliftshap",
-    n_references=20, attribution_batch_size=64,
-    output_dir="outputs/motifs_deepliftshap",
-)
-```
-
-DeepLiftShap uses the scorer's differentiable `score_soft` interface. Custom nonlinear models can supply `attribution_model`, a scalar-objective PyTorch module; see [attribution options](motif-discovery.md#optional-deepliftshap-attribution). Native MEME metadata are retained on export. Candidate selection inherits the returned catalog's scan thresholds; MEME-file inputs default to `p_threshold=0.001`, `q_threshold=0.1`.
-
-To reuse attribution scores:
-
-```python
-motifs = call_motifs(designs, contributions=contributions)
-```
-
-A contribution array has shape `[input records, length]` in the same row order as `designs`. A contribution DataFrame can instead use `sequence_id` as its index. ISM and DeepLIFTShap projected contributions use the same interface.
-
-To reuse a catalog:
-
-```python
-motifs = call_motifs(designs, catalog="catalog.meme")
-```
-
-Saved FIMO results can also be supplied with `hits=...`. After loading a design CSV, pass the original objective explicitly using `objective=...` when calculating new contributions.
-
-## 3. `select_candidates`
-
-### Default: Hamming distance
-
-```python
-selected = select_candidates(
-    designs, top_n=10, min_score=None,
-    output_dir="outputs/hamming_panel",
-)
-```
-
-The selector combines exact-DNA duplicates, applies the score threshold, anchors on the highest score, and greedily maximizes the minimum Hamming distance to all previously selected designs. Near distance ties favor higher scores.
-
-### With motifs: composition and positional diversity
-
-```python
-selected = select_candidates(
-    designs, top_n=10, motifs=motifs, min_score=None,
-    output_dir="outputs/motif_panel",
-    min_sites=30, match_similarity=0.5,
-    composition_tie=0.02, position_tie_bp=2.0,
-)
-```
-
-`motifs` accepts the `MotifCatalog` returned by `call_motifs`, a MEME file, or a PWM dictionary. The selector performs FIMO scanning, physical-site consolidation, motif support filtering, site-set redundancy removal, PWM similarity, Soft-Jaccard composition distances, and Hungarian positional matching internally.
-
-`reverse_complement=None` inherits the catalog object's mode, or defaults to `True` for file/dictionary inputs. For RNA catalogs loaded from disk, pass `reverse_complement=False` explicitly. This restricts both FIMO scanning and PWM similarity to the supplied orientation. Overriding a catalog's mode forces a fresh FIMO scan rather than reusing hits or q-values from the other scan mode. Saved hits supplied to a forward-only catalog must contain only `+` strands and must originate from a forward-only scan. Hamming selection compares the supplied sequences directly and uses no reverse-complement matching.
-
-### Use your own motif-discovery workflow
-
-The discovery and selection stages communicate through a MEME file. Discover motifs with your preferred method, export DNA letter-probability matrices, and pass the path directly to selection. The file must declare `ALPHABET= ACGT` and use unique motif IDs.
-
-```python
-import pandas as pd
-
-designs = pd.read_csv("outputs/designs/designs.csv")
-gate = float(designs.drop_duplicates("sequence").score.quantile(0.2))
-selected = select_candidates(
-    designs,
-    motifs="my_motifs.meme",  # Also accepts pathlib.Path
-    top_n=10,
-    min_score=gate,
-    output_dir="outputs/custom_motif_panel",
-)
-```
-
-This route needs the scored candidate sequences and FIMO. It does not require `call_motifs`, the prediction model, attribution scores, tangermeme, or XSTREME. FIMO identifies motif IDs and positions internally, followed by the same site-support filtering and diversity selection. The MEME file exported by step 2 works through exactly this interface:
-
-```python
-selected = select_candidates(
-    designs, motifs="outputs/motifs/catalog.meme", top_n=10,
-    min_score=gate, output_dir="outputs/exported_motif_panel",
-)
-```
-
-Both modes return the same type of selected design table:
-
-```python
-print(selected[["selection_rank", "sequence_id", "score", "algorithms"]])
-print(selected.attrs["selection_method"])
-print(selected.attrs["selection_trace"])
-```
-
-`min_score=None` includes the full finite-score pool. To restrict selection to high-quality designs, set an activity threshold or a score quantile before selection.
+Each step accepts an optional `output_dir` for saving its results. See [PyTorch models](pytorch-models.md), [motif discovery](motif-discovery.md), and [panel selection](motif-diversity.md).

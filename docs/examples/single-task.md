@@ -2,26 +2,54 @@
 
 [Notebook](../../examples/single-task.ipynb) · [Installation](../installation.md)
 
-This example maximizes predicted mean ribosome load for a 50-nt 5′ UTR. The first model load downloads the pretrained checkpoint.
+Maximize the predicted mean ribosome load of a 50-nt 5′ UTR. Reuse the 100 starting sequences and exclude runs of six identical bases, as in the Extended Data analysis. Install MEME Suite with the notebook dependencies. The first model load downloads the pretrained checkpoint.
 
-## Load the predictor
+## 1. Load the model
 
 ```python
-import torch
-from bioseq_models import load_model
-from sequence_optimization import generate_designs, random_seed_sequences
+from pathlib import Path
+from tempfile import mkdtemp
 
-device = "cuda" if torch.cuda.is_available() else "cpu"
-model = load_model("optimus5prime", device=device)
-seeds = random_seed_sequences(50, 4, seed=42)
+import pandas as pd
+from MotifSift import call_motifs, select_candidates
+from optimus_support import no_homopolymer6
+from reproduce import recorded_designs, recorded_model
+
+model = recorded_model("optimus5prime")
+seeds = pd.read_csv("data/optimus_initial_sequences.csv")["sequence"].tolist()
+
+run = Path(mkdtemp(prefix="motifsift-example-"))
 ```
 
-## Optimize and inspect the candidates
+## 2. Generate candidates
+
+Run the eleven optimizers and keep 100 candidates per optimizer. The displayed tables come from the full run reproduced by `examples/reproduce.py`.
 
 ```python
-designs = generate_designs(
-    model, length=50, initial=seeds, objective=["maximize"],
-    algorithms=["simulated_annealing"], num_candidates=4, seed=42, parallel=False,
+designs = recorded_designs(
+    "optimus", model, length=50, initial=seeds, objective="maximize",
+    constraint=no_homopolymer6,
+    output_dir=run / "designs",
 )
-designs[["sequence", "activity_mrl"]]
+designs.groupby("algorithm")["score"].agg(["size", "median", "max"])
+```
+
+## 3. Discover motifs
+
+Extract positive seqlets from in silico mutagenesis scores and discover motifs with XSTREME.
+
+```python
+motifs = call_motifs(
+    designs, model=model, reverse_complement=False,
+    output_dir=run / "motifs",
+)
+motifs.support.query("retained")[["motif_id", "seqlets", "parents", "sites_on_unique_DNA"]]
+```
+
+## 4. Select a panel
+
+```python
+gate = float(designs.drop_duplicates("sequence").score.quantile(0.2))
+selected = select_candidates(designs, motifs=motifs, top_n=10, min_score=gate, output_dir=run / "selected")
+selected[["selection_rank", "sequence", "score", "present_motifs"]]
 ```

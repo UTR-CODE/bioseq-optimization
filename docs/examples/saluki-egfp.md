@@ -2,40 +2,59 @@
 
 [Notebook](../../examples/saluki-egfp.ipynb) · [Installation](../installation.md)
 
-This example uses Saluki to score a single-exon eGFP transcript. The UTRs are fixed and the search only introduces synonymous changes to the CDS.
+Score a single-exon eGFP transcript with fixed UTRs. Optimize the CDS with synonymous substitutions and retain the terminal stop codon. Install MEME Suite with the notebook dependencies. The first model load downloads the pretrained checkpoint.
 
-## Load eGFP and Saluki
+## 1. Load the model
 
 ```python
 from pathlib import Path
+from tempfile import mkdtemp
 
-import torch
-from bioseq_models import load_model
-from sequence_optimization import CallableScorer, generate_designs
+from MotifSift import SynonymousCodonSpace, call_motifs, select_candidates
+from saluki_support import ReporterScorer, codon_ism
+from reproduce import recorded_designs, recorded_device
 
+device = recorded_device(exact_arithmetic=True)
 cds = "".join(Path("data/egfp.fasta").read_text().splitlines()[1:])
-utr5 = "ACATTTGCTTCTGACACAACTGTGTTCACTAGCAACCTCAAACAGACACC"
-utr3 = "GCTGGAGCCTCGGTGGCCTAGCTTCTTGCCCCTTGGGCCTCCCCCCAGCCCCTCCTCCCCTTCCTGCACCCGTACCCCCGTGGTCTTTGAATAAAGTCTGAGTGGGCGGCA"
-device = "cuda" if torch.cuda.is_available() else "cpu"
-model = load_model(
-    "saluki", device=device, cds_start=len(utr5), cds_end=len(utr5) + len(cds),
-    exon_lengths=[len(utr5) + len(cds) + len(utr3)],
-)
+model = ReporterScorer(len(cds), device=device)
+seeds = [cds]
+print("Starting Saluki score:", float(model.score(seeds)[0, 0]))
 
-def score_cds(sequences):
-    return model.score([utr5 + seq + utr3 for seq in sequences])
-
-scorer = CallableScorer(score_cds, task_names=("half_life_score",))
+run = Path(mkdtemp(prefix="motifsift-example-"))
 ```
 
-## Optimize the CDS and compare scores
+## 2. Generate candidates
+
+Run the eleven optimizers and keep 100 candidates per optimizer. The displayed tables come from the full run reproduced by `examples/reproduce.py`.
 
 ```python
-designs = generate_designs(
-    scorer, length=len(cds), initial=[cds], objective=["maximize"],
+designs = recorded_designs(
+    "saluki", model, length=len(cds), initial=seeds, objective="maximize",
+    gain_fractions=(0.5, 0.9), output_dir=run / "designs",
     is_CDS_optimized=True, fixed_region=[slice(len(cds) - 3, len(cds))],
-    algorithms=["genetic_algorithm"], num_candidates=4, seed=42, parallel=False,
 )
-print("Starting Saluki score:", float(score_cds([cds])[0, 0]))
-designs[["sequence", "activity_half_life_score"]]
+designs.groupby(["algorithm", "gain_fraction"])["score"].agg(["size", "median", "max"])
+```
+
+## 3. Discover motifs
+
+Analyze the 90% gain stage with synonymous-codon attribution and forward-strand motif discovery.
+
+```python
+designs = designs.loc[designs["gain_fraction"].eq(0.9)].copy()
+space = SynonymousCodonSpace(cds).with_fixed_positions(cds, range(len(cds) - 3, len(cds)))
+contributions = codon_ism(model, designs.drop_duplicates("sequence"), space)
+motifs = call_motifs(
+    designs, reverse_complement=False, contributions=contributions,
+    output_dir=run / "motifs",
+)
+motifs.support.query("retained")[["motif_id", "seqlets", "parents", "sites_on_unique_DNA"]]
+```
+
+## 4. Select a panel
+
+```python
+gate = float(designs.drop_duplicates("sequence").score.quantile(0.2))
+selected = select_candidates(designs, motifs=motifs, top_n=10, min_score=gate, output_dir=run / "selected")
+selected[["selection_rank", "sequence", "score", "present_motifs"]]
 ```

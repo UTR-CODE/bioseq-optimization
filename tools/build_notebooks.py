@@ -30,10 +30,24 @@ def notebook(text, name):
         language_info=dict(name='python', version='3.10')), nbformat=4, nbformat_minor=5)
 
 
+def write_notebook(path, current):
+    if path.exists():
+        previous = json.loads(path.read_text())
+        old_code = [cell for cell in previous['cells'] if cell['cell_type'] == 'code']
+        new_code = [cell for cell in current['cells'] if cell['cell_type'] == 'code']
+        old_source = [''.join(cell['source']).rstrip() for cell in old_code]
+        new_source = [''.join(cell['source']).rstrip() for cell in new_code]
+        if old_source == new_source:
+            for old, new in zip(old_code, new_code):
+                new['execution_count'] = old['execution_count']
+                new['outputs'] = old['outputs']
+    path.write_text(json.dumps(current, ensure_ascii=False, indent=1) + '\n')
+
+
 for name in ['enhancer', 'promoter', '5utr', 'single-task', 'multi-task', 'multiple-models', 'saluki-egfp']:
     text = (ROOT / f'docs/examples/{name}.md').read_text()
-    (ROOT / f'examples/{name}.ipynb').write_text(json.dumps(notebook(text, name), ensure_ascii=False, indent=1) + '\n')
+    write_notebook(ROOT / f'examples/{name}.ipynb', notebook(text, name))
 text = (ROOT / 'docs/motif-diversity.md').read_text().split('## 6. Reference-data example')[1].split('## Outputs')[0]
 text = '# Reference motif-diversity selection\n\n' + text.replace('Path("examples/data")', 'Path("data")')
-(ROOT / 'examples/motif_diversity.ipynb').write_text(json.dumps(notebook(text, 'motif-diversity'), ensure_ascii=False, indent=1) + '\n')
+write_notebook(ROOT / 'examples/motif_diversity.ipynb', notebook(text, 'motif-diversity'))
 print('Generated eight English workflow notebooks')

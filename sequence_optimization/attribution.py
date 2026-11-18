@@ -117,7 +117,7 @@ def deepliftshap_contributions(sequences, scorer, objective, *,
     from tangermeme.deep_lift_shap import deep_lift_shap
     from tangermeme.ersatz import dinucleotide_shuffle
     from .api import as_score_batch
-    from .objectives import MultiTaskObjective
+    from .objectives import CustomObjective, MultiTaskObjective
     from .onehot import onehot
 
     for name, value in [('n_references', n_references), ('batch_size', batch_size)]:
@@ -168,7 +168,7 @@ def deepliftshap_contributions(sequences, scorer, objective, *,
                 if activities.ndim == 1:
                     activities = activities[:, None]
                 names = getattr(self.scorer, 'task_names', None)
-                if isinstance(objective, MultiTaskObjective):
+                if isinstance(objective, (MultiTaskObjective, CustomObjective)):
                     scalar = objective.scalarize_soft(activities, names)
                 elif callable(getattr(objective, 'coefficients', None)):
                     weights = torch.as_tensor(objective.coefficients(activities.shape[1], names),
