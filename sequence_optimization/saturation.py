@@ -1,11 +1,11 @@
-"""Plateau stopping with elbow-relative selection and legacy gain fractions."""
+"""Plateau surveillance and score-threshold or gain-stage selection."""
 
 from __future__ import annotations
 
 import random
 from heapq import merge, nsmallest
 from itertools import islice
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 import numpy as np
@@ -25,31 +25,32 @@ class _SaturationReached(RuntimeError):
     pass
 
 
+class _ScoreThresholdReached(RuntimeError):
+    pass
+
+
 @dataclass(frozen=True)
 class SaturationConfig:
     """Rules for stopping after the top-candidate archive reaches a plateau.
 
-    Query limits default to plateau-based stopping without a maximum query
-    ceiling. ``maximum_queries`` can be set as an optional safety limit.
+    Public optimization uses plateau-based stopping without a maximum query
+    ceiling. The public default returns the 90% observed-gain archive.
     Unspecified minimum/patience windows use 10/40 times the larger of the
     initial search population and the requested retained candidate count.
     The optimizer also floors unspecified patience at three nominal proposal
     batches, to accommodate large neighborhood expansions.
-    Default selection favors sequence diversity in a quality band around a
-    late, relaxed elbow.  Both the elbow and its quality floor are defined as
-    fractions of the gain observed in the current run; they never depend on a
-    model- or dataset-specific raw score. ``fractions`` retains legacy
-    final-gain lookups.
+    Candidate archives respect the requested size and diversity. Historical
+    elbow diagnostics are kept for reproducibility of internal analyses.
     """
 
-    fractions: tuple[float, ...] = (0.99,)
+    fractions: tuple[float, ...] = (0.9,)
     minimum_queries: int | None = None
     plateau_patience_queries: int | None = None
     plateau_patience_rounds: int | None = 20
     maximum_queries: int | None = None
     material_improvement: float = 1e-2
     relative_material_improvement: float = 1e-3
-    selection: str = "knee_fraction"
+    selection: str = "fraction"
     knee_fraction: float = 0.9
     knee_fraction_tolerance: float = 0.1
     diversity_pool_size: int = 20_000
@@ -135,6 +136,39 @@ class SaturationConfig:
         return int(minimum), int(patience), None if maximum is None else int(maximum)
 
 
+def resolve_search_config(saturation, gain_fraction, score_threshold, gain_fractions=None):
+    """Normalize public plateau/gain and threshold search configuration."""
+    modes = (saturation, gain_fraction, gain_fractions, score_threshold)
+    if sum(value is not None for value in modes) > 1:
+        raise ValueError("Choose one of saturation, gain_fraction, gain_fractions, or score_threshold")
+    if saturation is not None:
+        if not isinstance(saturation, SaturationConfig):
+            raise TypeError("saturation must be a SaturationConfig")
+        if saturation.maximum_queries is not None or saturation.selection != "fraction":
+            raise ValueError("Only plateau gain selection is supported in saturation; omit maximum_queries and use selection='fraction'")
+    if score_threshold is not None and (
+        isinstance(score_threshold, (bool, np.bool_)) or not np.isfinite(score_threshold)
+    ):
+        raise ValueError("score_threshold must be finite")
+    if saturation is not None:
+        values = saturation.fractions
+    elif gain_fractions is not None:
+        values = gain_fractions
+    else:
+        values = (0.9 if gain_fraction is None else gain_fraction,)
+    if isinstance(values, (str, bytes)):
+        raise TypeError("gain_fractions must be a sequence of numbers")
+    values = tuple(values)
+    fractions = tuple(float(value) for value in values)
+    if not fractions or any(isinstance(value, (bool, np.bool_)) for value in values) or any(
+        not 0 < fraction <= 1 for fraction in fractions
+    ):
+        raise ValueError("Specify one or more gain fractions in (0, 1]")
+    if len(set(fractions)) != len(fractions):
+        raise ValueError("Gain fractions must be distinct")
+    return replace(saturation, fractions=fractions) if saturation is not None else SaturationConfig(fractions=fractions)
+
+
 @dataclass
 class SaturationResult:
     """Selected elbow-relative archive plus elbow and legacy final-gain archives."""
@@ -147,9 +181,12 @@ class SaturationResult:
     knee: OptimizationResult | None = None
     selection: str = "knee_fraction"
     knee_fraction_result: OptimizationResult | None = None
+    threshold_result: OptimizationResult | None = None
 
     @property
     def selected(self) -> OptimizationResult:
+        if self.threshold_result is not None:
+            return self.threshold_result
         if self.selection == "knee_fraction" and self.knee_fraction_result is not None:
             return self.knee_fraction_result
         if self.selection == "knee" and self.knee is not None:
@@ -178,6 +215,8 @@ class _SaturationMonitor:
         diversity: int,
         relative_material_improvement: float = 1e-3,
         patience_rounds: int | None = None,
+        score_threshold: float | None = None,
+        report_progress=None,
     ) -> None:
         self.num_candidates = num_candidates
         self.minimum_queries = minimum_queries
@@ -185,6 +224,8 @@ class _SaturationMonitor:
         self.material_improvement = max(1e-2, material_improvement)
         self.relative_material_improvement = relative_material_improvement
         self.patience_rounds = patience_rounds
+        self.score_threshold = score_threshold
+        self.report_progress = report_progress
         self.observation_round = 0
         self.last_material_round = 0
         self.diversity = diversity
@@ -398,6 +439,10 @@ class _SaturationMonitor:
                 (query_count, selected_sequences, selected_scores, selected_stds)
             )
         top_mean = float(selected_scores.mean())
+        if advance_round and self.report_progress is not None:
+            self.report_progress(self.observation_round, top_mean)
+        if self.score_threshold is not None and float(selected_scores.max()) >= self.score_threshold:
+            raise _ScoreThresholdReached
         threshold = self._dynamic_material_threshold(top_mean, self.material_level)
         self.last_material_threshold = threshold
         if not np.isfinite(self.observed_peak):
@@ -966,6 +1011,7 @@ def _optimize_with_saturation(
     | None = None,
     constraint: ConstraintSpec | None = None,
     saturation: SaturationConfig,
+    score_threshold: float | None = None,
     seed: int = 0,
     count_repeated: bool = False,
     cds_reference: str | None = None,
@@ -1057,7 +1103,9 @@ def _optimize_with_saturation(
         options.material_improvement,
         config.diversity,
         options.relative_material_improvement,
+        score_threshold=score_threshold,
         patience_rounds=(options.plateau_patience_rounds if options.plateau_patience_queries is None else None),
+        report_progress=getattr(scorer, "report_progress", None),
     )
     proposal_count_algorithms = {
         "ledidi",
@@ -1073,10 +1121,10 @@ def _optimize_with_saturation(
         constraint_rng=constraint_rng,
         monitor=monitor,
     )
-    prepared = _constraint_initial(prepared, budgeted, space, config, rng)
-    prepared = _prediction_initial(prepared, budgeted, space, config, rng)
     stop_reason = "algorithm_stopped"
     try:
+        prepared = _constraint_initial(prepared, budgeted, space, config, rng)
+        prepared = _prediction_initial(prepared, budgeted, space, config, rng)
         algorithm_result = _REGISTRY[key](prepared, budgeted, space, config, rng)
         if algorithm_result is not None and algorithm_result.metadata.get("stop_reason") == "lineage_saturation":
             stop_reason = "plateau"
@@ -1084,6 +1132,8 @@ def _optimize_with_saturation(
             stop_reason = "target_reached"
         elif maximum is not None and budgeted.query_count >= maximum:
             stop_reason = "maximum_queries"
+    except _ScoreThresholdReached:
+        stop_reason = "target_reached"
     except _SaturationReached:
         stop_reason = "plateau"
 
@@ -1096,6 +1146,27 @@ def _optimize_with_saturation(
         [item[2].mean() for item in monitor.snapshots], dtype=np.float64
     )
     baseline, plateau = float(monitor.initial_mean), float(top_means[-1])
+    if score_threshold is not None:
+        # The threshold applies to the best feasible score. A complete
+        # candidate archive is still required for the requested output count.
+        index = max(
+            range(len(monitor.snapshots)),
+            key=lambda i: (float(monitor.snapshots[i][2].max()), i),
+        )
+        result = _selection_result(
+            key, monitor.snapshots[index], fraction=None,
+            total_queries=budgeted.query_count, knee_queries=0,
+            baseline=baseline, plateau=plateau, objective_scorer=objective_scorer,
+            budgeted=budgeted, trajectory=[], stop_reason=stop_reason,
+            diversity=config.diversity,
+        )
+        result.metadata.update(
+            selection="score_threshold", score_threshold=float(score_threshold),
+            threshold_reached=stop_reason == "target_reached",
+            candidates_at_threshold=int(np.count_nonzero(result.scores >= score_threshold)),
+        )
+        return SaturationResult({}, budgeted.query_count, 0, stop_reason, [],
+                                selection="threshold", threshold_result=result)
     # The initial population is a curve anchor, never an undersized output.
     anchored_queries = np.concatenate(([monitor.initial_query], query_counts))
     anchored_means = np.concatenate(([baseline], top_means))
@@ -1146,6 +1217,8 @@ def _optimize_with_saturation(
             diversity=config.diversity,
         )
         selections[float(fraction)].metadata.update(
+            selected_top_mean=float(top_means[index]),
+            target_top_mean=float(target),
             minimum_queries=minimum,
             plateau_patience_queries=patience,
             maximum_queries=maximum,

@@ -16,7 +16,7 @@
 | Simulated annealing | `simulated_annealing` | — |
 | Activation maximization | `vanilla_activation_maximization` | Required |
 
-`generate_designs` uses these 11 methods by default. Set `algorithms=[...]` to choose a subset. The registry also includes `random` for a separately budgeted random-search reference.
+`generate_designs` uses these 11 methods by default. Set `algorithms=[...]` to choose a subset. The registry also includes `random` for a uniform random-search reference using the same stopping modes.
 
 ## Plateau stopping
 
@@ -33,7 +33,7 @@ saturation = SaturationConfig(
 
 The controller tracks archive quality and stops after sustained small gains. Default minimum and patience windows scale with population size and retained candidate count. Proposal-batch and round-based windows accommodate methods with large neighborhoods.
 
-Each run records the query trajectory and stopping reason. The retained 90% observed-gain stage supplies 100 candidates for the combined pool. Knee-based selection is also available through `SaturationConfig(selection="knee")`.
+Each run records the query trajectory and stopping reason. The retained 90% observed-gain stage supplies 100 candidates for the combined pool. Use `gain_fraction` to select a different gain stage, or use `score_threshold` for absolute score stopping. See [candidate generation](candidate-generation.md).
 
 ISM tracks active lineages separately. A lineage reaching a plateau leaves the active search population, while the remaining lineages continue. Optional native sequence kernels accelerate neighborhood construction.
 

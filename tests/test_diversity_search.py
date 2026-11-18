@@ -12,12 +12,11 @@ from sequence_optimization import (
     MotifPositionDescriptor,
     MultiTaskObjective,
     generate_designs,
-    generate_diverse_designs,
     random_seed_sequences,
     available_algorithms,
 )
 from sequence_optimization.api import ScoreBatch
-from sequence_optimization.exploration import _PatternArchive
+from sequence_optimization.exploration import _PatternArchive, generate_diverse_designs
 
 
 def test_descriptor_merges_identity_but_can_preserve_orientation_and_copy_count():

@@ -28,6 +28,8 @@ With motifs, the function scans and filters motif occurrences, builds the compos
 
 A binary Sequence × Motif matrix records whether each motif occurs. PWM similarities are the best strand- and shift-aligned cosines of information-weighted contrasts, retaining informative flanks.
 
+For RNA, `reverse_complement=False` restricts PWM comparisons and FIMO scanning to the supplied orientation; shift alignment is retained. `select_candidates` inherits this setting from a `MotifCatalog`, while MEME-path and PWM-dictionary inputs require the explicit flag. Defaults remain `True` for DNA. Changing the setting relative to saved catalog hits triggers a fresh scan, including new q-values.
+
 Presence propagates through the motif similarity matrix:
 
 \[

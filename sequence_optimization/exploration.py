@@ -515,7 +515,8 @@ def generate_diverse_designs(
     activity_bounds may be unmet initially. No CDS synonymy mode is
     supported here; use the existing CDS optimizers for that search space.
     """
-    from .algorithms import available_algorithms, optimize
+    from .algorithms import _run_budget_segment, available_algorithms
+    from .api import OptimizationConfig
     from .api import FixedRegionSequenceSpace, resolve_fixed_positions
     from .suite import (
         DIFFERENTIABLE_ALGORITHMS,
@@ -722,20 +723,19 @@ def generate_diverse_designs(
         for seq in seeds:
             if seq in archive.entries:
                 archive.visits[archive.entries[seq]["features"]] += 1
-        result = optimize(
+        result = _run_budget_segment(
+            name,
             wrapped,
             length,
-            seeds,
-            objective,
-            population,
-            algorithm=name,
-            budget=allocation - inject_count,
-            diversity=0,
+            OptimizationConfig(
+                budget=allocation - inject_count, num_candidates=population,
+                diversity=0, fixed_region=fixed_region, **options.get(name, {}),
+            ),
+            initial=seeds,
+            objective=objective,
             seed=int(rng.integers(0, 2**31 - 1)),
             count_repeated=True,
             constraint=None if evaluator is None else hard_constraint,
-            fixed_region=fixed_region,
-            **options.get(name, {}),
         )
         spent += result.query_count
         soft_queries += wrapped.soft_queries

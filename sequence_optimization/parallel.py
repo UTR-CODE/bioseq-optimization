@@ -9,7 +9,9 @@ from __future__ import annotations
 
 from collections import deque
 import csv
+import math
 import queue
+import sys
 import time
 import traceback
 from pathlib import Path
@@ -245,8 +247,46 @@ class _DesignScorer:
         return self.gradient_scorer.score_soft(probabilities)
 
 
+class _DesignProgress:
+    """Refresh a terminal panel or write periodic snapshots to a log."""
+
+    def __init__(self, names, state):
+        self.names = names
+        self.state = state
+        self.stream = sys.stderr
+        self.live = self.stream.isatty()
+        self.started = time.monotonic()
+        self.next_refresh = self.started
+        self.rendered = False
+
+    def refresh(self, completed, *, force=False):
+        now = time.monotonic()
+        if not force and now < self.next_refresh:
+            return
+        self.next_refresh = now + 5
+        count, total = len(completed), len(self.names)
+        filled = 20 * count // total
+        bar = "#" * filled + "-" * (20 - filled)
+        lines = [f"[{bar}] {count}/{total} 个算法已完成  |  {now - self.started:.0f} s"]
+        state = self.state[:]
+        for index, name in enumerate(self.names):
+            round_number, mean = state[2 * index:2 * index + 2]
+            status = "已完成" if index in completed else "优化中"
+            score = f"第 {int(round_number)} 轮  目标均分 {mean:.4f}" if math.isfinite(mean) else "等待评分"
+            if index in completed and not math.isfinite(mean):
+                score = ""
+            lines.append(f"  {name:32} {status}  {score}".rstrip())
+        if self.live:
+            if self.rendered:
+                self.stream.write(f"\x1b[{len(lines)}F")
+            lines = ["\x1b[2K" + line for line in lines]
+        self.stream.write("\n".join(lines) + "\n")
+        self.stream.flush()
+        self.rendered = True
+
+
 def _design_worker(index, client, length, initial, objective, count, name,
-                   alphabet, constraint, seed, options, barrier, results):
+                   alphabet, constraint, seed, options, barrier, results, progress_state):
     """CPU-only proposals and remote scoring; no model is sent to this process."""
     import os
     import torch
@@ -254,6 +294,10 @@ def _design_worker(index, client, length, initial, objective, count, name,
     from .algorithms import optimize
     torch.set_num_threads(1)
     numba.set_num_threads(1)
+    if progress_state is not None:
+        def report_progress(round_number, mean):
+            progress_state[2 * index:2 * index + 2] = (round_number, mean)
+        client.report_progress = report_progress
     try:
         barrier.wait()
         began, cpu = time.perf_counter(), time.process_time()
@@ -268,7 +312,7 @@ def _design_worker(index, client, length, initial, objective, count, name,
 def run_batched_designs(scorer, gradient_scorer, length, initial, objective, count,
                         jobs, *, alphabet='ACGT', constraint=None, seed=0,
                         max_batch_size=512, max_soft_batch_size=64,
-                        batch_wait_ms=5., metrics_path=None):
+                        batch_wait_ms=5., metrics_path=None, show_progress=True):
     """Run independent optimizers through one local, model-owning service thread.
 
     Only clients, sequences and optimization options cross process boundaries.
@@ -303,6 +347,10 @@ def run_batched_designs(scorer, gradient_scorer, length, initial, objective, cou
 
     service = threading.Thread(target=serve, name='bioseq-scoring-service', daemon=True)
     workers, received = [], {}
+    # Each worker writes only its own pair. A progress read must not block if
+    # a worker is killed while publishing, since the parent also checks exits.
+    progress_state = ctx.RawArray("d", [0.0, math.nan] * len(jobs)) if show_progress else None
+    progress = _DesignProgress([name for name, _ in jobs], progress_state) if show_progress else None
     previous_threads = torch.get_num_threads()
     thread_env = ('OMP_NUM_THREADS', 'OPENBLAS_NUM_THREADS', 'MKL_NUM_THREADS', 'NUMEXPR_NUM_THREADS')
     previous_env = {key: os.environ.get(key) for key in thread_env}
@@ -323,10 +371,13 @@ def run_batched_designs(scorer, gradient_scorer, length, initial, objective, cou
                     and gradient_scorer is not scorer else 'discrete')
             process = ctx.Process(target=_design_worker,
                 name=f'bioseq-{name}', args=(index, client, length, initial, objective,
-                    count, name, alphabet, constraint, seed+index, options, barrier, results))
+                    count, name, alphabet, constraint, seed+index, options, barrier, results,
+                    progress_state))
             process.start()
             workers.append(process)
         while len(received) < len(jobs):
+            if progress is not None:
+                progress.refresh(received)
             try:
                 index, ok, result, info = results.get(timeout=.1)
             except queue.Empty:
@@ -343,6 +394,8 @@ def run_batched_designs(scorer, gradient_scorer, length, initial, objective, cou
                     result.add_note(info)
                 raise result
             received[index] = (result, info)
+        if progress is not None:
+            progress.refresh(received, force=True)
         requests.put(None)
         service.join()
         if failures:

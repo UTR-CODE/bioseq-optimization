@@ -20,10 +20,9 @@ from sequence_optimization import (
     pad_nucleotide_sequences,
     random_optimize,
     random_seed_sequences,
-    run,
 )
 from sequence_optimization.api import resolve_fixed_positions
-from sequence_optimization.algorithms import _hamming_distance, _select_diverse
+from sequence_optimization.algorithms import _hamming_distance, _run_budget_segment as run, _select_diverse
 from sequence_optimization.cli import main as cli_main
 
 

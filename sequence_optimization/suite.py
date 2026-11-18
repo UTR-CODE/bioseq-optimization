@@ -24,8 +24,8 @@ from .api import (
 )
 from .constraints import ConstraintSpec
 from .objectives import MultiTaskObjective, TargetObjective
-from .saturation import SaturationConfig, SaturationResult
-from .exploration import DiversitySearchConfig, MotifPositionDescriptor, generate_diverse_designs
+from .saturation import SaturationConfig, SaturationResult, resolve_search_config
+from .exploration import DiversitySearchConfig, MotifPositionDescriptor
 
 DIFFERENTIABLE_ALGORITHMS = frozenset(
     {
@@ -120,6 +120,7 @@ def generate_designs(
     output_dir: str | Path | None = None,
     device: str | None = None,
     parallel: bool = True,
+    show_progress: bool = True,
     max_batch_size: int = 512,
     max_soft_batch_size: int = 64,
     batch_wait_ms: float = 5.,
@@ -134,7 +135,9 @@ def generate_designs(
     alphabet: str = "ACGT",
     constraint: ConstraintSpec | None = None,
     seed: int = 0,
-    budget: int | None = None,
+    gain_fraction: float | None = None,
+    gain_fractions: Sequence[float] | None = None,
+    score_threshold: float | None = None,
     saturation: SaturationConfig | None = None,
     fixed_region: Sequence[int | str | slice] | None = None,
     is_CDS_optimized: bool = False,
@@ -151,6 +154,7 @@ def generate_designs(
         initial: Starting sequences; None generates num_candidates random seeds
         objective: Optimization objective (e.g., ["maximize"], ["minimize", "maximize"])
         parallel: Run CPU optimizers in separate processes with shared batched scoring
+        show_progress: Show live status and candidate-archive means in parallel mode
         max_batch_size: Maximum discrete scoring batch in the shared service
         max_soft_batch_size: Maximum differentiable scoring batch
         batch_wait_ms: Window for combining requests from multiple optimizers
@@ -164,30 +168,26 @@ def generate_designs(
         alphabet: DNA/RNA alphabet (default: "ACGT")
         constraint: Sequence constraints (optional)
         seed: Random seed for reproducibility
-        budget: Fixed query budget per algorithm; ``None`` uses saturation
-            stopping (random search uses its finite default budget)
-        saturation: Saturation rules for non-random algorithms; cannot be
-            combined with ``budget`` or used with random search
+        gain_fraction: Observed gain fraction to retain at plateau (default 0.9).
+        gain_fractions: Gain stages to return from the same plateau search.
+        score_threshold: Stop when a feasible candidate reaches this scalar objective score.
+        saturation: Advanced plateau settings for one or more gain fractions.
         fixed_region: Positions or slices held unchanged during optimization
         is_CDS_optimized: Restrict candidates to synonymous CDS substitutions
-        count_repeated: Count repeated proposals against the query budget
-        exploration: Opt into budgeted cooperative motif/position search. In
-            this mode num_candidates is the TOTAL global panel size, and
-            exploration.total_budget is shared across all selected algorithms.
-        descriptor: Motif/position representation required with exploration.
+        count_repeated: Count repeated proposals in query and plateau diagnostics
         **common_kwargs: Algorithm-specific hyperparameters passed to every algorithm
 
     Returns:
         pandas DataFrame with columns: sequence, algorithm, score, activity_*
 
     Notes:
-        - Random search: uses a finite 100,000-query default, returns top 100
-        - Other algorithms: stop at plateau and retain the 90% observed-gain stage
-          with population-scaled minimum/patience windows (10N/40N), a
-          three-proposal-batch patience floor, and no implicit query ceiling
+        - Gain mode searches to plateau and retains the specified gain stage.
+        - Threshold mode retains the archive at the target or reports a plateau.
         - Diversity control: ensures minimum Hamming distance of 5 within each algorithm
     """
     import torch
+    if not isinstance(show_progress, bool):
+        raise TypeError("show_progress must be a boolean")
     if not isinstance(parallel, bool):
         raise TypeError("parallel must be a boolean")
     if any(isinstance(v, bool) or not isinstance(v, int) or v < 1
@@ -210,31 +210,12 @@ def generate_designs(
         output_dir = Path(output_dir)
         if output_dir.exists() and any(output_dir.iterdir()):
             raise FileExistsError(f"Use an empty design output directory: {output_dir}")
-    if exploration is not None:
-        if descriptor is None:
-            raise ValueError("descriptor is required with exploration")
-        if budget is not None or saturation is not None:
-            raise ValueError("exploration uses its own total_budget; omit budget and saturation")
-        if is_CDS_optimized or alphabet.upper().replace("U", "T") != "ACGT":
-            raise ValueError("exploration currently requires an A/C/G/T nucleotide space without CDS synonymy")
-        selected_algorithms = (tuple(available_algorithms()) if algorithms is None else algorithms)
-        if isinstance(selected_algorithms, (str, bytes)):
-            raise TypeError("algorithms must be a sequence of algorithm names")
-        selected_algorithms = tuple(str(n).strip().lower() for n in selected_algorithms)
-        result = generate_diverse_designs(
-            model, length, initial, objective, descriptor=descriptor, config=exploration,
-            algorithms=selected_algorithms, num_candidates=num_candidates,
-            diversity=diversity, weights=weights, stop_values=stop_values,
-            stop_tolerance=stop_tolerance, differentiable_model=differentiable_model,
-            tasks=tasks, constraint=constraint, fixed_region=fixed_region, seed=seed,
-            algorithm_options={name: common_kwargs for name in selected_algorithms},
-        )
-        frame = result.candidates
-        frame.attrs["diversity_search"] = result.metadata
-        frame.attrs["search_history"] = result.history.to_dict("records")
-        return frame
-    if descriptor is not None:
-        raise ValueError("descriptor requires exploration")
+    if "budget" in common_kwargs:
+        raise TypeError("Fixed-budget optimization is unavailable; use score_threshold or gain_fraction")
+    if exploration is not None or descriptor is not None:
+        raise ValueError("Use score_threshold or gain_fraction for candidate generation")
+    resolved = resolve_search_config(saturation, gain_fraction, score_threshold, gain_fractions)
+    multiple_stages = len(resolved.fractions) > 1
     if algorithms is None:
         algorithms = tuple(n for n in available_algorithms() if n != "random")
 
@@ -250,11 +231,6 @@ def generate_designs(
         raise KeyError(
             f"unknown algorithms {unknown}; choose from {', '.join(available_algorithms())}"
         )
-    if budget is not None and saturation is not None:
-        raise ValueError("budget and saturation cannot be used together")
-    if saturation is not None and "random" in names:
-        raise ValueError("saturation is not supported by random search; set budget instead")
-
     initial_values = normalize_nucleotide_sequences(initial)
     if not len(initial_values):
         raise ValueError("initial must contain at least one sequence")
@@ -313,32 +289,15 @@ def generate_designs(
     shared_options["fixed_region"] = fixed_region
     shared_options["is_CDS_optimized"] = is_CDS_optimized
     shared_options["count_repeated"] = count_repeated
-    if budget is not None:
-        shared_options["budget"] = budget
-    if saturation is not None:
-        shared_options["saturation"] = saturation
+    if score_threshold is not None:
+        shared_options["score_threshold"] = score_threshold
+    else:
+        shared_options["saturation"] = resolved
 
-    # Collect results from all algorithms
-    all_rows, timings = [], []
+    all_rows, timings, stage_timings = [], [], []
     result_task_names = ()
     suite_started = time.perf_counter()
-
-    jobs = []
-    for offset, name in enumerate(names):
-        # Set algorithm-specific options
-        algo_options = dict(shared_options)
-
-        # An explicit budget or saturation config overrides the suite defaults.
-        if budget is not None or saturation is not None:
-            pass
-        elif name == "random":
-            # Random search cannot detect saturation; use its finite default.
-            algo_options["budget"] = 100_000
-        else:
-            # No implicit ceiling: stop on plateau and use relaxed-knee selection.
-            algo_options["saturation"] = SaturationConfig(fractions=(0.9,), selection="knee_fraction" if is_CDS_optimized else "fraction")
-
-        jobs.append((name, algo_options))
+    jobs = [(name, dict(shared_options)) for name in names]
 
     batch_statistics = {}
     if parallel:
@@ -352,7 +311,7 @@ def generate_designs(
                 objective, num_candidates, jobs, alphabet=alphabet,
                 constraint=constraint, seed=seed, max_batch_size=max_batch_size,
                 max_soft_batch_size=max_soft_batch_size, batch_wait_ms=batch_wait_ms,
-                metrics_path=str(metrics_folder/"gpu_batches.csv"))
+                metrics_path=str(metrics_folder/"gpu_batches.csv"), show_progress=show_progress)
     else:
         completed = []
         for offset, (name, algo_options) in enumerate(jobs):
@@ -366,17 +325,47 @@ def generate_designs(
 
     for offset, (name, (raw_result, runtime)) in enumerate(zip(names, completed)):
         results = raw_result if isinstance(raw_result, list) else [raw_result]
-        queries = sum(r.total_query_count if isinstance(r, SaturationResult) else r.query_count for r in results)
-        reason = ";".join(sorted({getattr(r, "stop_reason", "budget") for r in results})) or "budget"
+        queries = sum(
+            r.total_query_count if isinstance(r, SaturationResult)
+            else r.metadata.get("total_convergence_queries", r.query_count)
+            for r in results
+        )
+        reasons = {
+            r.stop_reason if isinstance(r, SaturationResult)
+            else r.metadata.get("stop_reason", "algorithm_stopped")
+            for r in results
+        }
+        reason = ";".join(sorted(reasons)) or "algorithm_stopped"
         timings.append(dict(algorithm=name, **runtime, queries=queries, stop_reason=reason, seed=seed+offset))
-        for result in results:
-            if isinstance(result, SaturationResult):
-                result = result.selected
+        selection_details = []
+        archives = []
+        for reference_index, result in enumerate(results, start=1):
+            if multiple_stages:
+                archives.extend((reference_index, result.at(fraction))
+                                for fraction in resolved.fractions)
+            else:
+                selected = result.selected if isinstance(result, SaturationResult) else result
+                archives.append((reference_index, selected))
+        for reference_index, result in archives:
             if not isinstance(result, OptimizationResult):
                 raise TypeError(
-                    "generate_designs requires fixed-budget optimizer results"
+                    "generate_designs requires optimizer results"
                 )
 
+            fields = ("selection", "saturation_fraction", "baseline_top_mean",
+                      "plateau_top_mean", "selected_top_mean", "target_top_mean",
+                      "score_threshold", "threshold_reached", "candidates_at_threshold",
+                      "total_convergence_queries", "initial_cds")
+            details = {key: result.metadata[key] for key in fields if key in result.metadata}
+            details["selection_queries"] = result.query_count
+            if multiple_stages:
+                stage_timings.append(dict(
+                    algorithm=name, reference_index=reference_index,
+                    queries=details["total_convergence_queries"],
+                    stop_reason=result.metadata["stop_reason"], **details,
+                ))
+            else:
+                selection_details.append(details)
             result_task_names = result.task_names
             # Extract data from result
             for i, sequence in enumerate(result.sequences):
@@ -386,6 +375,8 @@ def generate_designs(
                     "score": float(result.scores[i]),
                 }
 
+                if multiple_stages:
+                    row["gain_fraction"] = details["saturation_fraction"]
                 # Add activity columns if available
                 if result.activities is not None and result.task_names:
                     for j, task_name in enumerate(result.task_names):
@@ -393,15 +384,25 @@ def generate_designs(
 
                 all_rows.append(row)
 
+        if len(selection_details) == 1:
+            timings[-1].update(selection_details[0])
+        elif selection_details:
+            timings[-1]["reference_selections"] = selection_details
+
     frame = pd.DataFrame(all_rows) if all_rows else pd.DataFrame(columns=["sequence", "algorithm", "score"])
     frame["record_id"] = [f"D{i+1:05}" for i in range(len(frame))]
     frame["sequence_id"] = frame.sequence.map(lambda v: "S_"+hashlib.sha256(v.encode()).hexdigest()[:20])
     frame.attrs.update(objective=objective, task_names=list(result_task_names),
                        timing=timings, wall_seconds=time.perf_counter()-suite_started,
                        length=length, seed=seed, algorithms=list(names),
+                       search_mode="threshold" if score_threshold is not None else "gain",
+                       score_threshold=score_threshold,
+                       gain_fraction=None if score_threshold is not None or multiple_stages else resolved.fractions[0],
                        candidates_per_algorithm=num_candidates, initial_count=len(initial_values),
                        minimum_hamming=diversity, execution="parallel" if parallel else "serial",
                        batching=batch_statistics)
+    if multiple_stages:
+        frame.attrs.update(gain_fractions=list(resolved.fractions), gain_stage_timing=stage_timings)
     if output_dir is not None:
         from .workflows import deduplicate_candidates, write_fasta
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -411,6 +412,8 @@ def generate_designs(
         write_fasta(output_dir/"designs.fa", frame.record_id, frame.sequence)
         write_fasta(output_dir/"unique_designs.fa", unique.sequence_id, unique.sequence)
         pd.DataFrame(timings).to_csv(output_dir/"timing.csv", index=False)
+        if multiple_stages:
+            pd.DataFrame(stage_timings).to_csv(output_dir/"gain_stage_timing.csv", index=False)
         metadata = dict(frame.attrs)
         metadata["objective"] = dict(type=type(objective).__name__, parameters=asdict(objective)) if is_dataclass(objective) else objective
         (output_dir/"config.json").write_text(json.dumps(metadata, indent=2, default=lambda v: v.tolist())+"\n")

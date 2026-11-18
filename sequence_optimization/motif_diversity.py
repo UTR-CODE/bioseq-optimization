@@ -16,7 +16,7 @@ def _similarity_matrix(values):
     return s
 
 
-def pwm_similarity_matrix(pwms, min_overlap=6):
+def pwm_similarity_matrix(pwms, min_overlap=6, *, reverse_complement=True):
     """Best strand/shift cosine of full-span information-weighted PWM contrast.
 
     For each PWM, X=(P-0.25)*sqrt(2-H(P)). Background padding has zero contrast.
@@ -24,10 +24,13 @@ def pwm_similarity_matrix(pwms, min_overlap=6):
     Shifts are ungapped, with at least min_overlap columns shared (or the full
     shorter width when it is shorter). Negative cosine values become zero.
     No contribution weights, motif trimming, or TF-family merging is used.
+    Set reverse_complement=False for supplied-orientation-only comparisons.
     Return similarities and upper-triangle alignment metadata.
     """
     if isinstance(min_overlap, bool) or not isinstance(min_overlap, (int, np.integer)) or min_overlap < 1:
         raise ValueError("min_overlap must be a positive integer")
+    if not isinstance(reverse_complement, (bool, np.bool_)):
+        raise ValueError('reverse_complement must be a boolean')
     contrasts = []
     for pwm in pwms:
         p = np.asarray(pwm, dtype=float)
@@ -42,7 +45,8 @@ def pwm_similarity_matrix(pwms, min_overlap=6):
             required = min(min_overlap, len(a), len(b0))
             best = (0., 0, "+", 0)
             if norm > 0:
-                for strand, b in [("+", b0), ("-", b0[::-1, ::-1])]:
+                orientations = [("+", b0), ("-", b0[::-1, ::-1])] if reverse_complement else [("+", b0)]
+                for strand, b in orientations:
                     for offset in range(-len(b) + required, len(a) - required + 1):
                         lo, hi = max(0, offset), min(len(a), offset + len(b))
                         score = float(np.sum(a[lo:hi] * b[lo-offset:hi-offset]) / norm)

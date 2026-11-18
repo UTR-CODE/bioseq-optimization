@@ -8,13 +8,7 @@ Sequence optimization with three core functions:
 | `call_motifs` | Extract seqlets and discover motifs from the designs | Motif catalog |
 | `select_candidates` | Select a diverse, high-quality panel | Selected design table |
 
-```text
-PyTorch predictor → generate_designs → 1,100 candidate records
-                                      ↓
-                                  call_motifs
-                                      ↓
-                              select_candidates → Top N
-```
+![MotifSift workflow from candidate generation to motif-aware selection](Fig.png)
 
 `select_candidates` uses Hamming Max-Min by default. Supplying `motifs` switches selection to motif composition and positional diversity.
 
@@ -80,7 +74,7 @@ designs = generate_designs(
 )
 ```
 
-By default, 11 optimizers run in separate CPU processes and share 100 random starting sequences. Their scoring requests enter a shared queue; one scoring service combines compatible requests into batches for the model on its current device. Discrete prediction and gradient forward/backward requests use this service. Each optimizer runs to a plateau and retains 100 designs at the 90% observed-gain stage. The result contains 1,100 source records with individual activity predictions and algorithm provenance. Runtime and query counts are recorded per algorithm. `gpu_batches.csv/json` records batching and cross-worker utilization. See [Parallel scoring](docs/parallel-scoring.md) for batch-size controls.
+By default, 11 optimizers run in separate CPU processes and share 100 random starting sequences. Their scoring requests enter a shared queue; one scoring service combines compatible requests into batches for the model on its current device. Discrete prediction and gradient forward/backward requests use this service. Each optimizer runs to a plateau and retains 100 designs at the 90% observed-gain stage. Pass `gain_fraction` for one stage, `gain_fractions=(0.5, 0.9)` for multiple stages from the same run, or `score_threshold` to stop at a scalar score. The result contains 1,100 source records with individual activity predictions and algorithm provenance. A progress display refreshes every five seconds during parallel runs. Runtime and query counts are recorded per algorithm. `gpu_batches.csv/json` records batching and cross-worker utilization. See [Parallel scoring](docs/parallel-scoring.md) for batch-size controls.
 
 Run these cells in a notebook. For a standalone Python script, place model loading and the workflow inside `if __name__ == "__main__":` so spawned CPU workers import only definitions.
 
@@ -91,6 +85,8 @@ Attribution defaults to ISM; `attribution_method="deepliftshap"` enables the opt
 ```python
 motifs = call_motifs(designs, model=model, output_dir="outputs/motifs")
 ```
+
+For RNA tasks, use `call_motifs(..., reverse_complement=False)` for single-strand discovery and forward-only FIMO scanning. The returned catalog passes this setting to `select_candidates`, including forward-only PWM comparisons. When selecting from a MEME path or PWM dictionary, pass `reverse_complement=False` explicitly. DNA keeps the default `True`. Use a strand-specific predictor; the flag does not change a custom scorer's internal behavior. See the [5′UTR example](docs/examples/5utr.md).
 
 The function uses the design objective to calculate contributions, extracts positive seqlets, discovers PWMs with XSTREME against dinucleotide-shuffled controls, and retains motifs supported by at least ten seqlets from three parent sequences using FIMO matches. It then retains FIMO hits with `p ≤ 0.001` and `q ≤ 0.1`, requires more than 30 physical matches on unique candidate DNA and removes motifs when more than 80% of either motif’s positions are covered by the other. It returns a motif catalog and writes the DNA PWMs to **`outputs/motifs/catalog.meme`** in MEME format. You can also discover motifs with your own method and supply its MEME file directly to step 3.
 
@@ -126,18 +122,23 @@ selected = select_candidates(designs, top_n=10, min_score=gate)
 
 Both modes return a selected design table. `output_dir` exports CSV, FASTA, distances, and the selection trace.
 
-## Design settings and examples
+## Examples
 
-| Tutorial | Design objective |
+Install the pretrained model library and Jupyter in the same Python environment.
+
+```bash
+python -m pip install 'bioseq-models @ git+https://github.com/UTR-CODE/bioseq-models.git@84a5075c3656127d99027c38705212a2de6e62c9' jupyterlab
+jupyter lab
+```
+
+Each notebook loads the pretrained model, sets an objective and runs a small optimization. Checkpoints download on the first run.
+
+| Model | Runnable notebook |
 |---|---|
-| [Optimus 5-Prime: single task](docs/examples/single-task.md) | Maximize predicted MRL for 50-nt 5′UTRs |
-| [DeepSTARR: multi-task](docs/examples/multi-task.md) | Increase developmental activity and decrease housekeeping activity |
-| [Agarwal: multiple single-task models](docs/examples/multiple-models.md) | Increase K562 activity and decrease HepG2 and WTC11 activity |
-| [Enhancer](docs/examples/enhancer.md) | Target-cell specificity and motif-diverse panels |
-| [Promoter](docs/examples/promoter.md) | Activity optimization with fixed sequence contexts |
-| [5′UTR](docs/examples/5utr.md) | Translation activity and upstream AUG annotation |
-
-Each tutorial uses the same three core functions and has a corresponding [Notebook](examples).
+| Optimus 5-Prime | [Optimize a 5′ UTR for predicted ribosome load](examples/single-task.ipynb) |
+| DeepSTARR | [Optimize developmental and housekeeping enhancer activity](examples/multi-task.ipynb) |
+| MPRALegNet | [Optimize enhancer activity across K562, HepG2 and WTC11](examples/multiple-models.ipynb) |
+| Saluki | [Optimize the eGFP CDS with synonymous substitutions](examples/saluki-egfp.ipynb) |
 
 ## Methods and API
 
@@ -146,7 +147,6 @@ Each tutorial uses the same three core functions and has a corresponding [Notebo
 - [Nonstandard inputs: custom score and score_soft](docs/custom-scorers.md)
 - [Candidate generation and timing](docs/candidate-generation.md)
 - [Motif discovery](docs/motif-discovery.md)
-- [Built-in discovery comparison](docs/motif-discovery-comparison.md)
 - [Motif composition and positional selection](docs/motif-diversity.md)
 - [Algorithms and plateau stopping](docs/algorithms.md)
 - [Parallel scoring backend](docs/parallel-scoring.md)

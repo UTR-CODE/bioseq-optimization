@@ -52,8 +52,8 @@ def encode_fragments(sequences):
 
 
 @njit(cache=True, nogil=True)
-def scan_best(codes, pwm, background):
-    """Best window per seqlet, both strands; invalid/padded windows are skipped."""
+def scan_best(codes, pwm, background, reverse_complement=True):
+    """Best window per seqlet; optionally skip reverse-complement scoring."""
     n, length = codes.shape
     width = len(pwm)
     logodds = np.log2(np.maximum(pwm, 1e-12)/background)
@@ -69,11 +69,12 @@ def scan_best(codes, pwm, background):
                     valid = False
                     break
                 forward += logodds[j, base]
-                reverse += logodds[width-j-1, 3-base]
+                if reverse_complement:
+                    reverse += logodds[width-j-1, 3-base]
             if valid:
                 if forward > scores[i]:
                     scores[i], starts[i], strands[i] = forward, start, 1
-                if reverse > scores[i]:
+                if reverse_complement and reverse > scores[i]:
                     scores[i], starts[i], strands[i] = reverse, start, -1
     # Stabilize score ties across strand summation and MEME serialization.
     return np.round(scores, 6), starts, strands
@@ -109,20 +110,22 @@ def optimal_threshold(positive, control, min_support=2):
     return float(thresholds[best]), float(logp[best])
 
 
-def _word_presence(codes, groups, width):
+def _word_presence(codes, groups, width, reverse_complement=True):
     windows = np.lib.stride_tricks.sliding_window_view(codes, width, axis=1)
     rows, starts = np.nonzero((windows >= 0).all(axis=2))
     values = windows[rows, starts].astype(np.int64)
     powers = 4**np.arange(width-1, -1, -1, dtype=np.int64)
-    words = np.minimum(values@powers, (3-values[:, ::-1])@powers)
+    words = values@powers
+    if reverse_complement:
+        words = np.minimum(words, (3-values[:, ::-1])@powers)
     return np.unique(np.rec.fromarrays([words, groups[rows]], names='word,group'))
 
 
-def _seeds(positive, negative, groups, group_count, widths, per_width):
+def _seeds(positive, negative, groups, group_count, widths, per_width, reverse_complement=True):
     seeds = []
     for width in widths:
-        a = _word_presence(positive, groups, width)
-        b = _word_presence(negative, groups, width)
+        a = _word_presence(positive, groups, width, reverse_complement)
+        b = _word_presence(negative, groups, width, reverse_complement)
         words = np.unique(np.concatenate([a['word'], b['word']]))
         pos = np.zeros(len(words), dtype=int)
         neg, both = pos.copy(), pos.copy()
@@ -142,11 +145,11 @@ def _seeds(positive, negative, groups, group_count, widths, per_width):
     return seeds
 
 
-def _refine(codes, controls, groups, group_count, pwm, background, iterations):
+def _refine(codes, controls, groups, group_count, pwm, background, iterations, reverse_complement=True):
     best, previous = None, None
     for _ in range(iterations):
-        scores, starts, strands = scan_best(codes, pwm, background)
-        negative = scan_best(controls, pwm, background)[0]
+        scores, starts, strands = scan_best(codes, pwm, background, reverse_complement)
+        negative = scan_best(controls, pwm, background, reverse_complement)[0]
         threshold, logp = optimal_threshold(group_max(scores, groups, group_count),
             group_max(negative, groups, group_count))
         if best is None or logp < best[0]:
@@ -172,10 +175,10 @@ def _refine(codes, controls, groups, group_count, pwm, background, iterations):
     return best
 
 
-def _erase(codes, pwm, background, threshold):
+def _erase(codes, pwm, background, threshold, reverse_complement=True):
     # Repeated best-site masking also handles several instances in one fragment.
     while True:
-        scores, starts, _ = scan_best(codes, pwm, background)
+        scores, starts, _ = scan_best(codes, pwm, background, reverse_complement)
         rows = np.flatnonzero(np.isfinite(scores) & (scores >= threshold))
         if not len(rows):
             return
@@ -187,7 +190,7 @@ def discover_seqlet_motifs(seqlets, *, controls=None, groups=None,
                            min_width=6, max_width=15, max_motifs=15,
                            min_seqlets=10, min_parents=3, holdout_fraction=.2,
                            validation_mask=None, per_width=3, iterations=10,
-                           alpha=.05, seed=42):
+                           alpha=.05, seed=42, reverse_complement=True):
     """Discover variable-width motifs; return candidates and explicit retention flags.
 
     Input columns: dna, sequence_id; optional seqlet_id. Independent statistical
@@ -198,6 +201,8 @@ def discover_seqlet_motifs(seqlets, *, controls=None, groups=None,
     support are on the original fragments, retaining informative flank columns.
     """
     frame = seqlets.reset_index(drop=True).copy()
+    if not isinstance(reverse_complement, (bool, np.bool_)):
+        raise ValueError('reverse_complement must be a boolean')
     if not {'dna', 'sequence_id'} <= set(frame):
         raise ValueError('Seqlets require dna and sequence_id columns')
     if not 1 <= min_width <= max_width <= 30 or max_motifs < 1 or per_width < 1 or iterations < 1:
@@ -242,13 +247,14 @@ def discover_seqlet_motifs(seqlets, *, controls=None, groups=None,
     validation_ids = np.unique(group_ids[validation_mask])
     val_groups = np.searchsorted(validation_ids, group_ids[validation_mask])
     frequencies = np.bincount(negative[negative >= 0], minlength=4)+1.
-    background = (frequencies+frequencies[::-1])/(2*frequencies.sum())
+    background = ((frequencies+frequencies[::-1])/(2*frequencies.sum())
+                  if reverse_complement else frequencies/frequencies.sum())
     widths = range(min_width, min(max_width, original.shape[1])+1)
     rows, pwms = [], {}
     for round_index in range(max_motifs):
         best = None
-        for word, pwm in _seeds(positive, negative, train_groups, len(train_ids), widths, per_width):
-            result = _refine(positive, negative, train_groups, len(train_ids), pwm, background, iterations)
+        for word, pwm in _seeds(positive, negative, train_groups, len(train_ids), widths, per_width, reverse_complement):
+            result = _refine(positive, negative, train_groups, len(train_ids), pwm, background, iterations, reverse_complement)
             logp, threshold, pwm = result
             information = float(np.sum(pwm*np.log2(np.maximum(pwm, 1e-12)/background)))
             key = (logp, -information)
@@ -259,8 +265,8 @@ def discover_seqlet_motifs(seqlets, *, controls=None, groups=None,
         _, search_threshold, pwm, word = best
         motif_id = f'M{round_index+1:03}'
         pwms[motif_id] = pwm
-        a = scan_best(original, pwm, background)[0]
-        b = scan_best(control_codes, pwm, background)[0]
+        a = scan_best(original, pwm, background, reverse_complement)[0]
+        b = scan_best(control_codes, pwm, background, reverse_complement)[0]
         threshold, train_logp = optimal_threshold(
             group_max(a[training], train_groups, len(train_ids)),
             group_max(b[training], train_groups, len(train_ids)))
@@ -279,8 +285,8 @@ def discover_seqlet_motifs(seqlets, *, controls=None, groups=None,
             heldout_control_groups=int(np.sum(val_b >= threshold)),
             seqlets=int(support.sum()), parents=int(parents),
             retained=bool(adjusted <= alpha and support.sum() >= min_seqlets and parents >= min_parents)))
-        _erase(positive, pwm, background, search_threshold)
-        _erase(negative, pwm, background, search_threshold)
+        _erase(positive, pwm, background, search_threshold, reverse_complement)
+        _erase(negative, pwm, background, search_threshold, reverse_complement)
     columns = ['motif_id', 'seed_word', 'consensus', 'width', 'threshold_bits', 'train_logp',
         'search_threshold_bits', 'search_train_logp', 'heldout_logp', 'heldout_p_adjusted', 'heldout_positive_groups',
         'heldout_control_groups', 'seqlets', 'parents', 'retained']

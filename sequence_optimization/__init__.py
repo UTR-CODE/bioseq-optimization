@@ -34,8 +34,6 @@ from .algorithms import (
     optimize,
     random_optimize,
     register_algorithm,
-    run,
-    run_many,
     simulated_annealing_optimize,
     vanilla_activation_maximization_optimize,
 )
@@ -51,7 +49,6 @@ from .exploration import (
     DiversitySearchConfig,
     DiversitySearchResult,
     MotifPositionDescriptor,
-    generate_diverse_designs,
 )
 from .panel import ClusteredDesignPanel, cluster_designs
 from .attribution import ISMContributions, ism_contributions
@@ -68,7 +65,6 @@ __all__ = [
     "DiversitySearchConfig",
     "DiversitySearchResult",
     "MotifPositionDescriptor",
-    "generate_diverse_designs",
     "BudgetExceeded",
     "CallableScorer",
     "CombinedScorer",
@@ -88,8 +84,6 @@ __all__ = [
     "normalize_nucleotide_sequences",
     "pad_nucleotide_sequences",
     "register_algorithm",
-    "run",
-    "run_many",
     "TargetObjective",
     "MultiTaskObjective",
     "optimize",

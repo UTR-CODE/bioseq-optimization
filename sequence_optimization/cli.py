@@ -7,13 +7,12 @@ import importlib
 import json
 from pathlib import Path
 
-from .algorithms import available_algorithms, optimize, run
-from .api import CallableScorer, OptimizationConfig
-from .objectives import TargetObjective
-from .saturation import SaturationConfig
-from .seeds import load_seed_sequences, random_seed_sequences
+import pandas as pd
 
-_BUDGET_OMITTED = object()
+from .algorithms import available_algorithms, optimize
+from .api import CallableScorer
+from .objectives import TargetObjective
+from .seeds import load_seed_sequences, random_seed_sequences
 
 
 def _load_callable(specification: str, option: str):
@@ -31,15 +30,6 @@ def _target(value: str) -> int | str:
         return int(value)
     except ValueError:
         return value
-
-
-def _budget(value: str) -> int | None:
-    if value.strip().lower() in {"ulimit", "unlimited", "unlimit", "none"}:
-        return None
-    result = int(value)
-    if result < 1:
-        raise argparse.ArgumentTypeError("budget must be positive or 'unlimited'")
-    return result
 
 
 def main() -> None:
@@ -69,15 +59,10 @@ def main() -> None:
         default="right",
         help="Side on which N padding is added (default: right)",
     )
-    parser.add_argument(
-        "--budget",
-        type=_budget,
-        default=_BUDGET_OMITTED,
-        help=(
-            "A positive query count, or 'ulimit' to stop at a plateau "
-            "(default: 10000 for random, ulimit for other algorithms)"
-        ),
-    )
+    search = parser.add_mutually_exclusive_group()
+    search.add_argument("--gain-fraction", type=float, action="append",
+                        help="Plateau gain fraction to retain (repeatable, default: 0.9)")
+    search.add_argument("--score-threshold", type=float, help="Stop at this scalar objective score")
     parser.add_argument("--num-candidates", type=int, default=100)
     parser.add_argument("--diversity", type=int, default=5)
     parser.add_argument(
@@ -108,21 +93,8 @@ def main() -> None:
         default=1.0,
         help="Non-target penalty multiplier for the specificity objective",
     )
-    parser.add_argument(
-        "--saturation-fractions",
-        default="0.99",
-        help="Selections to retain with --budget ulimit (default: 0.99)",
-    )
-    parser.add_argument("--minimum-queries", type=int)
-    parser.add_argument("--plateau-patience-queries", type=int)
-    parser.add_argument("--maximum-queries", type=int)
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
-
-    if args.budget is _BUDGET_OMITTED:
-        args.budget = 10_000 if args.algorithm == "random" else None
-    elif args.algorithm == "random" and args.budget is None:
-        parser.error("random search does not support --budget ulimit; use a number")
 
     if args.seed_file:
         initial = load_seed_sequences(
@@ -161,71 +133,58 @@ def main() -> None:
     )
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
-    if args.budget is None:
-        import pandas as pd
-
-        fractions = tuple(
-            float(value.strip()) for value in args.saturation_fractions.split(",")
-        )
-        saturated = optimize(
-            scorer,
-            args.length,
-            initial,
-            objective,
-            args.num_candidates,
-            algorithm=args.algorithm,
-            diversity=args.diversity,
-            fixed_region=args.fixed_region,
-            alphabet=args.alphabet,
-            constraint=constraint,
-            saturation=SaturationConfig(
-                fractions=fractions,
-                minimum_queries=args.minimum_queries,
-                plateau_patience_queries=args.plateau_patience_queries,
-                maximum_queries=args.maximum_queries,
-            ),
-            seed=args.seed,
-        )
-        frames = []
-        for fraction, selection in saturated.selections.items():
-            frame = selection.to_frame()
-            frame.insert(0, "saturation_fraction", fraction)
-            frames.append(frame)
-        pd.concat(frames, ignore_index=True).to_csv(output, index=False)
+    fractions = args.gain_fraction or []
+    if any(not 0 < fraction <= 1 for fraction in fractions):
+        parser.error("--gain-fraction must lie in (0, 1]")
+    if len(set(fractions)) != len(fractions):
+        parser.error("--gain-fraction values must be distinct")
+    if args.score_threshold is not None:
+        from math import isfinite
+        if not isfinite(args.score_threshold):
+            parser.error("--score-threshold must be finite")
+    result = optimize(
+        scorer,
+        args.length,
+        initial,
+        objective,
+        args.num_candidates,
+        algorithm=args.algorithm,
+        diversity=args.diversity,
+        fixed_region=args.fixed_region,
+        alphabet=args.alphabet,
+        constraint=constraint,
+        gain_fraction=fractions[0] if len(fractions) == 1 else None,
+        gain_fractions=fractions if len(fractions) > 1 else None,
+        score_threshold=args.score_threshold,
+        seed=args.seed,
+    )
+    if len(fractions) > 1:
+        stages = [result.at(fraction) for fraction in fractions]
+        pd.concat(
+            [stage.to_frame().assign(gain_fraction=fraction)
+             for fraction, stage in zip(fractions, stages)],
+            ignore_index=True,
+        ).to_csv(output, index=False)
         run_metadata = {
-            "mode": "saturation",
-            "algorithm": args.algorithm,
-            "total_query_count": saturated.total_query_count,
-            "knee_query_count": saturated.knee_query_count,
-            "stop_reason": saturated.stop_reason,
-            "selection_query_counts": {
-                str(fraction): result.query_count
-                for fraction, result in saturated.selections.items()
-            },
+            "mode": "gain",
+            "algorithm": stages[0].algorithm,
+            "query_count": result.total_query_count,
+            "stop_reason": result.stop_reason,
+            "gain_stages": [
+                dict(gain_fraction=fraction, selection_query_count=stage.query_count,
+                     metadata=stage.metadata)
+                for fraction, stage in zip(fractions, stages)
+            ],
         }
-        task_names = next(iter(saturated.selections.values())).task_names
+        task_names = stages[0].task_names
     else:
-        result = run(
-            args.algorithm,
-            scorer,
-            args.length,
-            OptimizationConfig(
-                args.budget,
-                num_candidates=args.num_candidates,
-                diversity=args.diversity,
-                fixed_region=args.fixed_region,
-            ),
-            alphabet=args.alphabet,
-            initial=initial,
-            objective=objective,
-            constraint=constraint,
-            seed=args.seed,
-        )
         result.to_frame().to_csv(output, index=False)
         run_metadata = {
-            "mode": "fixed_budget",
+            "mode": "gain" if args.score_threshold is None else "threshold",
             "algorithm": result.algorithm,
-            "query_count": result.query_count,
+            "query_count": result.metadata["total_convergence_queries"],
+            "selection_query_count": result.query_count,
+            "stop_reason": result.metadata["stop_reason"],
             "metadata": result.metadata,
         }
         task_names = result.task_names

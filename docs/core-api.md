@@ -19,11 +19,13 @@ designs = generate_designs(
 
 By default, `parallel=True` starts one CPU optimization process per algorithm. A single scoring service in the calling process retains the loaded model, receives requests through a shared queue, and combines compatible discrete or differentiable requests into batches. Model objects stay out of the worker processes.
 
-The default search runs to a plateau and retains the 90% observed-gain stage. `num_candidates` is the count per algorithm. The design table includes:
+The default search runs to a plateau and retains the 90% observed-gain stage. Pass `gain_fraction` for a different stage or `score_threshold` for absolute score stopping. See [the two search modes](candidate-generation.md#search-modes). `num_candidates` is the count per algorithm. The design table includes:
 
 - `sequence`, `algorithm`, and scalar `score`.
 - `activity_<task>` for each individual prediction output.
 - `record_id` for each source record and `sequence_id` for each exact DNA sequence.
+
+Pass `gain_fractions=(0.5, 0.9)` to `generate_designs` to return both stages in one table with a `gain_fraction` column. At the lower-level `optimize` API, `gain_fractions` returns a `SaturationResult`. Access the archives with `result.at(0.5)` and `result.at(0.9)`.
 
 The output directory contains `designs.csv/fa`, `unique_designs.csv/fa`, `timing.csv`, and the run configuration. Parallel runs also export `gpu_batches.csv/json`; the returned table includes `designs.attrs["batching"]` and `designs.attrs["execution"]`.
 
@@ -68,6 +70,8 @@ Use the same model or scorer as in design generation. The design objective is ca
 The default `motif_backend="xstreme"` uses official XSTREME and FIMO. Missing executables produce an installation message before attribution starts. The optional `motif_backend="builtin"` uses the independently implemented discovery method described in [Motif discovery](motif-discovery.md).
 
 The returned `MotifCatalog` contains `pwms`, `seqlets`, and `support`. With `output_dir="outputs/motifs"`, the function exports the retained PWMs to **`outputs/motifs/catalog.meme`** in MEME format, alongside contributions, fragment sequences, and the motif-support table. This file can be passed directly to `select_candidates` in a later session.
+
+For RNA, set `call_motifs(..., reverse_complement=False)`. The default is `True` for DNA. The setting controls all three discovery backends and FIMO scanning, is stored in `MotifCatalog.reverse_complement` and `config.json`, and is inherited by `select_candidates`. The exported catalog uses A/C/G/T encoding (U represented as T); external RNA discovery output is preserved unchanged alongside a separate DNA-encoded MEME file. The parameter does not alter strand handling inside the supplied predictor.
 
 ISM is the default. Set `attribution_method="deepliftshap"` to use 20 dinucleotide-shuffled references per sequence with the same downstream stages:
 
@@ -122,6 +126,8 @@ selected = select_candidates(
 ```
 
 `motifs` accepts the `MotifCatalog` returned by `call_motifs`, a MEME file, or a PWM dictionary. The selector performs FIMO scanning, physical-site consolidation, motif support filtering, site-set redundancy removal, PWM similarity, Soft-Jaccard composition distances, and Hungarian positional matching internally.
+
+`reverse_complement=None` inherits the catalog object's mode, or defaults to `True` for file/dictionary inputs. For RNA catalogs loaded from disk, pass `reverse_complement=False` explicitly. This restricts both FIMO scanning and PWM similarity to the supplied orientation. Overriding a catalog's mode forces a fresh FIMO scan rather than reusing hits or q-values from the other scan mode. Saved hits supplied to a forward-only catalog must contain only `+` strands and must originate from a forward-only scan. Hamming selection compares the supplied sequences directly and uses no reverse-complement matching.
 
 ### Use your own motif-discovery workflow
 

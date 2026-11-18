@@ -7,9 +7,11 @@ from sequence_optimization import (
     CallableScorer,
     DiversitySearchConfig,
     MotifPositionDescriptor,
-    generate_diverse_designs,
     random_seed_sequences,
 )
+
+
+from sequence_optimization.exploration import generate_diverse_designs
 
 
 def test_directional_hits_and_ownership_do_not_merge_reverse_complements():

@@ -36,11 +36,14 @@ The 11 optimizers run in independent CPU processes with shared batched model sco
 ```python
 motifs = call_motifs(
     designs, model=scorer, output_dir="outputs/utr_motifs",
+    reverse_complement=False,
 )
 print(motifs.support)
 ```
 
 This calculates contributions for the optimization objective, extracts positive seqlets, and discovers PWMs with official XSTREME (MEME disabled), and filters supporting seqlets using FIMO. Candidate-wide FIMO filtering retains hits with p ≤ 0.001 and q ≤ 0.1, requires more than 30 physical sites per motif, and removes motifs with more than 80% site-set coverage. The catalog is saved as `catalog.meme`.
+
+RNA has a defined 5′→3′ orientation. `reverse_complement=False` uses single-strand RNA discovery and forward-only FIMO scanning. Sequences and the exported catalog use A/C/G/T encoding (U is represented as T); native A/C/G/U discovery output is preserved separately. Supply a strand-specific scorer: this parameter controls motif analysis and does not change the predictor's own strand handling.
 
 ## 4. Select a motif-diverse panel
 
@@ -54,6 +57,8 @@ print(selected[["selection_rank", "sequence_id", "score", "present_motifs", "alg
 ```
 
 The selector scans the catalog onto the designs and prioritizes motif composition, matched motif positions, and prediction score. CSV, FASTA, motif sites, distance matrices, and the selection trace are exported together.
+
+Passing the `MotifCatalog` object automatically inherits `reverse_complement=False`, including forward-only PWM similarity. When reloading `catalog.meme` as a path instead, explicitly set `select_candidates(..., reverse_complement=False)`; file and PWM-dictionary inputs default to the DNA behavior (`True`).
 
 ## 5. Hamming selection without motifs
 

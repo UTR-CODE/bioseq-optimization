@@ -36,18 +36,10 @@ def notebook(text, name):
         language_info=dict(name='python', version='3.10')), nbformat=4, nbformat_minor=5)
 
 
-for name in ['enhancer', 'promoter', '5utr', 'single-task', 'multi-task', 'multiple-models']:
+for name in ['enhancer', 'promoter', '5utr', 'single-task', 'multi-task', 'multiple-models', 'saluki-egfp']:
     text = (ROOT / f'docs/examples/{name}.md').read_text()
     (ROOT / f'examples/{name}.ipynb').write_text(json.dumps(notebook(text, name), ensure_ascii=False, indent=1) + '\n')
 text = (ROOT / 'docs/motif-diversity.md').read_text().split('## 6. Reference-data example')[1].split('## Outputs')[0]
 text = '# Reference motif-diversity selection\n\n' + text
-text += '''\nCompare the selected sequence order with the reference panel:\n
-```python
-expected = pd.read_csv(DATA / "k562_expected_top10.csv")
-assert selected.sequence.tolist() == expected.sequence.tolist()
-assert selected.sequence_id.tolist() == expected.sequence_id.tolist()
-print("Reference Top10 reproduced")
-```
-'''
 (ROOT / 'examples/motif_diversity.ipynb').write_text(json.dumps(notebook(text, 'motif-diversity'), ensure_ascii=False, indent=1) + '\n')
-print('Generated seven English workflow notebooks')
+print('Generated eight English workflow notebooks')

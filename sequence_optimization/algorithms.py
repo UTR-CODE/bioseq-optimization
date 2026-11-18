@@ -6,7 +6,7 @@ import inspect
 import logging
 from dataclasses import replace
 import random
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Sequence
 from functools import lru_cache
 from typing import Any
 
@@ -40,7 +40,6 @@ Optimizer = Callable[
 ]
 _REGISTRY: dict[str, Optimizer] = {}
 _DEFAULT_BUDGET = 10_000
-_DEFAULT_RANDOM_BUDGET = 100_000
 
 
 def register_algorithm(name: str):
@@ -1116,7 +1115,7 @@ def _apply_fixed_region(space, fixed_region, initial, rng):
     return FixedRegionSequenceSpace(space, template, positions)
 
 
-def run(
+def _run_budget_segment(
     name: str,
     scorer: SequenceScorer,
     length: int,
@@ -1223,39 +1222,6 @@ def run(
     return result
 
 
-def run_many(
-    names: Iterable[str],
-    scorer: SequenceScorer,
-    length: int,
-    config: OptimizationConfig,
-    *,
-    alphabet: str = "ACGT",
-    initial: Sequence[str] | np.ndarray | None = None,
-    objective: TargetObjective
-    | MultiTaskObjective
-    | list[str]
-    | tuple[str, ...]
-    | None = None,
-    constraint: ConstraintSpec | None = None,
-    seed: int = 0,
-) -> dict[str, OptimizationResult]:
-    """Run algorithms independently; each receives a fresh budget/cache."""
-    return {
-        str(name): run(
-            name,
-            scorer,
-            length,
-            config,
-            alphabet=alphabet,
-            initial=initial,
-            objective=objective,
-            constraint=constraint,
-            seed=seed + offset,
-        )
-        for offset, name in enumerate(names)
-    }
-
-
 def optimize(
     model: SequenceScorer,
     length: int,
@@ -1270,7 +1236,9 @@ def optimize(
     algorithm: str = "genetic_algorithm",
     stop_values: Sequence[float | tuple[float | None, float | None] | None] | None = None,
     stop_tolerance: float | None = 0.5,
-    budget: int | None = None,
+    gain_fraction: float | None = None,
+    gain_fractions: Sequence[float] | None = None,
+    score_threshold: float | None = None,
     saturation: SaturationConfig | None = None,
     diversity: int = 5,
     fixed_region: Sequence[int | str | slice] | None = None,
@@ -1320,6 +1288,10 @@ def optimize(
     sequences. ``fixed_region`` holds zero-based positions or Python-style
     slices to one shared sequence template. ``stop_values`` supplies inclusive
     directional caps or (lower, upper) intervals; None means unlimited.
+    Use ``score_threshold`` for stopping at a scalar score, or
+    ``gain_fraction`` for selecting a fraction of the observed plateau gain.
+    ``gain_fractions`` returns a SaturationResult with the requested archives
+    from a single run, accessible by fraction.
     """
     if stop_values is not None:
         if isinstance(objective, (list, tuple)):
@@ -1366,57 +1338,26 @@ def optimize(
         basesearch_batch_size=basesearch_batch_size,
         is_CDS_optimized=is_CDS_optimized,
     )
+    from .saturation import resolve_search_config
+
     algorithm_key = str(algorithm).strip().lower()
+    explicit_saturation = saturation is not None or gain_fractions is not None
+    saturation = resolve_search_config(
+        saturation, gain_fraction, score_threshold, gain_fractions
+    )
     if algorithm_key == "random":
-        if saturation is not None:
-            raise ValueError(
-                "saturation is not supported by random search; set budget instead"
-            )
-        if budget is None:
-            budget = _DEFAULT_RANDOM_BUDGET
         count_repeated = True
-    automatic_saturation = budget is None and saturation is None
-    if automatic_saturation:
-        saturation = SaturationConfig()
-    if saturation is not None and budget is not None:
-        raise ValueError("budget is invalid when saturation is set; omit budget")
-    if saturation is not None and not isinstance(saturation, SaturationConfig):
-        raise TypeError("saturation must be a SaturationConfig or None")
 
     def execute(one_initial, one_seed, *, cds_reference=None):
-        if saturation is not None:
-            from .saturation import _optimize_with_saturation
+        from .saturation import _optimize_with_saturation
 
-            saturated = _optimize_with_saturation(
-                model,
-                length,
-                algorithm=algorithm,
-                alphabet=alphabet,
-                initial=one_initial,
-                objective=objective,
-                constraint=constraint,
-                saturation=saturation,
-                seed=one_seed,
-                count_repeated=count_repeated or automatic_saturation,
-                cds_reference=cds_reference,
-                **parameters,
-            )
-            return saturated.selected if automatic_saturation else saturated
-        resolved_budget = _DEFAULT_BUDGET if budget is None else budget
-        config = OptimizationConfig(budget=resolved_budget, **parameters)
-        return run(
-            algorithm,
-            model,
-            length,
-            config,
-            alphabet=alphabet,
-            initial=one_initial,
-            objective=objective,
-            constraint=constraint,
-            seed=one_seed,
-            count_repeated=count_repeated,
-            cds_reference=cds_reference,
+        saturated = _optimize_with_saturation(
+            model, length, algorithm=algorithm, alphabet=alphabet,
+            initial=one_initial, objective=objective, constraint=constraint,
+            saturation=saturation, score_threshold=score_threshold, seed=one_seed,
+            count_repeated=count_repeated, cds_reference=cds_reference, **parameters,
         )
+        return saturated if explicit_saturation else saturated.selected
 
     if not is_CDS_optimized:
         return execute(initial, seed)
@@ -1429,7 +1370,7 @@ def optimize(
 
     prepared_cds = []
     seed_config = OptimizationConfig(
-        budget=max(_DEFAULT_BUDGET, num_candidates) if budget is None else budget,
+        budget=max(_DEFAULT_BUDGET, num_candidates),
         **parameters,
     )
     for offset, value in enumerate(cds_values):
@@ -1464,7 +1405,7 @@ def optimize(
     return results[0] if len(results) == 1 else results
 
 
-def _named_optimizer(name, public_name=None, doc=None, *, default_budget=None):
+def _named_optimizer(name, public_name=None, doc=None):
     def function(model, length, initial, objective, num_candidates, **kwargs):
         if "algorithm" in kwargs:
             raise TypeError(f"{function.__name__}() does not accept algorithm")
@@ -1487,13 +1428,6 @@ def _named_optimizer(name, public_name=None, doc=None, *, default_budget=None):
         for parameter in inspect.signature(optimize).parameters.values()
         if parameter.name != "algorithm"
     ]
-    if default_budget is not None:
-        parameters = [
-            parameter.replace(default=default_budget)
-            if parameter.name == "budget"
-            else parameter
-            for parameter in parameters
-        ]
     function.__signature__ = inspect.signature(optimize).replace(parameters=parameters)
     return function
 
@@ -1506,8 +1440,7 @@ basesearch_optimize = _named_optimizer(
 random_optimize = _named_optimizer(
     "random",
     "random_optimize",
-    "Uniform random candidate sampling with a fixed proposal budget.",
-    default_budget=_DEFAULT_RANDOM_BUDGET,
+    "Uniform random sampling with plateau or threshold stopping.",
 )
 ism_optimize = _named_optimizer("ism_greedy", "ism_optimize")
 simulated_annealing_optimize = _named_optimizer(

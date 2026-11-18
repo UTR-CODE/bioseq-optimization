@@ -35,3 +35,11 @@ python -m pip install -e '.[analysis,motifs,dev]'
 python -m pytest
 python tools/check_docs.py
 ```
+
+## Pretrained-model notebooks
+
+Install the model library and Jupyter in the environment used above. This revision includes the Saluki adapter used by the eGFP example.
+
+```bash
+python -m pip install 'bioseq-models @ git+https://github.com/UTR-CODE/bioseq-models.git@84a5075c3656127d99027c38705212a2de6e62c9' jupyterlab
+```

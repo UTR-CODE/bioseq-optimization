@@ -1,6 +1,6 @@
 # Motif discovery from attribution seqlets
 
-[Home](../README.md) · [Core API](core-api.md) · [Method comparison](motif-discovery-comparison.md)
+[Home](../README.md) · [Core API](core-api.md)
 
 The second core function converts designed sequences and model contributions into a motif catalog:
 
@@ -42,6 +42,10 @@ DeepLiftShap uses tangermeme's supported PyTorch nonlinear modules. Each nonline
 
 ## Official XSTREME backend (default)
 
+For RNA tasks, set `reverse_complement=False` in `call_motifs`. All backends then discover motifs in the supplied orientation: XSTREME uses `--dna2rna`, standalone STREME uses `--rna` on U-encoded input copies, and the built-in method omits reverse-complement seed pooling, reverse scoring and background symmetrization. FIMO receives `--norc` for both seqlet-support and candidate scans. The default `True` retains the DNA workflow. The scorer itself must be strand-specific; this flag does not modify model predictions or arbitrary user-supplied attribution scores.
+
+Native RNA discovery files remain unchanged. A separate `*_dna_encoded.meme` file maps only alphabet/background notation from U to T for the A/C/G/T FIMO interface; motif IDs, matrices, `nsites` and discovery statistics are preserved. The returned `MotifCatalog` carries the orientation into candidate selection, where PWM comparisons also omit reverse complements. When loading an exported MEME path or PWM dictionary, pass `reverse_complement=False` explicitly. Scan and selection receipts record the mode. If you supply saved hits, use hits from a forward-only scan, including its own q-values; filtering reverse-strand rows from a two-strand scan is insufficient.
+
 ```python
 motifs = call_motifs(
     designs, model=scorer, motif_backend="xstreme",
@@ -81,7 +85,7 @@ XSTREME runs STREME discovery, enrichment assessment and motif grouping with the
 
 1. Generate one length- and dinucleotide-matched Euler-trail shuffle per seqlet.
 2. Split independent parent sequences into training and held-out groups. All fragments from one parent stay together. Family labels can be supplied to the lower-level interface below.
-3. Pool each k-mer with its reverse complement and count independent training groups carrying it. Select enriched seeds across the requested widths.
+3. Pool each k-mer with its reverse complement by default (`reverse_complement=True`) and count independent training groups carrying it. In forward-only mode, keep the supplied k-mers without pooling. Select enriched seeds across the requested widths.
 4. Refine each seed by alternating PWM scanning, training-only threshold optimization, and PWM re-estimation from one best aligned site per training group. Scores are log2 odds against training-control base frequencies, symmetrized across strands and rounded to six decimal places for reproducible score ties.
 5. Select the strongest training candidate, mask its matching training sites in foreground and controls, and continue. Neither held-out results nor retention decisions determine subsequent candidates or stopping.
 6. For each fixed PWM, calibrate its reporting threshold on the original training fragments. Test that fixed threshold on held-out groups using a one-sided exact paired binomial test of foreground-only versus control-only group hits.

@@ -46,13 +46,6 @@ Interpret positional distances together with `matched_counts`. Report positional
 
 Record total wall time, per-algorithm runtime, CPU time, proposal count, and actual model-scoring rows. For shared-GPU runs, also record queue time and batch utilization.
 
-## Reference panel
+## Current result inputs
 
-The [K562 reference data](../examples/data/README.md) provide a fixed input for reproducing motif-based selection. Compare the selected sequence order with `k562_expected_top10.csv`.
-
-## Software checks
-
-```bash
-python -m pytest
-python tools/check_docs.py
-```
+The current K562 and HepG2 catalogs and candidate pools are in `../../results/`. Their downstream panels have not yet been recomputed. The workspace manifest records the source and SHA-256 of each included file. No tests were run while assembling this workspace.
