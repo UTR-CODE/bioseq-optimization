@@ -12,3 +12,5 @@ To run the pretrained-model notebooks, install the model library and Jupyter in 
 ```bash
 python -m pip install 'bioseq-models @ git+https://github.com/UTR-CODE/bioseq-models.git@84a5075c3656127d99027c38705212a2de6e62c9' jupyterlab
 ```
+
+In a standalone Python script, put model loading and workflow calls inside `if __name__ == "__main__":`.
