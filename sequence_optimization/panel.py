@@ -224,7 +224,7 @@ def cluster_designs(
         from sklearn.metrics import adjusted_rand_score, silhouette_score
     except ImportError as exc:
         raise ImportError(
-            "Install bioseq-optimization[analysis] for clustering"
+            "Install MotifSift[analysis] for clustering"
         ) from exc
     for name, value in (("per_family", per_family), ("final_count", final_count)):
         _integer(name, value)

@@ -3,7 +3,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "bioseq-optimization"
+name = "MotifSift"
 version = "0.6.2"
 description = "Multi-algorithm sequence design with motif composition and position diversity"
 readme = "README.md"

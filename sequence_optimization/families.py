@@ -129,7 +129,7 @@ def select_diverse_families(
         from sklearn.metrics import silhouette_score
     except ImportError as exc:
         raise ImportError(
-            "Install bioseq-optimization[analysis] for family selection"
+            "Install MotifSift[analysis] for family selection"
         ) from exc
 
     for name, val, minimum in [

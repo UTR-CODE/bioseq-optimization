@@ -1,153 +1,43 @@
-# bioseq-optimization
+# MotifSift
 
-Sequence optimization with three core functions:
+Design sequences with a trained predictor, discover motifs in the candidates, and select a panel for experimental follow-up.
 
-| Function | Purpose | Returns |
-|---|---|---|
-| `generate_designs` | Optimize a PyTorch sequence-to-activity model | Design table |
-| `call_motifs` | Extract seqlets and discover motifs from the designs | Motif catalog |
-| `select_candidates` | Select a diverse, high-quality panel | Selected design table |
+![MotifSift workflow](Fig.png)
 
-![MotifSift workflow from candidate generation to motif-aware selection](Fig.png)
-
-`select_candidates` uses Hamming Max-Min by default. Supplying `motifs` switches selection to motif composition and positional diversity.
-
-## Installation
+## Install
 
 ```bash
 git clone https://github.com/UTR-CODE/bioseq-optimization.git
 cd bioseq-optimization
-python -m pip install -e '.[analysis,motifs]'
+python -m pip install '.[motifs]'
 ```
 
-Install MEME Suite for official XSTREME motif discovery and FIMO scanning; see [Installation](docs/installation.md).
+See [installation](docs/installation.md) for MEME Suite and the pretrained models used in the notebooks.
 
-## 1. Generate designs
+## Design, discover motifs, and select
 
-Define a CNN that maps one-hot DNA `[batch,4,length]` in A/C/G/T order to one activity value per sequence:
-
-```python
-import torch
-from torch import nn
-from sequence_optimization import (
-    generate_designs, call_motifs, select_candidates, onehot,
-)
-
-class ActivityCNN(nn.Module):
-    def __init__(self):
-        super().__init__()
-        self.network = nn.Sequential(
-            nn.Conv1d(4, 32, kernel_size=9, padding=4),
-            nn.ReLU(),
-            nn.Conv1d(32, 32, kernel_size=5, padding=2),
-            nn.ReLU(),
-            nn.AdaptiveAvgPool1d(1),
-            nn.Flatten(),
-            nn.Linear(32, 1),
-        )
-
-    def forward(self, dna):
-        return self.network(dna)  # [batch, 1] predicted activity
-```
-
-Train this network on DNA sequences and measured activities using a regression loss such as MSE. After training, save its weights with `torch.save(model.state_dict(), "activity_cnn.pt")`. Load the trained weights and predict activity from DNA strings:
+Start with a trained [sequence-to-activity model](docs/pytorch-models.md) or [custom scorer](docs/custom-scorers.md).
 
 ```python
-device = "cuda" if torch.cuda.is_available() else "cpu"
-model = ActivityCNN()
-model.load_state_dict(torch.load("activity_cnn.pt", map_location="cpu", weights_only=True))
-model = model.to(device).eval()
+from sequence_optimization import call_motifs, generate_designs, select_candidates
 
-sequences = ["ACGT" * 50, "TGCA" * 50]  # Two 200-nt DNA sequences
-x = torch.tensor(onehot(sequences, channels_first=True), device=device)
-with torch.no_grad():
-    activity = model(x)
-print(activity)  # [2, 1]
-```
-
-This direct model interface supports **four-channel A/C/G/T one-hot input**, in that order, with shape `[batch,4,length]`. The framework wraps the CNN with `SequencePredictor` and supplies `score` and `score_soft`. For other encodings, channel orders, or channel counts, provide a custom scorer implementing these two methods; see [Custom sequence scorers](docs/custom-scorers.md).
-
-```python
 designs = generate_designs(
     model, length=200, objective=["maximize"],
-    num_candidates=100, seed=42, output_dir="outputs/designs",
+    gain_fractions=(0.5, 0.9),
 )
+
+candidates = designs.loc[designs["gain_fraction"].eq(0.9)]
+motifs = call_motifs(candidates, model=model)
+selected = select_candidates(candidates, top_n=10, motifs=motifs)
 ```
-
-By default, 11 optimizers run in separate CPU processes and share 100 random starting sequences. Their scoring requests enter a shared queue; one scoring service combines compatible requests into batches for the model on its current device. Discrete prediction and gradient forward/backward requests use this service. Each optimizer runs to a plateau and retains 100 designs at the 90% observed-gain stage. Pass `gain_fraction` for one stage, `gain_fractions=(0.5, 0.9)` for multiple stages from the same run, or `score_threshold` to stop at a scalar score. The result contains 1,100 source records with individual activity predictions and algorithm provenance. A progress display refreshes every five seconds during parallel runs. Runtime and query counts are recorded per algorithm. `gpu_batches.csv/json` records batching and cross-worker utilization. See [Parallel scoring](docs/parallel-scoring.md) for batch-size controls.
-
-Run these cells in a notebook. For a standalone Python script, place model loading and the workflow inside `if __name__ == "__main__":` so spawned CPU workers import only definitions.
-
-## 2. Call motifs
-
-Attribution defaults to ISM; `attribution_method="deepliftshap"` enables the optional DeepLiftShap route. The default backend uses official XSTREME with MEME disabled for discovery and FIMO for seqlet support. It checks both executables before calculating contributions and provides an installation command when either is missing.
-
-```python
-motifs = call_motifs(designs, model=model, output_dir="outputs/motifs")
-```
-
-For RNA tasks, use `call_motifs(..., reverse_complement=False)` for single-strand discovery and forward-only FIMO scanning. The returned catalog passes this setting to `select_candidates`, including forward-only PWM comparisons. When selecting from a MEME path or PWM dictionary, pass `reverse_complement=False` explicitly. DNA keeps the default `True`. Use a strand-specific predictor; the flag does not change a custom scorer's internal behavior. See the [5′UTR example](docs/examples/5utr.md).
-
-The function uses the design objective to calculate contributions, extracts positive seqlets, discovers PWMs with XSTREME against dinucleotide-shuffled controls, and retains motifs supported by at least ten seqlets from three parent sequences using FIMO matches. It then retains FIMO hits with `p ≤ 0.001` and `q ≤ 0.1`, requires more than 30 physical matches on unique candidate DNA and removes motifs when more than 80% of either motif’s positions are covered by the other. It returns a motif catalog and writes the DNA PWMs to **`outputs/motifs/catalog.meme`** in MEME format. You can also discover motifs with your own method and supply its MEME file directly to step 3.
-
-## 3. Select candidates
-
-With motifs, selection prioritizes motif composition diversity, matched motif-position diversity, and prediction score:
-
-```python
-# Retain the highest-scoring 80% of unique candidates.
-gate = float(designs.drop_duplicates("sequence").score.quantile(0.2))
-selected = select_candidates(
-    designs, top_n=10, motifs=motifs, min_score=gate,
-    output_dir="outputs/selected",
-)
-```
-
-Alternatively, pass a MEME file path. This can be the file exported in step 2 or a catalog produced by your own motif-discovery workflow:
-
-```python
-selected = select_candidates(
-    designs, motifs="outputs/motifs/catalog.meme",  # Or "my_motifs.meme"
-    top_n=10, min_score=gate, output_dir="outputs/selected_from_file",
-)
-```
-
-The selector scans the supplied motifs onto the candidate sequences with FIMO and computes motif composition and positional diversity. With your own catalog, start directly at step 3; no model or attribution scores are needed for selection. MEME files contain DNA letter-probability matrices with `ALPHABET= ACGT` and unique motif IDs.
-
-Without motifs, the same function selects by Hamming Max-Min:
-
-```python
-selected = select_candidates(designs, top_n=10, min_score=gate)
-```
-
-Both modes return a selected design table. `output_dir` exports CSV, FASTA, distances, and the selection trace.
 
 ## Examples
 
-Install the pretrained model library and Jupyter in the same Python environment.
-
-```bash
-python -m pip install 'bioseq-models @ git+https://github.com/UTR-CODE/bioseq-models.git@84a5075c3656127d99027c38705212a2de6e62c9' jupyterlab
-jupyter lab
-```
-
-Each notebook loads the pretrained model, sets an objective and runs a small optimization. Checkpoints download on the first run.
-
-| Model | Runnable notebook |
+| Model | Notebook |
 |---|---|
 | Optimus 5-Prime | [Optimize a 5′ UTR for predicted ribosome load](examples/single-task.ipynb) |
 | DeepSTARR | [Optimize developmental and housekeeping enhancer activity](examples/multi-task.ipynb) |
 | MPRALegNet | [Optimize enhancer activity across K562, HepG2 and WTC11](examples/multiple-models.ipynb) |
 | Saluki | [Optimize the eGFP CDS with synonymous substitutions](examples/saluki-egfp.ipynb) |
 
-## Methods and API
-
-- [Three-function API](docs/core-api.md)
-- [PyTorch model interface](docs/pytorch-models.md)
-- [Nonstandard inputs: custom score and score_soft](docs/custom-scorers.md)
-- [Candidate generation and timing](docs/candidate-generation.md)
-- [Motif discovery](docs/motif-discovery.md)
-- [Motif composition and positional selection](docs/motif-diversity.md)
-- [Algorithms and plateau stopping](docs/algorithms.md)
-- [Parallel scoring backend](docs/parallel-scoring.md)
-- [Evaluation](docs/validation.md)
+[API](docs/core-api.md) · [Motif discovery](docs/motif-discovery.md) · [Panel selection](docs/motif-diversity.md)
