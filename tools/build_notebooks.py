@@ -5,16 +5,10 @@ import json
 import re
 
 ROOT = Path(__file__).resolve().parents[1]
-SETUP = '''from pathlib import Path
-import os
-if Path.cwd().name == "examples" and (Path.cwd().parent / "pyproject.toml").exists():
-    os.chdir(Path.cwd().parent)
-print("Working directory:", Path.cwd())
-'''
 
 
 def notebook(text, name):
-    cells = [dict(cell_type='code', metadata={}, source=SETUP.splitlines(True), execution_count=None, outputs=[])]
+    cells = []
     pos = 0
     for match in re.finditer(r'```python\n(.*?)\n```', text, re.S):
         if match.start() > pos:
@@ -40,6 +34,6 @@ for name in ['enhancer', 'promoter', '5utr', 'single-task', 'multi-task', 'multi
     text = (ROOT / f'docs/examples/{name}.md').read_text()
     (ROOT / f'examples/{name}.ipynb').write_text(json.dumps(notebook(text, name), ensure_ascii=False, indent=1) + '\n')
 text = (ROOT / 'docs/motif-diversity.md').read_text().split('## 6. Reference-data example')[1].split('## Outputs')[0]
-text = '# Reference motif-diversity selection\n\n' + text
+text = '# Reference motif-diversity selection\n\n' + text.replace('Path("examples/data")', 'Path("data")')
 (ROOT / 'examples/motif_diversity.ipynb').write_text(json.dumps(notebook(text, 'motif-diversity'), ensure_ascii=False, indent=1) + '\n')
 print('Generated eight English workflow notebooks')

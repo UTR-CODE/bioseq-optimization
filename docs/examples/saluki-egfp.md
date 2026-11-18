@@ -13,7 +13,7 @@ import torch
 from bioseq_models import load_model
 from sequence_optimization import CallableScorer, generate_designs
 
-cds = "".join(Path("examples/data/egfp.fasta").read_text().splitlines()[1:])
+cds = "".join(Path("data/egfp.fasta").read_text().splitlines()[1:])
 utr5 = "ACATTTGCTTCTGACACAACTGTGTTCACTAGCAACCTCAAACAGACACC"
 utr3 = "GCTGGAGCCTCGGTGGCCTAGCTTCTTGCCCCTTGGGCCTCCCCCCAGCCCCTCCTCCCCTTCCTGCACCCGTACCCCCGTGGTCTTTGAATAAAGTCTGAGTGGGCGGCA"
 device = "cuda" if torch.cuda.is_available() else "cpu"
