@@ -10,15 +10,14 @@ Decrease predicted developmental activity and increase predicted housekeeping ac
 from pathlib import Path
 from tempfile import mkdtemp
 
-import pandas as pd
 import torch
 from bioseq_models import load_model
-from MotifSift import MultiTaskObjective, call_motifs, generate_designs, select_candidates
+from MotifSift import MultiTaskObjective, call_motifs, generate_designs, random_seed_sequences, select_candidates
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 model = load_model("deepstarr", device=device)
 objective = MultiTaskObjective(high=["housekeeping"], low=["developmental"])
-seeds = pd.read_csv("data/enhancer_initial_sequences.csv")["deepstarr"].tolist()
+seeds = random_seed_sequences(249, 100, seed=42)
 run = Path(mkdtemp(prefix="motifsift-example-"))
 ```
 

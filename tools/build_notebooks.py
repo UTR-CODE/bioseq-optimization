@@ -44,10 +44,10 @@ def write_notebook(path, current):
     path.write_text(json.dumps(current, ensure_ascii=False, indent=1) + '\n')
 
 
-for name in ['enhancer', 'promoter', '5utr', 'single-task', 'multi-task', 'multiple-models', 'saluki-egfp']:
-    text = (ROOT / f'docs/examples/{name}.md').read_text()
-    write_notebook(ROOT / f'examples/{name}.ipynb', notebook(text, name))
+for source in sorted((ROOT / 'docs/examples').glob('*.md')):
+    name = source.stem
+    write_notebook(ROOT / f'examples/{name}.ipynb', notebook(source.read_text(), name))
 text = (ROOT / 'docs/motif-diversity.md').read_text().split('## 6. Reference-data example')[1].split('## Outputs')[0]
 text = '# Reference motif-diversity selection\n\n' + text.replace('Path("examples/data")', 'Path("data")')
 write_notebook(ROOT / 'examples/motif_diversity.ipynb', notebook(text, 'motif-diversity'))
-print('Generated eight English workflow notebooks')
+print('Generated workflow notebooks')

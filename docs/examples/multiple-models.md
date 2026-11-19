@@ -10,10 +10,9 @@ Favor K562 activity over HepG2 and WTC11. Each cell type uses its full ten-fold 
 from pathlib import Path
 from tempfile import mkdtemp
 
-import pandas as pd
 import torch
 from bioseq_models import load_model
-from MotifSift import CombinedScorer, MultiTaskObjective, call_motifs, generate_designs, select_candidates
+from MotifSift import CombinedScorer, MultiTaskObjective, call_motifs, generate_designs, random_seed_sequences, select_candidates
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 cells = ["K562", "HepG2", "WTC11"]
@@ -22,7 +21,7 @@ model = CombinedScorer({
     for cell in cells
 })
 objective = MultiTaskObjective(high=["K562"], low=["HepG2", "WTC11"])
-seeds = pd.read_csv("data/enhancer_initial_sequences.csv")["mpralegnet"].tolist()
+seeds = random_seed_sequences(230, 100, seed=42)
 run = Path(mkdtemp(prefix="motifsift-example-"))
 ```
 
