@@ -65,3 +65,17 @@ def test_nonadditive_interactions_not_claimed_as_output_decomposition():
 def test_bad_score_shape_rejected():
     with pytest.raises(ValueError, match="finite"):
         ism_contributions(["AAAA"], lambda s: np.zeros((len(s), 2)))
+
+
+def test_synonymous_ism_limits_mutations_to_allowed_codons_and_fixed_bases():
+    from sequence_optimization.attribution import synonymous_ism_contributions
+
+    evaluated = []
+
+    def score(sequences):
+        evaluated.extend(sequences)
+        return np.array([sequence.count('T') for sequence in sequences], dtype=float)
+
+    observed = synonymous_ism_contributions(['ATGGCTTAA'], score, fixed_positions=(6, 7, 8))
+    np.testing.assert_allclose(observed, [[0, 0, 0, 0, 0, 0.75, 0, 0, 0]])
+    assert set(evaluated) == {'ATGGCTTAA', 'ATGGCATAA', 'ATGGCCTAA', 'ATGGCGTAA'}

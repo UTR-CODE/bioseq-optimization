@@ -74,6 +74,39 @@ def ism_contributions(sequences, score_fn, *, batch_size=256):
     return ISMContributions(values, reference, mutants, observed, logo)
 
 
+def synonymous_ism_contributions(sequences, score_fn, *, fixed_positions=(), batch_size=512):
+    """Attribute synonymous codon effects to their changed nucleotide positions."""
+    from .codons import SynonymousCodonSpace
+
+    if isinstance(batch_size, bool) or not isinstance(batch_size, (int, np.integer)) or batch_size < 1:
+        raise ValueError("batch_size must be a positive integer")
+    values = normalize_nucleotide_sequences(sequences)
+    if not len(values):
+        raise ValueError("at least one sequence is required")
+    observed = np.zeros((len(values), len(values[0])), dtype=float)
+    for start in range(0, len(values), batch_size):
+        parents = values[start:start + batch_size]
+        baselines = score_fn(parents)
+        for parent, baseline, attribution in zip(parents, baselines, observed[start:start + len(parents)]):
+            space = SynonymousCodonSpace(parent).with_fixed_positions(parent, fixed_positions)
+            mutants, positions = [], []
+            counts = np.repeat([len(codons) for codons in space.choices], 3)
+            for index, choices in enumerate(space.choices):
+                offset = index * 3
+                original = parent[offset:offset + 3]
+                for codon in choices:
+                    if codon == original:
+                        continue
+                    mutants.append(parent[:offset] + codon + parent[offset + 3:])
+                    positions.append([offset + j for j, base in enumerate(codon) if base != original[j]])
+            for offset in range(0, len(mutants), batch_size):
+                scores = score_fn(mutants[offset:offset + batch_size])
+                for score, changed in zip(scores, positions[offset:offset + batch_size]):
+                    attribution[changed] += (baseline - score) / len(changed)
+            attribution /= counts
+    return observed
+
+
 def _conservative_maxpool1d(module, grad_input, grad_output):
     """DeepLIFT max-pool routing with symmetric zero-delta fallback.
 

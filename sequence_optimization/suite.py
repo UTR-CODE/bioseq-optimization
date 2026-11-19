@@ -21,6 +21,7 @@ from .api import (
     SequencePredictor,
     as_score_batch,
     normalize_nucleotide_sequences,
+    resolve_fixed_positions,
 )
 from .constraints import ConstraintSpec
 from .objectives import CustomObjective, MultiTaskObjective, TargetObjective
@@ -401,6 +402,8 @@ def generate_designs(
                        candidates_per_algorithm=num_candidates, initial_count=len(initial_values),
                        minimum_hamming=diversity, execution="parallel" if parallel else "serial",
                        batching=batch_statistics)
+    if is_CDS_optimized:
+        frame.attrs["cds_fixed_positions"] = resolve_fixed_positions(fixed_region, length)
     if multiple_stages:
         frame.attrs.update(gain_fractions=list(resolved.fractions), gain_stage_timing=stage_timings)
     if output_dir is not None:

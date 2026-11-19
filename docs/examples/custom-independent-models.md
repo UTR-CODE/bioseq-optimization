@@ -1,18 +1,18 @@
-# Multi-output CNN
+# Multiple independent models
 
-[Notebook](../../examples/cnn-multi-task.ipynb)
+[Notebook](../../examples/custom-independent-models.ipynb)
 
-Wrap one PyTorch CNN that returns several scores per sequence. The two filters count `ACG` and `GTA` in output order. Increase `target` and decrease `off_target` with twice the weight on `target`.
+Wrap each PyTorch model, then use `CombinedScorer` to score the same sequences with both. This example maximizes the difference between their outputs.
 
 ## Define the model
 
 ```python
 import torch
 from torch import nn
-from MotifSift import MultiTaskObjective, SequencePredictor, generate_designs, random_seed_sequences
+from MotifSift import CombinedScorer, SequencePredictor, generate_designs, random_seed_sequences
 
 
-class TinyCNN(nn.Module):
+class ExampleModel(nn.Module):
     def __init__(self, patterns):
         super().__init__()
         self.conv = nn.Conv1d(4, len(patterns), kernel_size=3)
@@ -30,16 +30,19 @@ class TinyCNN(nn.Module):
 ## Connect the model and generate candidates
 
 ```python
-model = SequencePredictor(TinyCNN(["ACG", "GTA"]), tasks=["target", "off_target"])
-objective = MultiTaskObjective(
-    high=["target"], low=["off_target"], weights={"target": 2},
-)
+target = SequencePredictor(ExampleModel(["ACG"]), tasks=["activity"])
+off_target = SequencePredictor(ExampleModel(["GTA"]), tasks=["activity"])
+model = CombinedScorer({"target": target, "off_target": off_target})
+
+
+def objective(y):
+    return y["target"] - y["off_target"]
 
 length = 24
 seeds = random_seed_sequences(length, 8)
 designs = generate_designs(
     model, length=length, initial=seeds, objective=objective,
-    num_candidates=8, score_threshold=1,
+    num_candidates=8, score_threshold=2,
 )
 designs.groupby("algorithm")["score"].agg(["size", "median", "max"])
 ```

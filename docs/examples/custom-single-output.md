@@ -1,18 +1,18 @@
-# Independent CNNs
+# Single-output model
 
-[Notebook](../../examples/cnn-independent-models.ipynb)
+[Notebook](../../examples/custom-single-output.ipynb)
 
-Wrap each PyTorch CNN, then use `CombinedScorer` to score the same sequences with both. Each network has its own parameters. This example maximizes the difference between their predicted counts.
+Wrap a PyTorch model that returns one score per sequence. This example counts the `ACG` pattern. Use the same interface for your own trained model.
 
 ## Define the model
 
 ```python
 import torch
 from torch import nn
-from MotifSift import CombinedScorer, SequencePredictor, generate_designs, random_seed_sequences
+from MotifSift import SequencePredictor, generate_designs, random_seed_sequences
 
 
-class TinyCNN(nn.Module):
+class ExampleModel(nn.Module):
     def __init__(self, patterns):
         super().__init__()
         self.conv = nn.Conv1d(4, len(patterns), kernel_size=3)
@@ -30,13 +30,8 @@ class TinyCNN(nn.Module):
 ## Connect the model and generate candidates
 
 ```python
-target = SequencePredictor(TinyCNN(["ACG"]), tasks=["activity"])
-off_target = SequencePredictor(TinyCNN(["GTA"]), tasks=["activity"])
-model = CombinedScorer({"target": target, "off_target": off_target})
-
-
-def objective(y):
-    return y["target"] - y["off_target"]
+model = SequencePredictor(ExampleModel(["ACG"]), tasks=["activity"])
+objective = "maximize"
 
 length = 24
 seeds = random_seed_sequences(length, 8)

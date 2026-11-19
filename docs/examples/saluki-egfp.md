@@ -12,13 +12,45 @@ from tempfile import mkdtemp
 
 import torch
 from bioseq_models import load_model
-from MotifSift import SynonymousCodonSpace, call_motifs, generate_designs, select_candidates
-from saluki_support import ReporterScorer, codon_ism
+from MotifSift import call_motifs, generate_designs, select_candidates
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 cds = "".join(Path("data/egfp.fasta").read_text().splitlines()[1:])
-saluki = load_model("saluki", device=device, crosses=(0,))
-model = ReporterScorer(saluki, len(cds))
+utr5 = "ACATTTGCTTCTGACACAACTGTGTTCACTAGCAACCTCAAACAGACACC"
+utr3 = "GCTGGAGCCTCGGTGGCCTAGCTTCTTGCCCCTTGGGCCTCCCCCCAGCCCCTCCTCCCCTTCCTGCACCCGTACCCCCGTGGTCTTTGAATAAAGTCTGAGTGGGCGGCA"
+saluki = load_model(
+    "saluki", device=device,
+    cds_start=len(utr5), cds_end=len(utr5) + len(cds),
+    exon_lengths=[len(utr5) + len(cds) + len(utr3)],
+)
+
+
+def encode_utr(sequence):
+    indices = torch.tensor(["ACGT".index(base) for base in sequence])
+    return torch.nn.functional.one_hot(indices, num_classes=4)
+
+
+left, right = encode_utr(utr5), encode_utr(utr3)
+
+
+class CDSScorer:
+    task_names = saluki.task_names
+    device = saluki.device
+
+    def score(self, sequences):
+        return saluki.score([utr5 + sequence + utr3 for sequence in sequences])
+
+    def score_soft(self, probabilities):
+        batch = len(probabilities)
+        full_transcripts = torch.cat([
+            left.to(probabilities).expand(batch, -1, -1),
+            probabilities,
+            right.to(probabilities).expand(batch, -1, -1),
+        ], dim=1)
+        return saluki.score_soft(full_transcripts)
+
+
+model = CDSScorer()
 seeds = [cds]
 print("Starting Saluki score:", float(model.score(seeds)[0, 0]))
 
@@ -27,7 +59,7 @@ run = Path(mkdtemp(prefix="motifsift-example-"))
 
 ## 2. Generate candidates
 
-Run the eleven optimizers and keep 100 candidates per optimizer. The saved tables show the previous full run. New runs use the current MotifSift defaults.
+Run the eleven optimizers and keep 100 candidates per optimizer. The saved design summary comes from the previous full search. The motif and panel tables come from reanalyzing its 90% gain candidates.
 
 ```python
 designs = generate_designs(
@@ -44,10 +76,8 @@ Analyze the 90% gain stage with synonymous-codon attribution and forward-strand 
 
 ```python
 designs = designs.loc[designs["gain_fraction"].eq(0.9)].copy()
-space = SynonymousCodonSpace(cds).with_fixed_positions(cds, range(len(cds) - 3, len(cds)))
-contributions = codon_ism(model, designs.drop_duplicates("sequence"), space)
 motifs = call_motifs(
-    designs, reverse_complement=False, contributions=contributions,
+    designs, model, reverse_complement=False,
     output_dir=run / "motifs",
 )
 motifs.support.query("retained")[["motif_id", "seqlets", "parents", "sites_on_unique_DNA"]]

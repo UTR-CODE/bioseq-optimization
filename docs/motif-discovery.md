@@ -6,7 +6,7 @@ from MotifSift import call_motifs
 motifs = call_motifs(designs, model)
 ```
 
-MotifSift uses in silico mutagenesis to score nucleotide contributions to the design objective, extracts positive seqlets, discovers motifs with XSTREME, and checks their support with FIMO. For RNA, pass `reverse_complement=False` to analyze the supplied orientation.
+MotifSift uses in silico mutagenesis to score nucleotide contributions to the design objective, extracts positive seqlets, discovers motifs with XSTREME, and checks their support with FIMO. For synonymous CDS designs, it evaluates synonymous codon substitutions and respects fixed positions. For RNA, pass `reverse_complement=False` to analyze the supplied orientation.
 
 The catalog includes the retained motif models, motif sites, and the supporting evidence in `motifs.support`. Use `output_dir` to save the catalog and analysis files. Pass `contributions=` to reuse previously computed nucleotide contributions or `catalog=` to work with an existing motif catalog.
 

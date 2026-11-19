@@ -1,18 +1,18 @@
-# Single-output CNN
+# Multi-output model
 
-[Notebook](../../examples/cnn-single-task.ipynb)
+[Notebook](../../examples/custom-multi-output.ipynb)
 
-Wrap a PyTorch CNN that returns one score per sequence. The example sets the filter weights so the output counts the `ACG` pattern. Use your trained CNN in the same way.
+Wrap one PyTorch model that returns several scores per sequence. Increase `target` and decrease `off_target` with twice the weight on `target`.
 
 ## Define the model
 
 ```python
 import torch
 from torch import nn
-from MotifSift import SequencePredictor, generate_designs, random_seed_sequences
+from MotifSift import MultiTaskObjective, SequencePredictor, generate_designs, random_seed_sequences
 
 
-class TinyCNN(nn.Module):
+class ExampleModel(nn.Module):
     def __init__(self, patterns):
         super().__init__()
         self.conv = nn.Conv1d(4, len(patterns), kernel_size=3)
@@ -30,14 +30,16 @@ class TinyCNN(nn.Module):
 ## Connect the model and generate candidates
 
 ```python
-model = SequencePredictor(TinyCNN(["ACG"]), tasks=["activity"])
-objective = "maximize"
+model = SequencePredictor(ExampleModel(["ACG", "GTA"]), tasks=["target", "off_target"])
+objective = MultiTaskObjective(
+    high=["target"], low=["off_target"], weights={"target": 2},
+)
 
 length = 24
 seeds = random_seed_sequences(length, 8)
 designs = generate_designs(
     model, length=length, initial=seeds, objective=objective,
-    num_candidates=8, score_threshold=2,
+    num_candidates=8, score_threshold=1,
 )
 designs.groupby("algorithm")["score"].agg(["size", "median", "max"])
 ```

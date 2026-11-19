@@ -13,7 +13,7 @@ import pandas as pd
 
 from .suite import generate_designs
 from .api import SequencePredictor, as_score_batch, normalize_nucleotide_sequences
-from .attribution import ism_contributions, deepliftshap_contributions
+from .attribution import deepliftshap_contributions, ism_contributions, synonymous_ism_contributions
 from .objectives import MultiTaskObjective, TargetObjective
 from .motifs import (read_meme, write_meme, scan_fimo, select_motif_panel,
                      distinct_fimo_sites, filter_motif_sites, subset_motifs)
@@ -185,6 +185,8 @@ def call_motifs(designs, model=None, objective=None, *, contributions=None,
         discovery_tool = xstreme if motif_backend == 'xstreme' else streme if motif_backend == 'streme' else None
         _require_meme_tools(discovery_tool, fimo)
     ids = tuple(unique.sequence_id)
+    fixed_cds = designs.attrs.get('cds_fixed_positions') if isinstance(designs, pd.DataFrame) else None
+    method = attribution_method if contributions is None else 'provided'
     saved_dir = None if output_dir is None else Path(output_dir)
     with _output_folder(output_dir) as out:
         write_fasta(out/'sequences.fa', unique.sequence_id, unique.sequence)
@@ -215,7 +217,12 @@ def call_motifs(designs, model=None, objective=None, *, contributions=None,
                 if values.ndim == 1:
                     values = values[:, None]
                 return criterion.scalarize(values, getattr(scorer, 'task_names', None))
-            if attribution_method == 'ism':
+            if attribution_method == 'ism' and fixed_cds is not None:
+                method = 'synonymous_ism'
+                projected = synonymous_ism_contributions(
+                    unique.sequence.to_numpy(), fitness, fixed_positions=fixed_cds, batch_size=batch_size,
+                )
+            elif attribution_method == 'ism':
                 projected = ism_contributions(unique.sequence.to_numpy(), fitness, batch_size=batch_size).observed
             else:
                 projected, diagnostics = deepliftshap_contributions(
@@ -329,7 +336,7 @@ def call_motifs(designs, model=None, objective=None, *, contributions=None,
         support['retained'] = support.retained.fillna(False).astype(bool)
         support.to_csv(out/'support.csv', index=False)
         write_meme(out/'catalog.meme', pwms)
-        (out/'config.json').write_text(json.dumps(dict(method=attribution_method if contributions is None else 'provided',
+        (out/'config.json').write_text(json.dumps(dict(method=method,
             motif_backend=motif_backend, discovery_options=dict(discovery_options or {}),
             reverse_complement=reverse_complement,
             discovery_alphabet='DNA' if reverse_complement or motif_backend == 'builtin' else 'RNA',

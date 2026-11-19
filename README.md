@@ -38,6 +38,6 @@ panel = select_candidates(designs, motifs=motifs, top_n=10)
 | MPRALegNet | [Cell-selective enhancer design](examples/multiple-models.ipynb) |
 | Saluki | [Synonymous eGFP CDS design](examples/saluki-egfp.ipynb) |
 
-Use your own PyTorch model in the [single-output CNN](examples/cnn-single-task.ipynb), [multi-output CNN](examples/cnn-multi-task.ipynb), or [independent CNNs](examples/cnn-independent-models.ipynb) notebook.
+Use your own PyTorch model in the [single-output model](examples/custom-single-output.ipynb), [multi-output model](examples/custom-multi-output.ipynb), or [multiple independent models](examples/custom-independent-models.ipynb) notebook.
 
 [Objectives and API](docs/core-api.md) · [Motif discovery](docs/motif-discovery.md) · [Panel selection](docs/motif-diversity.md)
