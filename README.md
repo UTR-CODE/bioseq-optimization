@@ -41,4 +41,6 @@ panel = select_candidates(designs, motifs=motifs, top_n=10)
 
 Use your own PyTorch model in the [single-output model](examples/custom-single-output.ipynb), [multi-output model](examples/custom-multi-output.ipynb), or [multiple independent models](examples/custom-independent-models.ipynb) notebook. For a model exposing `score()` and `score_soft()`, see the [custom scoring example](examples/custom-scoring-methods.ipynb).
 
+See the [custom constraints example](examples/custom-constraints.ipynb) to filter patterns, GC content, and homopolymers.
+
 [Objectives and API](docs/core-api.md) · [Motif discovery](docs/motif-discovery.md) · [Panel selection](docs/motif-diversity.md)
