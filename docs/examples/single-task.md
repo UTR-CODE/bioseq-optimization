@@ -2,7 +2,7 @@
 
 [Notebook](../../examples/single-task.ipynb) · [Installation](../installation.md)
 
-Maximize the predicted mean ribosome load of a 50-nt 5′ UTR. Regenerate the 100 starting sequences from the Extended Data analysis and exclude homopolymers of six bases or longer. Install MEME Suite with the notebook dependencies. The first model load downloads the pretrained checkpoint.
+Maximize the predicted mean ribosome load of a 50-nt 5′ UTR. Start with 100 random sequences. MotifSift replaces seeds that contain homopolymers of six bases or longer. Install MEME Suite with the notebook dependencies. The first model load downloads the pretrained checkpoint.
 
 ## 1. Load the model
 
@@ -24,17 +24,14 @@ os.makedirs(run, exist_ok=True)
 
 ## 2. Generate candidates
 
-Run the eleven optimizers and keep 100 candidates per optimizer. The saved tables show the previous full run. New runs use the current MotifSift defaults.
+Run the eleven optimizers and keep 100 candidates per optimizer. The saved tables show the previous full run, which used a prefiltered seed pool. New runs use the current MotifSift defaults.
 
 ```python
 def no_homopolymer6(sequences):
     return [re.search(r"([ACGT])\1{5}", sequence) is None for sequence in sequences]
 
 
-seeds = random_seed_sequences(50, 100, seed=42).tolist()
-refill = random_seed_sequences(50, 100, seed=20261117).tolist()
-seeds = list(dict.fromkeys(seeds + refill))
-seeds = [sequence for sequence, keep in zip(seeds, no_homopolymer6(seeds)) if keep][:100]
+seeds = random_seed_sequences(50, 100, seed=42)
 
 designs = generate_designs(
     model, length=50, initial=seeds, objective="maximize",
