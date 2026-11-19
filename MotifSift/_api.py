@@ -107,7 +107,7 @@ def _objective_for(objective, task_names=None):
 def generate_designs(
     model, length, objective="maximize", *, initial=None, num_candidates=100,
     gain_fractions=None, score_threshold=None, algorithms=None, constraint=None,
-    fixed_region=None, is_CDS_optimized=False, seed=0, output_dir=None,
+    fixed_region=None, is_CDS_optimized=False, seed=42, output_dir=None,
 ):
     """Return one row per candidate, optimizer, and requested gain stage."""
     scorer = _ScorerAdapter(model)

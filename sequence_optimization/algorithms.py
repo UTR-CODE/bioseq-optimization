@@ -1129,7 +1129,7 @@ def _run_budget_segment(
     | tuple[str, ...]
     | None = None,
     constraint: ConstraintSpec | None = None,
-    seed: int = 0,
+    seed: int = 42,
     count_repeated: bool = False,
     cds_reference: str | None = None,
 ) -> OptimizationResult:
@@ -1244,7 +1244,7 @@ def optimize(
     fixed_region: Sequence[int | str | slice] | None = None,
     alphabet: str = "ACGT",
     constraint: ConstraintSpec | None = None,
-    seed: int = 0,
+    seed: int = 42,
     mutation_rate: float = 0.02,
     elite_fraction: float = 0.2,
     parent_pool_multiplier: int = 5,

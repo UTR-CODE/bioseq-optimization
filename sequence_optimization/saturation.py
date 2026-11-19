@@ -1012,7 +1012,7 @@ def _optimize_with_saturation(
     constraint: ConstraintSpec | None = None,
     saturation: SaturationConfig,
     score_threshold: float | None = None,
-    seed: int = 0,
+    seed: int = 42,
     count_repeated: bool = False,
     cds_reference: str | None = None,
     **optimizer_parameters: Any,

@@ -109,3 +109,13 @@ def test_custom_scorer_receives_normalized_lists_and_accepts_a_soft_tensor():
     np.testing.assert_array_equal(combined.score(['guN']).scores, [[1]])
     with pytest.raises(ValueError, match='contain only A, C, G, T, U, or N'):
         combined.score(['GUX'])
+
+
+def test_default_optimizer_seed_matches_explicit_seed_42():
+    model = ChannelsLastPredictor(ChannelsLastModel(), ["activity"])
+    options = dict(length=8, num_candidates=2, algorithms=["basesearch", "genetic_algorithm"], score_threshold=4)
+    default = generate_designs(model, **options)
+    explicit = generate_designs(model, seed=42, **options)
+    assert default.equals(explicit)
+    assert default.attrs["seed"] == 42
+    assert [entry["seed"] for entry in default.attrs["timing"]] == [42, 43]

@@ -312,7 +312,7 @@ def _design_worker(index, client, length, initial, score_settings, count, name,
 
 
 def run_batched_designs(scorer, gradient_scorer, length, initial, objective, count,
-                        jobs, *, alphabet='ACGT', constraint=None, seed=0,
+                        jobs, *, alphabet='ACGT', constraint=None, seed=42,
                         max_batch_size=512, max_soft_batch_size=64,
                         batch_wait_ms=5., metrics_path=None, show_progress=True):
     """Run independent optimizers through one local, model-owning service thread.

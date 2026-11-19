@@ -12,6 +12,8 @@ Use `initial` to supply starting sequences. Otherwise, the optimizers start from
 
 See [objectives](core-api.md#choose-an-objective) for minimizing a score, weighting model outputs, or writing a custom score.
 
+The default optimization seed is 42. Each optimizer uses a deterministic offset from that seed in the order listed below. Pass `seed=` to change the base seed. When comparing runs, match the starting sequences, model checkpoint, prediction precision, and gain stage.
+
 ## Optimizers
 
 MotifSift runs eleven optimizers over a common starting pool: AdaLead, BaseSearch, beam search, cross-entropy, DEN, Fast SeqProp, genetic algorithm, in silico mutagenesis, Ledidi, simulated annealing, and vanilla activation maximization.

@@ -135,7 +135,7 @@ def generate_designs(
     tasks: Sequence[str] | None = None,
     alphabet: str = "ACGT",
     constraint: ConstraintSpec | None = None,
-    seed: int = 0,
+    seed: int = 42,
     gain_fraction: float | None = None,
     gain_fractions: Sequence[float] | None = None,
     score_threshold: float | None = None,
