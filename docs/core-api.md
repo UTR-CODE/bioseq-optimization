@@ -46,7 +46,7 @@ motifs = call_motifs(designs, model)
 panel = select_candidates(designs, motifs=motifs, top_n=10)
 ```
 
-- `generate_designs` returns a pandas DataFrame. By default, eleven optimizers each retain up to 100 candidates at 90% of the observed gain. Use `num_candidates` to change the count, `gain_fractions=(0.5, 0.9)` to return both stages, or `score_threshold` to set a target score.
+- `generate_designs` returns a pandas DataFrame. By default, eleven optimizers each retain up to 100 candidates at [90% of the observed gain](gain-fraction.md). Use `num_candidates` to change the count, `gain_fractions=(0.5, 0.9)` to return both stages, or `score_threshold` to set a target score.
 - `call_motifs` uses the design objective for attribution. Use `reverse_complement=False` for RNA.
 - `select_candidates` returns a DataFrame of the selected sequences. Use `top_n` for panel size and `min_score` to enforce a minimum score.
 

@@ -6,3 +6,5 @@ Pass a custom object with `score(sequences)` and `score_soft(probabilities)` dir
 - `score_soft()` receives a PyTorch tensor of shape `[batch, length, 4]` in A/C/G/T order. Return a prediction tensor of shape `[batch]` or `[batch, tasks]` that retains gradients with respect to the input. You can also return `(predictions, uncertainty)`.
 
 See the [complete scoring example](../examples/custom-scoring-methods.ipynb). For a PyTorch model that exposes `forward()`, use [SequencePredictor](pytorch-models.md) to supply both scoring methods.
+
+A model with only `score()` can run discrete optimizers. For example, set `algorithms=["adalead", "basesearch"]` in `generate_designs()`. The default suite of eleven includes gradient-based optimizers that use `score_soft()`.

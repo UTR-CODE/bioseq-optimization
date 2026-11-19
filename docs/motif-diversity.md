@@ -67,6 +67,10 @@ The returned table has the same sequence, score, and provenance columns as Hammi
 
 See the [reference-data notebook](../examples/motif_diversity.ipynb) for selection from a saved catalog and hits.
 
+## When a panel cannot be selected
+
+If discovery yields no supported motifs, omit `motifs` to select by Hamming distance. If fewer than `top_n` unique sequences meet the score cutoff, reduce `top_n` or adjust `min_score` to reflect the experiment’s requirements. Motif-based selection also needs sufficient motif evidence in the eligible pool.
+
 ## Outputs
 
 `selected_sequences.csv/fa` contain the panel. `motif_sites.csv`, `presence_matrix.csv`, `motif_similarity.csv`, `distance_matrices.npz`, and `selection_trace.json` describe the motif-based selection. Hamming mode exports `hamming_distances.csv` and the same sequence and trace files.

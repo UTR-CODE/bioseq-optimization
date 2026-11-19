@@ -24,8 +24,7 @@ from bioseq_models import load_model
 from MotifSift import call_motifs, generate_designs, select_candidates
 
 model = load_model("optimus5prime")
-designs = generate_designs(model, length=50, objective="maximize", gain_fractions=(0.5, 0.9))
-designs = designs.loc[designs["gain_fraction"].eq(0.9)].copy()
+designs = generate_designs(model, length=50, objective="maximize")
 motifs = call_motifs(designs, model, reverse_complement=False)
 panel = select_candidates(designs, motifs=motifs, top_n=10)
 ```
@@ -35,12 +34,13 @@ panel = select_candidates(designs, motifs=motifs, top_n=10)
 | Model | Notebook |
 |---|---|
 | Optimus 5-Prime | [5′ UTR design](examples/single-task.ipynb) |
+| Malinois | [K562 enhancer specificity](examples/enhancer.ipynb) |
 | DeepSTARR | [Multi-output enhancer design](examples/multi-task.ipynb) |
 | MPRALegNet | [Cell-selective enhancer design](examples/multiple-models.ipynb) |
 | Saluki | [Synonymous eGFP CDS design](examples/saluki-egfp.ipynb) · [Gluc 3′ UTR design](examples/saluki-gluc-3utr.ipynb) |
 
 Use your own PyTorch model in the [single-output model](examples/custom-single-output.ipynb), [multi-output model](examples/custom-multi-output.ipynb), or [multiple independent models](examples/custom-independent-models.ipynb) notebook. For a model exposing `score()` and `score_soft()`, see the [custom scoring example](examples/custom-scoring-methods.ipynb).
 
-See the [custom constraints example](examples/custom-constraints.ipynb) to filter patterns, GC content, and homopolymers.
+See the [custom constraints example](examples/custom-constraints.ipynb) to filter patterns, GC content, and homopolymers or keep selected positions fixed.
 
-[Objectives and API](docs/core-api.md) · [Motif discovery](docs/motif-discovery.md) · [Panel selection](docs/motif-diversity.md)
+[Objectives and API](docs/core-api.md) · [Gain fraction](docs/gain-fraction.md) · [Motif discovery](docs/motif-discovery.md) · [Panel selection](docs/motif-diversity.md)

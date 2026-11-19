@@ -74,3 +74,20 @@ designs.assign(gc_fraction=designs.sequence.map(gc_fraction))[[
     "sequence", "algorithm", "score", "gc_fraction",
 ]].head()
 ```
+
+## Keep selected positions fixed
+
+`fixed_region` uses zero-based positions and Python slices. In `slice(0, 4)`, the index 4 is excluded. Every starting sequence must already agree at the fixed positions. This example keeps the first four bases and the last three bases from a shared template.
+
+```python
+prefix, suffix = "ACGT", "TAC"
+initial = [prefix + seed[len(prefix):-len(suffix)] + suffix for seed in seeds]
+fixed_designs = generate_designs(
+    GCountScorer(), length=length, initial=initial, objective="maximize",
+    num_candidates=8, score_threshold=10,
+    fixed_region=[slice(0, len(prefix)), slice(-len(suffix), None)],
+)
+assert fixed_designs.sequence.str.startswith(prefix).all()
+assert fixed_designs.sequence.str.endswith(suffix).all()
+fixed_designs[["algorithm", "sequence", "score"]].head()
+```
