@@ -374,6 +374,7 @@ def test_differentiable_algorithms_share_the_result_contract():
         return np.asarray(["T" not in value for value in values], dtype=float)
 
     for name in ("vanilla_activation_maximization", "fast_seqprop", "den", "ledidi"):
+        rng_state = torch.random.get_rng_state()
         result = run(
             name,
             scorer,
@@ -389,6 +390,7 @@ def test_differentiable_algorithms_share_the_result_contract():
         assert all("T" not in sequence for sequence in result.sequences)
         assert result.activities.shape == (4, 2)
         assert result.metadata["objective"]["target_name"] == "g_activity"
+        assert torch.equal(torch.random.get_rng_state(), rng_state)
 
 
 def test_saturation_returns_requested_q80_and_q90_archives():

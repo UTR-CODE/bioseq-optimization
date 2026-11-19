@@ -503,14 +503,14 @@ def _one_hot(initial, space: SequenceSpace, device):
     )
 
 
-def _straight_through(probabilities, space):
+def _straight_through(probabilities, space, generator):
     import torch
     from torch.nn import functional as functional
 
     shape = probabilities.shape
-    sampled = torch.multinomial(probabilities.reshape(-1, shape[-1]), 1).reshape(
-        shape[:-1]
-    )
+    sampling_weights = probabilities.detach().reshape(-1, shape[-1]).cpu()
+    sampled = torch.multinomial(sampling_weights, 1, generator=generator)
+    sampled = sampled.reshape(shape[:-1]).to(probabilities.device)
     constrain = getattr(space, "constrain_encoded", None)
     if constrain is not None:
         sampled = constrain(sampled)
@@ -552,10 +552,13 @@ def vanilla_activation_maximization(initial, scorer, space, config, rng):
     archive: dict[str, tuple[float, float]] = {}
     _score(scorer, archive, initial)
     device = _torch_device(scorer)
-    torch.manual_seed(int(rng.integers(0, 2**31 - 1)))
+    cpu_rng = torch.Generator(device="cpu").manual_seed(int(rng.integers(0, 2**31 - 1)))
     initial_one_hot = _one_hot(initial, space, device)
+    noise = torch.randn(
+        initial_one_hot.shape, dtype=initial_one_hot.dtype, device="cpu", generator=cpu_rng
+    ).to(device)
     logits = torch.nn.Parameter(
-        initial_one_hot * 1.5 + 0.05 * torch.randn_like(initial_one_hot)
+        initial_one_hot * 1.5 + 0.05 * noise
     )
     optimizer = torch.optim.Adam([logits], lr=config.learning_rate)
     trajectory = []
@@ -632,10 +635,13 @@ def fast_seqprop(initial, scorer, space, config, rng):
     archive: dict[str, tuple[float, float]] = {}
     _score(scorer, archive, initial)
     device = _torch_device(scorer)
-    torch.manual_seed(int(rng.integers(0, 2**31 - 1)))
+    cpu_rng = torch.Generator(device="cpu").manual_seed(int(rng.integers(0, 2**31 - 1)))
     initial_one_hot = _one_hot(initial, space, device)
+    noise = torch.randn(
+        initial_one_hot.shape, dtype=initial_one_hot.dtype, device="cpu", generator=cpu_rng
+    ).to(device)
     logits = torch.nn.Parameter(
-        initial_one_hot + 0.05 * torch.randn_like(initial_one_hot)
+        initial_one_hot + 0.05 * noise
     )
     gamma = torch.nn.Parameter(
         torch.ones(len(initial), space.alphabet_size, device=device)
@@ -656,7 +662,7 @@ def fast_seqprop(initial, scorer, space, config, rng):
                 normalized * gamma[:, None, :] + beta[:, None, :], dim=-1
             ),
         )
-        straight_through, sampled = _straight_through(probabilities, space)
+        straight_through, sampled = _straight_through(probabilities, space, cpu_rng)
         sequences = space.decode(sampled.detach().cpu().numpy())
         batch = _score(scorer, archive, sequences)
         passed = scorer.constraints_passed(sequences)
@@ -704,12 +710,12 @@ def ledidi(initial, scorer, space, config, rng):
     prior = torch.log(template + config.ledidi_epsilon)
     weights = torch.nn.Parameter(torch.zeros_like(template))
     optimizer = torch.optim.Adam([weights], lr=config.learning_rate)
-    generator = torch.Generator(device=device)
-    generator.manual_seed(int(rng.integers(0, 2**31 - 1)))
+    generator = torch.Generator(device="cpu").manual_seed(int(rng.integers(0, 2**31 - 1)))
     trajectory = []
     soft_queries = 0
     while scorer.remaining is None or scorer.remaining >= len(initial):
-        noise = -torch.empty_like(weights).exponential_(generator=generator).log()
+        noise = torch.empty(weights.shape, dtype=weights.dtype, device="cpu")
+        noise = -noise.exponential_(generator=generator).log().to(device)
         probabilities = _constrain_probabilities(
             space,
             torch.softmax(
@@ -800,18 +806,18 @@ def den(initial, scorer, space, config, rng):
     archive: dict[str, tuple[float, float]] = {}
     _score(scorer, archive, initial)
     device = _torch_device(scorer)
-    torch.manual_seed(int(rng.integers(0, 2**31 - 1)))
+    seed = int(rng.integers(0, 2**31 - 1))
     noise_dim = 16
 
     class DeepExplorationGenerator(nn.Module):
         def __init__(self) -> None:
             super().__init__()
             self.network = nn.Sequential(
-                nn.Linear(noise_dim, 64),
+                nn.Linear(noise_dim, 64, device="cpu"),
                 nn.ReLU(),
-                nn.Linear(64, 64),
+                nn.Linear(64, 64, device="cpu"),
                 nn.ReLU(),
-                nn.Linear(64, space.length * space.alphabet_size),
+                nn.Linear(64, space.length * space.alphabet_size, device="cpu"),
             )
 
         def forward(self, noise):
@@ -819,8 +825,15 @@ def den(initial, scorer, space, config, rng):
                 len(noise), space.length, space.alphabet_size
             )
 
-    generator = DeepExplorationGenerator().to(device)
-    fixed_noise = torch.randn(len(initial), noise_dim, device=device)
+    # Initialize on CPU inside an isolated RNG scope. Continue the same
+    # random stream for latent noise and the subsequent categorical draws.
+    cpu_rng = torch.Generator(device="cpu")
+    with torch.random.fork_rng(devices=[]):
+        torch.random.default_generator.manual_seed(seed)
+        generator = DeepExplorationGenerator()
+        cpu_rng.set_state(torch.random.get_rng_state())
+    generator = generator.to(device)
+    fixed_noise = torch.randn(len(initial), noise_dim, device="cpu", generator=cpu_rng).to(device)
     target = torch.as_tensor(space.encode(initial), dtype=torch.long, device=device)
     pretrainer = torch.optim.Adam(
         generator.parameters(), lr=config.generator_learning_rate
@@ -845,7 +858,7 @@ def den(initial, scorer, space, config, rng):
         probabilities = _constrain_probabilities(
             space, torch.softmax(logits, dim=-1)
         )
-        straight_through, sampled = _straight_through(probabilities, space)
+        straight_through, sampled = _straight_through(probabilities, space, cpu_rng)
         sequences = space.decode(sampled.detach().cpu().numpy())
         batch = _score(scorer, archive, sequences)
         passed = scorer.constraints_passed(sequences)
