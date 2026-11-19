@@ -36,7 +36,7 @@ panel = select_candidates(designs, motifs=motifs, top_n=10)
 | Optimus 5-Prime | [5′ UTR design](examples/single-task.ipynb) |
 | DeepSTARR | [Multi-output enhancer design](examples/multi-task.ipynb) |
 | MPRALegNet | [Cell-selective enhancer design](examples/multiple-models.ipynb) |
-| Saluki | [Synonymous eGFP CDS design](examples/saluki-egfp.ipynb) |
+| Saluki | [Synonymous eGFP CDS design](examples/saluki-egfp.ipynb) · [Gluc 3′ UTR design](examples/saluki-gluc-3utr.ipynb) |
 
 Use your own PyTorch model in the [single-output model](examples/custom-single-output.ipynb), [multi-output model](examples/custom-multi-output.ipynb), or [multiple independent models](examples/custom-independent-models.ipynb) notebook.
 
