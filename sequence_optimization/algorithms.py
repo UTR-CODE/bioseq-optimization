@@ -848,6 +848,47 @@ def _diverse_parent_subset(sequences, scores, count):
     return sequences[selected], scores[selected]
 
 
+if njit is not None:
+
+    @njit(cache=True, nogil=True)
+    def _complete_link_assignments(codes, threshold):
+        """Assign each sequence to the first cluster it fits."""
+        size, length = codes.shape
+        heads = np.empty(size, dtype=np.int64)
+        tails = np.empty(size, dtype=np.int64)
+        next_member = np.full(size, -1, dtype=np.int64)
+        assignments = np.empty(size, dtype=np.int64)
+        cluster_count = 0
+        for index in range(size):
+            target = cluster_count
+            for cluster in range(cluster_count):
+                member = heads[cluster]
+                while member >= 0:
+                    distance = 0
+                    for position in range(length):
+                        if codes[index, position] != codes[member, position]:
+                            distance += 1
+                            if distance > threshold:
+                                break
+                    if distance > threshold:
+                        break
+                    member = next_member[member]
+                if member == -1:
+                    target = cluster
+                    break
+            if target == cluster_count:
+                heads[target] = index
+                cluster_count += 1
+            else:
+                next_member[tails[target]] = index
+            tails[target] = index
+            assignments[index] = target
+        return assignments, cluster_count
+
+else:
+    _complete_link_assignments = None
+
+
 def _cluster_parent_subset(sequences, scores, count, *, offset=0, cap=10, return_groups=False):
     """Complete-link clusters (20% Hamming diameter), capped round-robin.
 
@@ -862,20 +903,31 @@ def _cluster_parent_subset(sequences, scores, count, *, offset=0, cap=10, return
     lookup = {str(sequences[i]): float(scores[i]) for i in order[::-1]}
     if not unique:
         return np.array([], dtype=str), np.array([], dtype=float)
-    codes = np.array([list(s) for s in unique], dtype="U1").view(np.uint32)
-    threshold = int(len(unique[0]) * .2)
-    clusters = []
-    compatible = np.ones((len(unique), len(unique)), dtype=bool)
-    for start in range(0, len(unique), 64):
-        compatible[start:start + 64] = np.count_nonzero(
-            codes[start:start + 64, None, :] != codes[None, :, :], axis=2) <= threshold
-    for index in range(len(unique)):
-        for cluster in clusters:
-            if all(compatible[index, member] for member in cluster):
-                cluster.append(index)
-                break
-        else:
-            clusters.append([index])
+    length = len(unique[0])
+    threshold = int(length * .2)
+    if _complete_link_assignments is not None and length:
+        if any(len(sequence) != length for sequence in unique):
+            raise ValueError("parent clustering requires equal-length sequences")
+        codes = np.asarray(unique, dtype=str).view(np.uint32).reshape(len(unique), length)
+        assignments, cluster_count = _complete_link_assignments(codes, threshold)
+        clusters = [[] for _ in range(cluster_count)]
+        for index, cluster in enumerate(assignments):
+            clusters[cluster].append(index)
+    else:
+        codes = np.array([list(s) for s in unique], dtype="U1").view(np.uint32)
+        clusters = []
+        compatible = np.ones((len(unique), len(unique)), dtype=bool)
+        for start in range(0, len(unique), 64):
+            compatible[start:start + 64] = np.count_nonzero(
+                codes[start:start + 64, None, :] != codes[None, :, :], axis=2
+            ) <= threshold
+        for index in range(len(unique)):
+            for cluster in clusters:
+                if all(compatible[index, member] for member in cluster):
+                    cluster.append(index)
+                    break
+            else:
+                clusters.append([index])
     shift = offset % len(clusters)
     clusters = clusters[shift:] + clusters[:shift]
     selected = [cluster[level] for level in range(cap)

@@ -31,6 +31,26 @@ def test_cluster_cap_and_rotation():
     assert rotated.tolist() == ['G' * 50]
 
 
+def test_cluster_checks_all_members_and_includes_hamming_boundary(monkeypatch):
+    import sequence_optimization.algorithms as algorithms
+
+    # B and C each differ from A at exactly two positions. They differ from
+    # each other at four positions, so only one can join A's cluster.
+    a, b, c = 'AAAAAAAAAA', 'CCAAAAAAAA', 'AACCAAAAAA'
+    sequences = [c, b, a, b, 'GGGGGGGGGG']
+    scores = [8., 9., 10., 5., 7.]
+
+    grouped = algorithms._cluster_parent_subset(sequences, scores, 4, return_groups=True)
+    assert [group.tolist() for group in grouped] == [[a, b], [c], ['GGGGGGGGGG']]
+    parents, values = algorithms._cluster_parent_subset(sequences, scores, 3, offset=1)
+    assert parents.tolist() == [c, 'GGGGGGGGGG', a]
+    assert values.tolist() == [8., 7., 10.]
+
+    monkeypatch.setattr(algorithms, '_complete_link_assignments', None)
+    fallback = algorithms._cluster_parent_subset(sequences, scores, 4, return_groups=True)
+    assert [group.tolist() for group in fallback] == [group.tolist() for group in grouped]
+
+
 @pytest.mark.parametrize('value', [0, -1, 1.5, True])
 def test_invalid_parent_pool_multiplier(value):
     with pytest.raises(ValueError, match='parent_pool_multiplier'):
