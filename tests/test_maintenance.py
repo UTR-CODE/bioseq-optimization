@@ -1,3 +1,5 @@
+from tests.helpers import run_kernel
+
 import numpy as np
 import pytest
 import torch
@@ -6,7 +8,7 @@ from sequence_optimization import CallableScorer, MultiTaskObjective, Saturation
 from sequence_optimization.objectives import ObjectiveScorer
 from sequence_optimization.api import ScoreBatch
 from sequence_optimization.saturation import _SaturationMonitor, _SaturationReached
-from sequence_optimization.algorithms import available_algorithms, optimize
+from sequence_optimization.algorithms import available_algorithms
 
 
 @pytest.mark.parametrize('aggregation', ['mean', 'worst', 'smoothmin'])
@@ -76,7 +78,7 @@ def test_all_algorithms_with_maintenance(algorithm):
         def score_soft(self, p):
             return torch.stack([p[:,:,2].sum(1),p[:,:,1].sum(1)],1),None
 
-    result = optimize(Model(),4,['AAAA','GGAA'],['maximize','minimize'],2,
+    result = run_kernel(Model(),4,['AAAA','GGAA'],['maximize','minimize'],2,
                       algorithm=algorithm,stop_values=[(0,2),(0,4)],stop_tolerance=.5,
                       budget=128,diversity=0,generator_pretrain_epochs=1,
                       generator_update_epochs=1,den_seed_pretrain_epochs=1)

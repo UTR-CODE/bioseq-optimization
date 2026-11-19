@@ -56,37 +56,13 @@ def test_no_implicit_ceiling_and_real_knee_archive(monkeypatch):
         count_repeated=True,
     )
     assert r.knee.query_count == r.knee_query_count
-    assert r.selected is r.knee_fraction_result
-    assert r.selected.query_count <= r.knee_query_count
-    assert r.selected.metadata["selection"] == "quality_diversity_near_knee_gain"
+    assert r.selected is r.at(0.9)
+    assert r.selected.metadata["saturation_fraction"] == 0.9
     assert r.knee.metadata["maximum_queries"] is None
     assert not r.knee.metadata["plateau_confirmed"]
-    assert r[0.99].metadata["selection"] != "knee"
 
 
-def test_fraction_opt_in_and_explicit_ceiling():
-    r = optimize(
-        CallableScorer(lambda seqs: [s.count("G") for s in seqs]),
-        4,
-        ["AAAA", "GGGG"],
-        ["maximize"],
-        1,
-        algorithm="genetic_algorithm",
-        diversity=0,
-        saturation=SaturationConfig(
-            selection="fraction",
-            fractions=(0.9,),
-            minimum_queries=2,
-            maximum_queries=10,
-        ),
-        count_repeated=True,
-    )
-    assert r.selected is r[0.9]
-    assert r.total_query_count <= 10
-    assert r.knee.metadata["maximum_queries"] == 10
-
-
-def test_selects_ninety_percent_of_knee_gain_before_knee(monkeypatch):
+def test_selects_earliest_archive_at_ninety_percent_of_plateau_gain(monkeypatch):
     from itertools import product
     from sequence_optimization.algorithms import _REGISTRY
 
@@ -117,43 +93,8 @@ def test_selects_ninety_percent_of_knee_gain_before_knee(monkeypatch):
     assert r.knee.query_count == 4
     assert r.selected.query_count == 3
     assert r.selected.scores[0] == 8.2
-    assert r.selected.metadata["selection_target_mean"] == pytest.approx(8.1)
+    assert r.selected.metadata["target_top_mean"] == pytest.approx(8.1)
     assert r.total_query_count == 30
-
-
-def test_default_relaxed_knee_uses_only_run_relative_gain(monkeypatch):
-    from itertools import product
-    from sequence_optimization.algorithms import _REGISTRY
-
-    seqs = ["".join(s) for s in product("ACGT", repeat=3)][:30]
-    scores = dict(zip(seqs, [0.0, 7.0, 8.2, 9.0] + [9.0] * 26))
-
-    def scripted(initial, scorer, space, config, rng):
-        archive = {}
-        for seq in seqs:
-            _score(scorer, archive, np.array([seq]))
-
-    monkeypatch.setitem(_REGISTRY, "relaxed_knee_curve", scripted)
-    result = optimize(
-        CallableScorer(lambda values: [scores[value] for value in values]),
-        3,
-        [seqs[0]],
-        ["maximize"],
-        1,
-        algorithm="relaxed_knee_curve",
-        diversity=0,
-        saturation=SaturationConfig(
-            minimum_queries=1, plateau_patience_queries=100
-        ),
-    )
-
-    metadata = result.selected.metadata
-    baseline = metadata["baseline_population_mean"]
-    gain = metadata["observed_peak_gain"]
-    assert result.knee.scores.mean() >= baseline + 0.85 * gain
-    assert result.selected.scores.mean() >= baseline + 0.8 * gain
-    assert metadata["selection_mean_floor_satisfied"]
-    assert metadata["relaxed_knee"]
 
 
 def test_relaxed_quality_band_expands_without_lowering_set_mean_floor():
@@ -205,7 +146,7 @@ def test_mean_floor_blend_replaces_the_minimum_number_of_diverse_candidates():
     assert scores[selected].mean() >= 0.7
 
 
-def test_default_relaxed_knee_applies_to_every_nonrandom_algorithm():
+def test_plateau_gain_applies_to_every_nonrandom_algorithm():
     torch = pytest.importorskip("torch")
 
     class SmoothScore(torch.nn.Module):
@@ -241,7 +182,6 @@ def test_default_relaxed_knee_applies_to_every_nonrandom_algorithm():
             saturation=SaturationConfig(
                 minimum_queries=8,
                 plateau_patience_queries=16,
-                maximum_queries=96,
             ),
             generator_pretrain_epochs=1,
             generator_update_epochs=1,
@@ -250,12 +190,12 @@ def test_default_relaxed_knee_applies_to_every_nonrandom_algorithm():
             basesearch_batch_size=8,
         )
         metadata = result.selected.metadata
-        baseline = metadata["baseline_population_mean"]
-        gain = metadata["observed_peak_gain"]
-        assert result.knee.scores.mean() >= baseline + 0.85 * gain - 1e-9
-        assert result.selected.scores.mean() >= baseline + 0.8 * gain - 1e-9
-        assert metadata["selection_mean_floor_satisfied"]
-        assert metadata["minimum_pairwise_hamming"] >= 1
+        baseline = metadata["baseline_top_mean"]
+        plateau = metadata["plateau_top_mean"]
+        assert metadata["target_top_mean"] == pytest.approx(baseline + 0.9 * (plateau - baseline))
+        assert len(set(result.selected.sequences)) == 4
+        if plateau >= baseline:
+            assert result.selected.scores.mean() >= metadata["target_top_mean"] - 1e-9
 
 
 @pytest.mark.parametrize(

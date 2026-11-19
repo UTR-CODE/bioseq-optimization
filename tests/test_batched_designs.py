@@ -6,7 +6,6 @@ import threading
 import numpy as np
 import pandas as pd
 import pytest
-import torch
 from torch import nn
 
 from sequence_optimization import (
@@ -31,7 +30,7 @@ def test_default_queue_batching_preserves_serial_designs_and_model_ownership(tmp
     initial = random_seed_sequences(12, 4, seed=7)
     options = dict(length=12, initial=initial, objective=['maximize'],
         algorithms=['basesearch', 'genetic_algorithm', 'fast_seqprop'],
-        num_candidates=4, budget=40, diversity=1, seed=8)
+        num_candidates=4, score_threshold=9, diversity=1, seed=8)
     serial = generate_designs(model, **options, parallel=False)
     model.calls.clear()
     parallel = generate_designs(model, **options, output_dir=tmp_path/'designs',
@@ -59,7 +58,7 @@ def test_combined_local_models_keep_high_low_objective_and_gradients():
         names=['target', 'off1', 'off2'])
     objective = MultiTaskObjective(high=['target'], low=['off1', 'off2'])
     designs = generate_designs(scorer, 12, num_candidates=3,
-        algorithms=['genetic_algorithm', 'fast_seqprop'], budget=30,
+        algorithms=['genetic_algorithm', 'fast_seqprop'], score_threshold=0,
         diversity=1, objective=objective, seed=12, batch_wait_ms=20.)
     expected = (designs.activity_target-designs.activity_off1-designs.activity_off2)/3
     np.testing.assert_allclose(designs.score, expected)
@@ -70,9 +69,10 @@ def test_combined_local_models_keep_high_low_objective_and_gradients():
 
 def test_worker_failure_is_reported_and_processes_are_cleaned_up():
     before = {p.pid for p in mp.active_children()}
-    with pytest.raises(ValueError, match='budget must be at least num_candidates'):
+    with pytest.raises(ValueError, match="fixed_region positions"):
         generate_designs(TrackedModel(), 8, num_candidates=4,
-            algorithms=['random', 'genetic_algorithm'], budget=2)
+            algorithms=['random', 'genetic_algorithm'],
+            initial=['AAAAAAAA', 'CCCCCCCC', 'GGGGGGGG', 'TTTTTTTT'], fixed_region=[0])
     assert {p.pid for p in mp.active_children()} == before
     assert not any(t.name == 'bioseq-scoring-service' for t in threading.enumerate())
 
@@ -84,7 +84,7 @@ def test_model_failure_stops_waiting_optimizers():
     scorer = CallableScorer(fail, task_names=['activity'])
     with pytest.raises(RuntimeError, match='scoring service failed') as error:
         generate_designs(scorer, 8, num_candidates=2,
-            algorithms=['random', 'genetic_algorithm'], budget=8)
+            algorithms=['random', 'genetic_algorithm'], score_threshold=0)
     assert isinstance(error.value.__cause__, ValueError)
     assert {p.pid for p in mp.active_children()} == before
     assert not any(t.name == 'bioseq-scoring-service' for t in threading.enumerate())
@@ -98,7 +98,7 @@ def test_batched_score_responses_preserve_uncertainties(tmp_path):
     scorer = CallableScorer(score, task_names=['activity'])
     completed, _ = run_batched_designs(scorer, None, 4,
         np.array(['AAAA', 'CCCC', 'GGGG', 'TTTT']), ['maximize'], 2,
-        [('random', dict(budget=4, diversity=0))], max_batch_size=2,
+        [('random', dict(score_threshold=0, diversity=0))], max_batch_size=2,
         metrics_path=str(tmp_path/'batches.csv'))
     result, _ = completed[0]
     np.testing.assert_allclose(result.uncertainties, .25)
@@ -109,7 +109,7 @@ def test_separate_differentiable_model_routes_its_discrete_predictions():
     gradient = SequencePredictor(TrackedModel(1), tasks=['activity'])
     options = dict(length=8, initial=['AAAAAAAA', 'CCCCCCCC', 'GGGGGGGG', 'TTTTTTTT'],
         objective=['maximize'], algorithms=['random', 'fast_seqprop'],
-        differentiable_model=gradient, num_candidates=2, budget=20, diversity=0,
+        differentiable_model=gradient, num_candidates=2, score_threshold=0, diversity=0,
         seed=3)
     serial = generate_designs(discrete, **options, parallel=False)
     parallel = generate_designs(discrete, **options, batch_wait_ms=20.)

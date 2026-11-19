@@ -1,6 +1,6 @@
 # Optimize a 5′ UTR with your own model
 
-For pretrained Optimus 5-Prime, see the [executed workflow](single-task.md). For your own PyTorch model, use the same workflow with a `SequencePredictor`.
+For pretrained Optimus 5-Prime, see the [executed workflow](../examples/single-task.md). For your own PyTorch model, use the same workflow with a `SequencePredictor`.
 
 ```python
 from MotifSift import SequencePredictor, call_motifs, generate_designs, select_candidates

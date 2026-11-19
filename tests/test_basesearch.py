@@ -1,3 +1,5 @@
+from tests.helpers import run_kernel
+
 import numpy as np
 import pytest
 
@@ -26,13 +28,13 @@ def test_search_improves_and_preserves_original_scores(offset):
     results = []
     for _ in range(2):
         model = Model()
-        result = basesearch_optimize(
+        result = run_kernel(
             model,
             SequenceSpace(8),
             initial=["AAAAAAAA", "CCCCCCCC"],
             objective=["maximize"],
             num_candidates=2,
-            budget=50,
+            algorithm='basesearch', budget=50,
             seed=7,
             basesearch_queue_size=3,
         )
@@ -49,13 +51,13 @@ def test_search_improves_and_preserves_original_scores(offset):
 
 
 def test_tiny_space_exhaustion_and_duplicate_budget():
-    result = basesearch_optimize(
+    result = run_kernel(
         CallableScorer(lambda values: np.zeros(len(values))),
         SequenceSpace(1, "AC"),
         initial=["A"],
         objective=["maximize"],
         num_candidates=1,
-        budget=10,
+        algorithm='basesearch', budget=10,
     )
     assert result.query_count == 2
     assert result.metadata["stop_reason"] == "space_exhausted"
@@ -87,8 +89,8 @@ def test_invalid_config(key, value):
 
 def test_initial_only_budget_and_saturation():
     scorer = CallableScorer(lambda values: np.zeros(len(values)))
-    result = basesearch_optimize(
-        scorer, SequenceSpace(8), None, ["maximize"], 4, budget=4
+    result = run_kernel(
+        scorer, SequenceSpace(8), None, ["maximize"], 4, algorithm='basesearch', budget=4
     )
     assert result.query_count == 4
     assert result.trajectory == []
@@ -99,10 +101,12 @@ def test_initial_only_budget_and_saturation():
         ["maximize"],
         4,
         saturation=SaturationConfig(
-            minimum_queries=8, plateau_patience_queries=8, maximum_queries=40
+            minimum_queries=8, plateau_patience_queries=8
         ),
     )
-    assert saturated.total_query_count <= 40
+    assert saturated.stop_reason == "plateau"
+    assert saturated.total_query_count >= 8
+    assert saturated.selected.scores.tolist() == [0.] * 4
 
 
 def test_basesearch_scores_mutations_in_batches():
@@ -118,13 +122,13 @@ def test_basesearch_scores_mutations_in_batches():
 
     model = BatchModel()
     initial = ["AAAAAA", "CCCCCC", "ACACAC", "CACACA"]
-    result = basesearch_optimize(
+    result = run_kernel(
         model,
         length=6,
         initial=initial,
         objective=["maximize"],
         num_candidates=2,
-        budget=20,
+        algorithm='basesearch', budget=20,
         diversity=0,
         basesearch_batch_size=8,
         seed=7,

@@ -1,3 +1,5 @@
+from tests.helpers import run_kernel
+
 import numpy as np
 import pytest
 
@@ -14,7 +16,8 @@ def test_cached_batches_do_not_stop_stochastic_search(algorithm, plateau):
         return np.zeros(len(sequences))
     options = dict(saturation=SaturationConfig(minimum_queries=4,
         plateau_patience_queries=8)) if plateau else dict(budget=20)
-    result = optimize(CallableScorer(score), 1, ['A','C','G','T'], ['maximize'], 4,
+    search = optimize if plateau else run_kernel
+    result = search(CallableScorer(score), 1, ['A','C','G','T'], ['maximize'], 4,
         algorithm=algorithm, diversity=0, count_repeated=False,
         cross_entropy_batch_size=4, **options)
     if plateau:
@@ -37,7 +40,7 @@ def test_beam_parent_selection_obeys_diversity(monkeypatch):
         return values, scores
 
     monkeypatch.setattr(advanced._TopArchiveTracker, "select", capture)
-    result = optimize(CallableScorer(lambda s: [x.count('G') for x in s]), 6,
+    result = run_kernel(CallableScorer(lambda s: [x.count('G') for x in s]), 6,
         ['GGGGGG','GGGGGA','AAAAAA','CCCCCC'], ['maximize'], 4,
         algorithm='beam_search', diversity=2, elite_fraction=.5, budget=80)
     assert len(parents) >= 2

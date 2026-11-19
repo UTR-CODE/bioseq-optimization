@@ -1,10 +1,11 @@
+from tests.helpers import run_kernel
+
 import numpy as np
 import pytest
 
 from sequence_optimization import CallableScorer, OptimizationConfig
-from sequence_optimization.algorithms import _mutate_expected, optimize
+from sequence_optimization.algorithms import _mutate_expected
 from sequence_optimization.api import SequenceSpace
-from sequence_optimization.api import CachedScorer, ScoreBatch
 from sequence_optimization.objectives import ObjectiveScorer
 from sequence_optimization.saturation import _SaturationMonitor, _TrackingScorer
 
@@ -15,7 +16,7 @@ def test_rollout_accepts_neutral_child_and_accumulates_mutations(monkeypatch):
     monkeypatch.setattr(module, '_mutate_expected',
                         lambda sequences, space, expected, rng: np.array([next(children)]))
     scores = {'AAAA': 0., 'CCCC': -1., 'GAAA': 0., 'GGAA': 1., 'GGGA': -.5}
-    result = optimize(CallableScorer(lambda ss: [scores[s] for s in ss]), 4,
+    result = run_kernel(CallableScorer(lambda ss: [scores[s] for s in ss]), 4,
                       ['AAAA','CCCC'], ['maximize'], 2, algorithm='adalead',
                       budget=5, diversity=0, elite_fraction=.5,
                       adalead_max_rollout=3, adalead_lineages=1)
@@ -30,7 +31,7 @@ def test_rollout_compares_to_fixed_root_not_previous_child(monkeypatch):
     monkeypatch.setattr(module, '_mutate_expected',
                         lambda sequences, space, expected, rng: np.array([next(children)]))
     scores = {'AAAA': 0., 'CCCC': -1., 'GAAA': 2., 'GGAA': 1.}
-    result = optimize(CallableScorer(lambda ss: [scores[s] for s in ss]), 4,
+    result = run_kernel(CallableScorer(lambda ss: [scores[s] for s in ss]), 4,
                       ['AAAA','CCCC'], ['maximize'], 2, algorithm='adalead',
                       budget=4, diversity=0, elite_fraction=.5,
                       adalead_max_rollout=2, adalead_lineages=1)
@@ -53,7 +54,7 @@ def test_rollout_depth_batches_count_as_one_patience_round():
 
 
 def test_rollout_respects_fixed_positions():
-    result = optimize(CallableScorer(lambda ss: [s.count('G') for s in ss]), 8,
+    result = run_kernel(CallableScorer(lambda ss: [s.count('G') for s in ss]), 8,
                       ['AAAATTTT','AAAAGGGG'], ['maximize'], 2, algorithm='adalead',
                       budget=80, diversity=0, fixed_region=['0:4'],
                       adalead_mu=3, adalead_max_rollout=4)
@@ -71,7 +72,7 @@ def test_only_feasible_accepted_children_continue_rollout(monkeypatch):
         return original(sequences, space, expected, rng)
 
     monkeypatch.setattr(module, '_mutate_expected', checked)
-    result = optimize(CallableScorer(lambda ss: [s.count('G') for s in ss]), 4,
+    result = run_kernel(CallableScorer(lambda ss: [s.count('G') for s in ss]), 4,
                       ['GGAA','GGGG'], ['maximize'], 2, algorithm='adalead',
                       stop_values=[2], budget=128, diversity=0)
     assert observed

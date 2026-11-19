@@ -1,3 +1,5 @@
+from tests.helpers import run_kernel
+
 import numpy as np
 import pytest
 import torch
@@ -6,7 +8,6 @@ from sequence_optimization import (
     CallableScorer,
     CombinedScorer,
     SequenceSpace,
-    basesearch_optimize,
 )
 
 
@@ -20,13 +21,13 @@ def test_combined_order_budget_and_raw_predictions():
         ],
         names=["a", "b", "c"],
     )
-    result = basesearch_optimize(
+    result = run_kernel(
         scorer,
         SequenceSpace(8),
         initial=None,
         objective=["maximize", "minimize", "minimize"],
         num_candidates=4,
-        budget=24,
+        algorithm='basesearch', budget=24,
     )
     expected = np.array([[s.count(base) for base in "GCT"] for s in result.sequences])
     np.testing.assert_array_equal(result.activities, expected)

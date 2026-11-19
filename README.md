@@ -4,17 +4,18 @@ Design sequences with a trained predictor, discover motifs in the candidates, an
 
 ![MotifSift workflow](Fig.png)
 
-## Install
+## Quickstart
 
 ```bash
 git clone https://github.com/UTR-CODE/bioseq-optimization.git
 cd bioseq-optimization
 python -m pip install '.[motifs]'
+conda install -c conda-forge -c bioconda meme
 ```
 
-See [installation](docs/installation.md) for MEME Suite and the pretrained models.
+See [installation](docs/installation.md) for `bioseq_models`, which provides the pretrained model used below.
 
-## Design, discover motifs, and select
+### Design, discover motifs, and select
 
 Use a predictor from `bioseq_models` directly. For your own PyTorch model, use [SequencePredictor](docs/pytorch-models.md).
 

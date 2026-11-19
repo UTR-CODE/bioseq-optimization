@@ -11,6 +11,7 @@ from ._api import (
     generate_designs,
     select_candidates,
 )
+from ._io import load_designs, load_motifs
 
 __all__ = [
     "CombinedScorer",
@@ -19,6 +20,8 @@ __all__ = [
     "SynonymousCodonSpace",
     "call_motifs",
     "generate_designs",
+    "load_designs",
+    "load_motifs",
     "random_seed_sequences",
     "select_candidates",
 ]

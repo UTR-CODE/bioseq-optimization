@@ -89,6 +89,9 @@ def _scorer(model, task_names=None):
 def _objective(designs, objective):
     if objective is None and isinstance(designs, pd.DataFrame):
         objective = designs.attrs.get('objective')
+        if objective is None and 'saved_custom_objective' in designs.attrs:
+            name = designs.attrs['saved_custom_objective']
+            raise ValueError(f'Pass objective={name} to load_designs or call_motifs')
     if objective is None:
         return TargetObjective()
     return MultiTaskObjective(directions=objective) if isinstance(objective, (list, tuple)) else objective
@@ -336,6 +339,9 @@ def call_motifs(designs, model=None, objective=None, *, contributions=None,
         support['retained'] = support.retained.fillna(False).astype(bool)
         support.to_csv(out/'support.csv', index=False)
         write_meme(out/'catalog.meme', pwms)
+        retained_hits = candidate_hits[candidate_hits.motif_id.isin(pwms)].copy()
+        if saved_dir is not None:
+            retained_hits.to_csv(out/'saved_hits.csv', index=False)
         (out/'config.json').write_text(json.dumps(dict(method=method,
             motif_backend=motif_backend, discovery_options=dict(discovery_options or {}),
             reverse_complement=reverse_complement,
@@ -350,7 +356,7 @@ def call_motifs(designs, model=None, objective=None, *, contributions=None,
             attribution_batch_size=attribution_batch_size,
             native_meme_metadata_preserved=True), indent=2, default=str)+'\n')
         return MotifCatalog(pwms, seqlets=seqlets, support=support,
-            hits=candidate_hits[candidate_hits.motif_id.isin(pwms)].copy(),
+            hits=retained_hits,
             sequence_ids=ids, output_dir=saved_dir,
             p_threshold=p_threshold, q_threshold=q_threshold,
             reverse_complement=reverse_complement)

@@ -1,3 +1,5 @@
+from tests.helpers import run_kernel
+
 import inspect
 
 import numpy as np
@@ -23,7 +25,6 @@ from sequence_optimization import (
 )
 from sequence_optimization.api import resolve_fixed_positions
 from sequence_optimization.algorithms import _hamming_distance, _run_budget_segment as run, _select_diverse
-from sequence_optimization.cli import main as cli_main
 
 
 def test_sequence_space_and_seed_sources(tmp_path):
@@ -141,10 +142,10 @@ def test_plain_single_task_model_can_return_numpy_array(column_output):
             activities = np.asarray([value.count("G") for value in values])
             return activities[:, None] if column_output else activities
 
-    result = genetic_algorithm_optimize(
+    result = run_kernel(
         SingleTaskModel(),
         SequenceSpace(4),
-        budget=4,
+        algorithm='genetic_algorithm', budget=4,
         num_candidates=4,
         diversity=0,
         initial=["AAAA", "CCCC", "GGGG", "TTTT"],
@@ -166,10 +167,10 @@ def test_plain_model_score_batch_output_remains_supported():
         def score(self, values):
             return ScoreBatch([value.count("G") for value in values])
 
-    result = genetic_algorithm_optimize(
+    result = run_kernel(
         ScoreBatchModel(),
         SequenceSpace(4),
-        budget=4,
+        algorithm='genetic_algorithm', budget=4,
         num_candidates=4,
         diversity=0,
         initial=["AAAA", "CCCC", "GGGG", "TTTT"],
@@ -246,7 +247,7 @@ def test_named_optimizer_functions_and_rna_space():
     initial = np.asarray(["AAAA", "CCCC", "GGGG", "UUUU"])
     scorer = CallableScorer(lambda values: [value.count("U") for value in values])
     common = dict(
-        budget=4,
+        score_threshold=0,
         num_candidates=4,
         diversity=0,
         initial=initial,
@@ -401,7 +402,6 @@ def test_saturation_returns_requested_q80_and_q90_archives():
             fractions=(0.8, 0.9),
             minimum_queries=8,
             plateau_patience_queries=8,
-            maximum_queries=40,
             material_improvement=1e-2,
         ),
         seed=4,
@@ -411,68 +411,22 @@ def test_saturation_returns_requested_q80_and_q90_archives():
     assert result[0.9].metadata["total_convergence_queries"] == result.total_query_count
 
 
-def test_saturation_and_budget_are_mutually_exclusive():
+def test_score_threshold_and_gain_are_mutually_exclusive():
     scorer = CallableScorer(lambda values: [value.count("G") for value in values])
-    with pytest.raises(ValueError, match="budget is invalid"):
+    with pytest.raises(ValueError, match="Choose one"):
         genetic_algorithm_optimize(
-            scorer,
-            length=5,
-            initial=None,
-            objective=["maximize"],
-            budget=40,
-            saturation=SaturationConfig(maximum_queries=40),
-            num_candidates=4,
+            scorer, 5, None, ["maximize"], 4, score_threshold=3,
+            gain_fractions=(0.5, 0.9),
         )
 
 
-def test_random_search_omitted_budget_counts_100000_proposals():
+def test_random_search_stops_when_it_reaches_the_requested_score():
     scorer = CallableScorer(lambda values: [value.count("G") for value in values])
     result = random_optimize(
-        scorer,
-        length=1,
-        initial=None,
-        objective=["maximize"],
-        num_candidates=1,
-        diversity=0,
-        seed=4,
+        scorer, 1, ["A"], ["maximize"], 1, score_threshold=1, diversity=0, seed=4,
     )
-    assert result.query_count == 100_000
-    assert result.metadata["stop_reason"] == "budget"
-
-
-def test_random_search_rejects_saturation():
-    scorer = CallableScorer(lambda values: [value.count("G") for value in values])
-    with pytest.raises(ValueError, match="not supported by random search"):
-        random_optimize(
-            scorer,
-            length=5,
-            initial=None,
-            objective=["maximize"],
-            num_candidates=4,
-            saturation=SaturationConfig(maximum_queries=40),
-        )
-
-
-def test_random_cli_rejects_unlimited_budget(monkeypatch, tmp_path, capsys):
-    monkeypatch.setattr(
-        "sys.argv",
-        [
-            "sequence-optimization",
-            "--scorer",
-            "unused:score",
-            "--algorithm",
-            "random",
-            "--length",
-            "5",
-            "--budget",
-            "ulimit",
-            "--output",
-            str(tmp_path / "result.csv"),
-        ],
-    )
-    with pytest.raises(SystemExit, match="2"):
-        cli_main()
-    assert "random search does not support --budget ulimit" in capsys.readouterr().err
+    assert result.sequences.tolist() == ["G"]
+    assert result.metadata["stop_reason"] == "target_reached"
 
 
 def test_random_search_counts_repeated_proposals_with_cached_scorer():
@@ -494,13 +448,13 @@ def test_random_search_counts_repeated_proposals_with_cached_scorer():
 
 def test_default_diversity_applies_to_returned_sequences():
     scorer = CallableScorer(lambda values: [value.count("G") for value in values])
-    result = random_optimize(
+    result = run_kernel(
         scorer,
         length=12,
         initial=None,
         objective=["maximize"],
         num_candidates=4,
-        budget=200,
+        algorithm='random', budget=200,
         seed=4,
     )
     for index, left in enumerate(result.sequences):
@@ -521,7 +475,6 @@ def test_default_diversity_applies_to_saturation_selections():
             fractions=(0.8,),
             minimum_queries=4,
             plateau_patience_queries=4,
-            maximum_queries=12,
             material_improvement=100,
         ),
         seed=4,
@@ -536,13 +489,13 @@ def test_default_diversity_applies_to_saturation_selections():
 def test_diversity_cannot_exceed_sequence_length_for_multiple_results():
     scorer = CallableScorer(lambda values: np.zeros(len(values)))
     with pytest.raises(ValueError, match="mutable positions"):
-        random_optimize(
+        run_kernel(
             scorer,
             length=4,
             initial=None,
             objective=["maximize"],
             num_candidates=2,
-            budget=10,
+            algorithm='random', budget=10,
         )
 
 
@@ -597,7 +550,7 @@ def test_fixed_region_is_preserved_by_every_black_box_optimizer():
 
 
 def test_fixed_region_uses_one_seeded_template_without_initial():
-    result = random_optimize(
+    result = run_kernel(
         CallableScorer(lambda values: [value.count("G") for value in values]),
         length=10,
         initial=None,
@@ -605,7 +558,7 @@ def test_fixed_region_uses_one_seeded_template_without_initial():
         fixed_region=["0:2", "-2:"],
         num_candidates=4,
         diversity=0,
-        budget=20,
+        algorithm='random', budget=20,
         seed=7,
     )
     fixed_values = {(sequence[:2], sequence[-2:]) for sequence in result.sequences}
@@ -626,7 +579,6 @@ def test_fixed_region_is_preserved_in_saturation_selections():
             fractions=(0.8,),
             minimum_queries=4,
             plateau_patience_queries=4,
-            maximum_queries=12,
             material_improvement=100,
         ),
         seed=7,
@@ -640,7 +592,7 @@ def test_fixed_region_is_preserved_in_saturation_selections():
 def test_fixed_region_limits_possible_diversity():
     scorer = CallableScorer(lambda values: np.zeros(len(values)))
     with pytest.raises(ValueError, match="2 mutable positions"):
-        random_optimize(
+        run_kernel(
             scorer,
             length=8,
             initial=None,
@@ -648,7 +600,7 @@ def test_fixed_region_limits_possible_diversity():
             fixed_region=["0:6"],
             num_candidates=2,
             diversity=3,
-            budget=4,
+            algorithm='random', budget=4,
         )
 
 
@@ -667,21 +619,21 @@ def test_fixed_region_limits_possible_diversity():
 def test_invalid_fixed_region_entries(fixed_region, match):
     scorer = CallableScorer(lambda values: np.zeros(len(values)))
     with pytest.raises(ValueError, match=match):
-        random_optimize(
+        run_kernel(
             scorer,
             length=8,
             initial=None,
             objective=["maximize"],
             fixed_region=fixed_region,
             num_candidates=1,
-            budget=1,
+            algorithm='random', budget=1,
         )
 
 
 def test_fixed_region_requires_initial_sequences_to_agree():
     scorer = CallableScorer(lambda values: np.zeros(len(values)))
     with pytest.raises(ValueError, match="must agree"):
-        random_optimize(
+        run_kernel(
             scorer,
             length=6,
             fixed_region=["0:2"],
@@ -689,7 +641,7 @@ def test_fixed_region_requires_initial_sequences_to_agree():
             objective=["maximize"],
             num_candidates=2,
             diversity=0,
-            budget=2,
+            algorithm='random', budget=2,
         )
 
 
@@ -732,8 +684,8 @@ def test_public_optimizers_expose_saturation_parameter():
             "num_candidates",
         ]
         assert signature.parameters["saturation"].default is None
-        expected_budget = 100_000 if function is so.random_optimize else None
-        assert signature.parameters["budget"].default == expected_budget
+        assert "budget" not in signature.parameters
+        assert signature.parameters["score_threshold"].default is None
         assert "model_weights" not in signature.parameters
         assert signature.parameters["is_CDS_optimized"].default is False
         assert signature.parameters["diversity"].default == 5

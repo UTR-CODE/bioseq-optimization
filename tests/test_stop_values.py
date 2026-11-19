@@ -1,3 +1,5 @@
+from tests.helpers import run_kernel
+
 import numpy as np
 import pytest
 import torch
@@ -18,7 +20,7 @@ def test_all_optimizers_share_directional_bounds(algorithm):
                 [probabilities[:, :, 2].sum(1), probabilities[:, :, 1].sum(1)], dim=1
             ), None
 
-    result = optimize(
+    result = run_kernel(
         Model(),
         length=4,
         initial=["AAAA", "GGGG"],
@@ -117,7 +119,7 @@ def test_suite_exposes_minimize_line():
         algorithms=["random", "genetic_algorithm"],
         num_candidates=2,
         diversity=0,
-        budget=20,
+        score_threshold=0,
     )
     assert len(frame) == 4
     assert set(frame.algorithm) == {"random", "genetic_algorithm"}
@@ -126,9 +128,6 @@ def test_suite_exposes_minimize_line():
 @pytest.mark.parametrize("algorithm", available_algorithms())
 @pytest.mark.parametrize("saturation", [False, True])
 def test_interval_bounds_all_algorithms_and_final_selection(algorithm, saturation):
-    if saturation and algorithm == "random":
-        pytest.skip("random screening has a fixed budget")
-
     class Model:
         def score(self, seqs):
             return np.asarray([[s.count("G"), s.count("C") - 2, s.count("T") - 2]
@@ -140,9 +139,10 @@ def test_interval_bounds_all_algorithms_and_final_selection(algorithm, saturatio
 
     model = Model()
     options = {"saturation": SaturationConfig(
-        minimum_queries=16, plateau_patience_queries=32, maximum_queries=100
+        minimum_queries=16, plateau_patience_queries=32
     )} if saturation else {"budget": 100}
-    result = optimize(
+    search = optimize if saturation else run_kernel
+    result = search(
         model, 4, ["AAAA", "GGGG"], ["maximize", "minimize", "minimize"], 2,
         stop_values=[(-2, 2)] * 3, stop_tolerance=None, algorithm=algorithm, diversity=0,
         generator_pretrain_epochs=1, generator_update_epochs=1,
@@ -186,13 +186,13 @@ def test_soft_gradient_keeps_all_tasks_and_pushes_overshoot_back():
 
 def test_impossible_interval_fails_without_invalid_padding():
     with pytest.raises(ValueError, match="feasible initial"):
-        optimize(CallableScorer(lambda seqs: np.full(len(seqs), 7.)), 4,
+        run_kernel(CallableScorer(lambda seqs: np.full(len(seqs), 7.)), 4,
                  ["AAAA", "CCCC"], ["maximize"], 2, algorithm="random",
                  stop_values=[(-2, 6)], budget=20, diversity=0)
 
 
 def test_prediction_bounds_with_sequence_constraints():
-    result = optimize(CallableScorer(lambda seqs: [s.count("G") for s in seqs]),
+    result = run_kernel(CallableScorer(lambda seqs: [s.count("G") for s in seqs]),
                       4, ["AAAA", "CCCC"], ["maximize"], 2, algorithm="random",
                       stop_values=[(0, 2)], budget=80, diversity=0,
                       constraint=lambda seqs: np.array(["T" not in s for s in seqs], dtype=float))
@@ -231,7 +231,7 @@ def test_mutation_parents_remain_in_bounds(monkeypatch, algorithm):
             return _original(self, sequences, *args, **kwargs)
 
         monkeypatch.setattr(SequenceSpace, name, checked)
-    optimize(CallableScorer(lambda seqs: [s.count("G") for s in seqs]),
+    run_kernel(CallableScorer(lambda seqs: [s.count("G") for s in seqs]),
              4, ["GGAA", "GGGG"], ["maximize"], 2, algorithm=algorithm,
              stop_values=[2], budget=128, diversity=0)
     assert observed

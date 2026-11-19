@@ -1,3 +1,5 @@
+from tests.helpers import run_kernel
+
 import numpy as np
 import pytest
 import torch
@@ -50,13 +52,13 @@ def test_every_convenience_function_accepts_length(algorithm):
         "ism_greedy": "ism_optimize",
         "cross_entropy_method": "cross_entropy_optimize",
     }.get(algorithm, algorithm + "_optimize")
-    result = getattr(so, function_name)(
+    result = run_kernel(
         scorer,
         length=8,
         initial=None,
         objective=["maximize"],
         num_candidates=4,
-        budget=28,
+        algorithm=algorithm, budget=28,
         generator_pretrain_epochs=1,
         generator_update_epochs=1,
         den_seed_pretrain_epochs=1,
@@ -73,14 +75,13 @@ def test_length_seed_and_saturation_interfaces(tmp_path):
         so.load_seed_sequences(path, length=4, alphabet="AC"), sequences
     )
     scorer = so.CallableScorer(lambda values: np.array([s.count("A") for s in values]))
-    many = so.run_many(
-        ["random", "basesearch"],
-        scorer,
-        length=4,
-        config=so.OptimizationConfig(8, num_candidates=4, diversity=0),
-        alphabet="AC",
+    many = so.generate_designs(
+        scorer, length=4, initial=sequences, objective=["maximize"],
+        algorithms=["random", "basesearch"], alphabet="AC",
+        num_candidates=4, diversity=0, score_threshold=0,
     )
-    assert all(set("".join(result.sequences)) <= set("AC") for result in many.values())
+    assert set(many.algorithm) == {"random", "basesearch"}
+    assert all(set(seq) <= set("AC") for seq in many.sequence)
     result = so.genetic_algorithm_optimize(
         scorer,
         length=4,
@@ -90,7 +91,7 @@ def test_length_seed_and_saturation_interfaces(tmp_path):
         num_candidates=4,
         diversity=0,
         saturation=so.SaturationConfig(
-            minimum_queries=4, plateau_patience_queries=4, maximum_queries=12
+            minimum_queries=4, plateau_patience_queries=4
         ),
     )
     assert result.selections
@@ -99,11 +100,11 @@ def test_length_seed_and_saturation_interfaces(tmp_path):
 @pytest.mark.parametrize("length", [0, -1, 1.5, True])
 def test_invalid_length(length):
     with pytest.raises(ValueError):
-        so.random_optimize(
+        run_kernel(
             so.CallableScorer(lambda values: np.ones(len(values))),
             length=length,
             initial=None,
             objective=["maximize"],
             num_candidates=1,
-            budget=1,
+            algorithm='random', budget=1,
         )

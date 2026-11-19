@@ -168,11 +168,11 @@ def test_all_scored_candidates_enter_archive_even_when_local_optimizer_does_not_
     import sequence_optimization.algorithms as algorithms
     from sequence_optimization.api import OptimizationResult
 
-    def optimize(model, length, initial, objective, num_candidates, **kwargs):
+    def run_segment(algorithm, model, length, config, *, initial, **kwargs):
         # This excellent sequence is scored but omitted from the local returned panel.
         model.score(np.array(["GGCCGGCCGGCC"]))
         return OptimizationResult(
-            kwargs["algorithm"],
+            algorithm,
             np.array(initial),
             np.zeros(len(initial)),
             np.zeros(len(initial)),
@@ -181,7 +181,7 @@ def test_all_scored_candidates_enter_archive_even_when_local_optimizer_does_not_
             [],
         )
 
-    monkeypatch.setattr(algorithms, "optimize", optimize)
+    monkeypatch.setattr(algorithms, "_run_budget_segment", run_segment)
     result = _search(
         config=DiversitySearchConfig(
             total_budget=128,
@@ -240,20 +240,15 @@ def test_gradient_search_tracks_soft_work_and_uses_authoritative_hard_model():
     assert torch.isfinite(torch.tensor(result.archive.score.to_numpy())).all()
 
 
-def test_suite_opt_in_returns_global_panel_and_metadata():
-    frame = generate_designs(
-        CallableScorer(lambda s: np.array([x.count("G") for x in s])),
-        12,
-        random_seed_sequences(12, 8, seed=2),
-        ["maximize"],
-        algorithms=["random"],
-        num_candidates=3,
-        diversity=1,
-        exploration=DiversitySearchConfig(total_budget=128, segment_budget=64),
-        descriptor=MotifPositionDescriptor({"GC": ["GGCC"]}, n_bins=4),
-    )
-    assert len(frame) <= 3  # A global panel, not N rows per algorithm.
-    assert frame.attrs["diversity_search"]["query_count"] <= 128
+def test_primary_suite_rejects_experimental_search_configuration():
+    with pytest.raises(ValueError, match="Use score_threshold or gain_fraction"):
+        generate_designs(
+            CallableScorer(lambda s: np.array([x.count("G") for x in s])),
+            12, random_seed_sequences(12, 8, seed=2), ["maximize"],
+            algorithms=["random"], num_candidates=3, diversity=1,
+            exploration=DiversitySearchConfig(total_budget=128, segment_budget=64),
+            descriptor=MotifPositionDescriptor({"GC": ["GGCC"]}, n_bins=4),
+        )
 
 
 @pytest.mark.parametrize(

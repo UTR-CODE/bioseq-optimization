@@ -1,10 +1,11 @@
+from tests.helpers import run_kernel
+
 import numpy as np
 import pytest
 
 from sequence_optimization.algorithms import _diverse_parent_subset
 from sequence_optimization.api import OptimizationConfig
 from sequence_optimization import CallableScorer
-from sequence_optimization.algorithms import optimize
 
 
 def test_parent_selection_keeps_best_and_explores_other_sequence_families():
@@ -56,7 +57,7 @@ def test_algorithms_expand_parent_pool_but_preserve_parent_count(monkeypatch, al
         return selected, values
 
     monkeypatch.setattr(module, helper, capture)
-    result = optimize(
+    result = run_kernel(
         CallableScorer(lambda seqs: [s.count('G') for s in seqs]), 8,
         ['AAAAAAAA', 'CCCCCCCC', 'GGGGGGGG', 'TTTTTTTT'], ['maximize'], 4,
         algorithm=algorithm, elite_fraction=0.5, parent_pool_multiplier=2,

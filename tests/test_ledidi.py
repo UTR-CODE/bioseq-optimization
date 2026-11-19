@@ -1,3 +1,5 @@
+from tests.helpers import run_kernel
+
 import numpy as np
 import pytest
 import torch
@@ -7,7 +9,6 @@ from sequence_optimization import (
     SequencePredictor,
     OptimizationConfig,
     SequenceSpace,
-    ledidi_optimize,
 )
 
 
@@ -39,8 +40,8 @@ def test_ledidi_budget_reproducibility_and_loss(budget):
         ledidi_edit_penalty=0.05,
     )
     scorer = make_scorer()
-    first = ledidi_optimize(scorer, SequenceSpace(8), **options)
-    second = ledidi_optimize(scorer, SequenceSpace(8), **options)
+    first = run_kernel(scorer, SequenceSpace(8), algorithm="ledidi", **options)
+    second = run_kernel(scorer, SequenceSpace(8), algorithm="ledidi", **options)
     np.testing.assert_array_equal(first.sequences, second.sequences)
     assert first.query_count == budget // 4 * 4
     assert first.metadata["soft_query_count"] == first.query_count - 4
@@ -71,13 +72,13 @@ def test_ledidi_invalid_config(option, value):
 
 def test_ledidi_requires_gradients():
     with pytest.raises(TypeError, match="score_soft"):
-        ledidi_optimize(
+        run_kernel(
             CallableScorer(lambda x: np.ones(len(x))),
             SequenceSpace(8),
             None,
             ["maximize"],
             4,
-            budget=8,
+            algorithm='ledidi', budget=8,
         )
 
 
@@ -91,11 +92,11 @@ def test_ledidi_accepts_multitask_objective():
         def score_soft(self, values):
             return values[:, :, :2].mean(dim=1), None
 
-    result = ledidi_optimize(
+    result = run_kernel(
         MultiTask(),
         SequenceSpace(8),
         initial=None,
-        budget=8,
+        algorithm='ledidi', budget=8,
         objective=MultiTaskObjective(high="all"),
         num_candidates=4,
     )

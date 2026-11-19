@@ -1,5 +1,4 @@
 from pathlib import Path
-from types import SimpleNamespace
 import numpy as np
 import pandas as pd
 import pytest
@@ -17,7 +16,7 @@ class CountModel(nn.Module):
 
 def test_generate_accepts_module_and_optional_seeds(tmp_path):
     designs=generate_designs(CountModel(),8,num_candidates=4,
-        algorithms=['basesearch','genetic_algorithm'],budget=24,diversity=1,
+        algorithms=['basesearch','genetic_algorithm'],score_threshold=0,diversity=1,
         tasks=['activity'],output_dir=tmp_path/'designs',seed=4)
     assert len(designs)==8 and designs.record_id.is_unique
     assert designs.sequence_id.nunique()<=8
@@ -64,9 +63,9 @@ def test_motif_catalog_selection_reproduces_reference(tmp_path):
         hits=pd.read_csv(data/'k562_fimo_sites.csv'),output_dir=tmp_path/'motifs')
     assert isinstance(motifs,MotifCatalog) and len(motifs)==11
     selected=select_candidates(designs,motifs=motifs,top_n=10,min_score=20.,output_dir=tmp_path/'selected')
-    expected=pd.read_csv(data/'k562_expected_top10.csv')
-    assert selected.sequence.tolist()==expected.sequence.tolist()
+    expected=pd.read_csv(Path(__file__).parent/'data/k562_top10_current.csv')
     assert selected.attrs['selection_method']=='motif'
+    assert selected.sequence_id.tolist() == expected.sequence_id.tolist()
     assert len(selected.attrs['selection_trace'])==10
     assert (tmp_path/'selected/distance_matrices.npz').exists()
     assert (tmp_path/'selected/selected_sequences.fa').exists()
@@ -107,7 +106,7 @@ def test_cds_saturation_list_preserves_runtime_summary():
         is_CDS_optimized=True, seed=2,
         saturation=SaturationConfig(fractions=(.9,), selection='fraction',
             minimum_queries=2, plateau_patience_queries=1,
-            plateau_patience_rounds=None, maximum_queries=8))
+            plateau_patience_rounds=None))
     assert len(designs) == 2
     assert designs.attrs['timing'][0]['queries'] > 0
 

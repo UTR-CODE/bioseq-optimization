@@ -1,10 +1,12 @@
+from tests.helpers import run_kernel
+
 import numpy as np
 import pytest
 import torch
 import torch.nn.functional as F
 
 from sequence_optimization.advanced import _nearest_neighbor_similarity
-from sequence_optimization.algorithms import _cluster_parent_subset, optimize
+from sequence_optimization.algorithms import _cluster_parent_subset
 from sequence_optimization import CallableScorer
 
 
@@ -38,7 +40,6 @@ def test_survival_preserves_low_score_family_and_unique_population():
 
 def test_adalead_rejects_child_better_than_slot_but_worse_than_parent(monkeypatch):
     import sequence_optimization.algorithms as module
-    from sequence_optimization.api import SequenceSpace
 
     observed = []
     original = module._quality_exploration_subset
@@ -51,7 +52,7 @@ def test_adalead_rejects_child_better_than_slot_but_worse_than_parent(monkeypatc
     monkeypatch.setattr(module, '_quality_exploration_subset', capture)
     monkeypatch.setattr(module, '_mutate_expected', lambda sequences, space, expected, rng: np.array(['AAAC']))
     values = {'AAAA': 10., 'CCCC': 0., 'AAAC': 9., 'AAAG': 8.}
-    result = optimize(CallableScorer(lambda seqs: [values[s] for s in seqs]),
+    result = run_kernel(CallableScorer(lambda seqs: [values[s] for s in seqs]),
                       4, ['AAAA', 'CCCC'], ['maximize'], 2,
                       algorithm='adalead', budget=4, diversity=0, elite_fraction=.5)
     assert observed[0] == ['AAAA', 'CCCC']

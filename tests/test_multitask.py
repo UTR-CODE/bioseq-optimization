@@ -1,3 +1,5 @@
+from tests.helpers import run_kernel
+
 import numpy as np
 import pytest
 import torch
@@ -7,7 +9,6 @@ from sequence_optimization import (
     CallableScorer,
     MultiTaskObjective,
     SequenceSpace,
-    basesearch_optimize,
     genetic_algorithm_optimize,
 )
 from sequence_optimization.objectives import ObjectiveScorer
@@ -24,8 +25,8 @@ def test_direction_list_is_model_independent_and_ignores_third_output():
             return probabilities.sum(dim=1)[:, :3], None
 
     directions = ["maximize", "minimize", "ignore"]
-    result = basesearch_optimize(
-        Scorer(), SequenceSpace(8), None, directions, 4, budget=24
+    result = run_kernel(
+        Scorer(), SequenceSpace(8), None, directions, 4, algorithm='basesearch', budget=24
     )
     np.testing.assert_allclose(
         result.scores,
@@ -59,12 +60,12 @@ def test_direction_list_uses_equal_weights():
     ignored = MultiTaskObjective(directions=["maximize", "minimize", "ignore"])
     np.testing.assert_allclose(ignored.scalarize([[2.0, 2.0, 1e9]]), [0.0])
 
-    result = basesearch_optimize(
+    result = run_kernel(
         scorer,
         SequenceSpace(8),
         initial=None,
         objective=["maximize", "minimize"],
-        budget=12,
+        algorithm='basesearch', budget=12,
         num_candidates=4,
     )
     np.testing.assert_allclose(
@@ -93,17 +94,17 @@ def test_direction_list_equal_weights_apply_to_soft_scores_and_gradients():
 def test_invalid_direction_lists(directions):
     scorer = CallableScorer(lambda values: np.zeros((len(values), 2)))
     with pytest.raises(ValueError):
-        basesearch_optimize(scorer, SequenceSpace(8), None, directions, 4, budget=4)
+        run_kernel(scorer, SequenceSpace(8), None, directions, 4, algorithm='basesearch', budget=4)
 
 
 def test_single_output_list():
     scorer = CallableScorer(lambda values: np.array([s.count("G") for s in values]))
-    result = basesearch_optimize(
+    result = run_kernel(
         scorer,
         SequenceSpace(8),
         initial=None,
         objective=["maximize"],
-        budget=12,
+        algorithm='basesearch', budget=12,
         num_candidates=4,
         diversity=0,
     )
@@ -115,13 +116,13 @@ def test_numeric_objective_bound_continues_and_is_reported():
         lambda values: np.asarray([value.count("G") for value in values]),
         task_names=("activity",),
     )
-    result = genetic_algorithm_optimize(
+    result = run_kernel(
         scorer,
         SequenceSpace(4),
         objective=["maximize"],
         stop_values=[4.0],
         initial=["AAAA", "CCCC", "GGGG", "TTTT"],
-        budget=40,
+        algorithm='genetic_algorithm', budget=40,
         num_candidates=4,
         diversity=0,
         seed=3,
@@ -183,7 +184,7 @@ def test_numeric_bounds_reject_each_violating_candidate():
     assert not wrapped.target_stop_reached
 
 
-def test_numeric_target_can_return_default_knee_fraction_selection():
+def test_numeric_bound_is_retained_at_default_gain_fraction():
     scorer = CallableScorer(lambda values: [value.count("G") for value in values])
     result = genetic_algorithm_optimize(
         scorer,
@@ -194,9 +195,9 @@ def test_numeric_target_can_return_default_knee_fraction_selection():
         num_candidates=4,
         diversity=0,
     )
-    assert result.query_count > 4
+    assert result.metadata["total_convergence_queries"] >= result.query_count
     assert result.metadata["saturation_fraction"] == 0.9
-    assert result.metadata["selection"] == "quality_diversity_near_knee_gain"
+    assert result.scores.mean() >= result.metadata["target_top_mean"]
     assert result.metadata["stop_reason"] != "target_reached"
     assert (result.activities[:, 0] <= 4).all()
     np.testing.assert_allclose(result.scores, np.minimum(result.activities[:, 0] - 3.5, 0))
@@ -282,8 +283,8 @@ def test_result_contains_raw_activities_and_threshold_details():
     objective = MultiTaskObjective(
         high=["a"], low=["b"], lower_bounds={"a": 2}, upper_bounds={"b": 1}
     )
-    result = basesearch_optimize(
-        scorer, SequenceSpace(8), None, objective, 4, budget=24
+    result = run_kernel(
+        scorer, SequenceSpace(8), None, objective, 4, algorithm='basesearch', budget=24
     )
     np.testing.assert_allclose(
         result.scores, objective.scalarize(result.activities, result.task_names)

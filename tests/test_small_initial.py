@@ -13,7 +13,7 @@ def test_rejects_smaller_population(entry):
     with pytest.raises(ValueError, match='at least 10 sequences'):
         function(CallableScorer(lambda s: np.zeros(len(s))),
             8, ['AAAAAAAA', 'CCCCCCCC'], ['maximize'], num_candidates=10,
-            budget=200, diversity=0, **options)
+            score_threshold=0, diversity=0, **options)
 
 
 def test_monitor_baseline_is_initial_not_first_complete_archive():
@@ -39,7 +39,7 @@ def test_impossible_candidate_count_errors_before_search():
     with pytest.raises(ValueError, match='at least 4 sequences'):
         generate_designs(CallableScorer(lambda s: np.zeros(len(s))), 4,
             ['AAAA'], ['maximize'], algorithms=['simulated_annealing'],
-            num_candidates=4, budget=4, fixed_region=['0:4'], diversity=0)
+            num_candidates=4, score_threshold=0, fixed_region=['0:4'], diversity=0)
 
 
 def test_empty_initial_is_rejected():
@@ -60,5 +60,6 @@ def test_high_initial_mean_does_not_require_undersized_output(monkeypatch):
         2, ['AA','AC','AG'], ['maximize'], 3, algorithm='high_initial', diversity=2,
         saturation=SaturationConfig())
     assert len(r.selected.sequences) == 3
-    assert r.selected.metadata['baseline_population_mean'] == 10.
-    assert not r.selected.metadata['selection_target_reached']
+    assert r.selected.metadata['baseline_top_mean'] == 10.
+    assert r.selected.metadata['plateau_top_mean'] <= r.selected.metadata['baseline_top_mean']
+    assert r.selected.metadata['saturation_fraction'] == 0.9

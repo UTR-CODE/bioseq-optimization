@@ -199,12 +199,13 @@ def basesearch(initial, scorer, space, config, rng):
         pruned += len(queue) - len(representatives)
         queue = [(-float(p), str(s)) for s, p in zip(representatives, priorities)]
         heapq.heapify(queue)
+        batch_best, batch_mean = _accepted_score_summary(current, scorer, candidate_array, archive)
         trajectory.append(
             {
                 "query_count": scorer.query_count,
                 "best_score": best_score,
-                "candidate_score": float(current.scores.max()),
-                "batch_mean_score": float(current.scores.mean()),
+                "candidate_score": batch_best,
+                "batch_mean_score": batch_mean,
                 "batch_size": len(candidate_array),
                 "queue_size": len(queue),
             }

@@ -47,7 +47,21 @@ panel = select_candidates(designs, motifs=motifs, top_n=10)
 ```
 
 - `generate_designs` returns a pandas DataFrame. By default, eleven optimizers each retain up to 100 candidates at 90% of the observed gain. Use `num_candidates` to change the count, `gain_fractions=(0.5, 0.9)` to return both stages, or `score_threshold` to set a target score.
-- `call_motifs` uses the design objective for attribution. Use `reverse_complement=False` for RNA. When reloading designs from a CSV, pass the original `objective` explicitly to restore it.
+- `call_motifs` uses the design objective for attribution. Use `reverse_complement=False` for RNA.
 - `select_candidates` returns a DataFrame of the selected sequences. Use `top_n` for panel size and `min_score` to enforce a minimum score.
 
 Each step accepts an optional `output_dir` for saving its results. See [PyTorch models](pytorch-models.md), [motif discovery](motif-discovery.md), and [panel selection](motif-diversity.md).
+
+## Resume a workflow
+
+Save designs and motifs with `output_dir`. Reload the output directories to preserve the objective, gain stages, fixed CDS positions, and motif strand setting.
+
+```python
+from MotifSift import load_designs, load_motifs, select_candidates
+
+designs = load_designs("outputs/designs")
+motifs = load_motifs("outputs/motifs")
+panel = select_candidates(designs, motifs=motifs, top_n=10)
+```
+
+Use the same gain stage when selecting from a multi-stage design run. To rediscover motifs with a saved custom objective, supply the original function with `load_designs(..., objective=score_fn)`.

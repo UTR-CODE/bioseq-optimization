@@ -36,7 +36,7 @@ def test_single_cds_saturation_preserves_translation():
         is_CDS_optimized=True,
         diversity=0,
         saturation=SaturationConfig(
-            minimum_queries=4, plateau_patience_queries=4, maximum_queries=12
+            minimum_queries=4, plateau_patience_queries=4
         ),
     )
     for selection in result.selections.values():
@@ -77,7 +77,6 @@ def test_multiple_cds_are_validated_and_optimized_independently():
         num_candidates=2,
         is_CDS_optimized=True,
         diversity=0,
-        budget=8,
         mutation_rate=0.5,
         seed=7,
     )
@@ -110,7 +109,6 @@ def test_cds_fixed_region_is_preserved():
         is_CDS_optimized=True,
         fixed_region=["5:6"],
         diversity=0,
-        budget=40,
         mutation_rate=0.3,
         seed=7,
     )
@@ -149,7 +147,7 @@ def test_invalid_initial_cds(initial):
 
 def test_cds_optimizer_validation():
     model = CallableScorer(lambda values: np.zeros(len(values)))
-    common = dict(objective=["maximize"], num_candidates=2, budget=4)
+    common = dict(objective=["maximize"], num_candidates=2)
     with pytest.raises(ValueError, match="initial is required"):
         genetic_algorithm_optimize(
             model, length=9, initial=None, is_CDS_optimized=True, **common
@@ -205,7 +203,6 @@ def test_every_optimizer_preserves_the_initial_cds_translation(algorithm):
         is_CDS_optimized=True,
         fixed_region=[5],
         diversity=0,
-        budget=32,
         generator_pretrain_epochs=1,
         generator_update_epochs=1,
         den_seed_pretrain_epochs=1,
@@ -231,7 +228,6 @@ def test_every_cds_is_validated_before_independent_searches_start():
             num_candidates=2,
             is_CDS_optimized=True,
             diversity=0,
-            budget=4,
         )
     assert queried == []
 
@@ -247,5 +243,4 @@ def test_cds_capacity_must_cover_candidate_count():
             num_candidates=4,
             is_CDS_optimized=True,
             diversity=0,
-            budget=4,
         )

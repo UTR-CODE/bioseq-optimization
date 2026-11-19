@@ -89,7 +89,8 @@ def test_suite_cds_default_uses_per_reference_population(monkeypatch):
         is_CDS_optimized=True,
     )
     assert captured[0].maximum_queries is None
-    assert captured[0].selection == "knee_fraction"
+    assert captured[0].fractions == (0.9,)
+    assert captured[0].selection == "fraction"
 
 
 @pytest.mark.parametrize(
@@ -113,11 +114,11 @@ def test_default_patience_covers_three_proposal_batches(algorithm, expected):
         4,
         algorithm=algorithm,
         diversity=0,
-        saturation=SaturationConfig(maximum_queries=40),
+        saturation=SaturationConfig(),
         generator_pretrain_epochs=1,
         generator_update_epochs=1,
     )
-    assert result[0.99].metadata["plateau_patience_queries"] == expected
+    assert result[0.9].metadata["plateau_patience_queries"] == expected
 
 
 @pytest.mark.parametrize('algorithm', ['beam_search', 'simulated_annealing'])
@@ -131,7 +132,7 @@ def test_explicit_window_bypasses_neighborhood_floor(algorithm):
         algorithm=algorithm,
         diversity=0,
         saturation=SaturationConfig(
-            minimum_queries=4, plateau_patience_queries=7, maximum_queries=40
+            minimum_queries=4, plateau_patience_queries=7
         ),
     )
-    assert result[0.99].metadata["plateau_patience_queries"] == 7
+    assert result[0.9].metadata["plateau_patience_queries"] == 7

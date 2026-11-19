@@ -30,3 +30,5 @@ scorer = ChannelsLastPredictor(my_model, tasks=["activity"])
 ```
 
 If your model returns a dictionary or other structured output, make its PyTorch `forward()` return the activity tensor. To combine multiple activity outputs into an optimization score, use a [custom objective](core-api.md#choose-an-objective).
+
+Use the model-specific input examples for a [strand-specific 5′ UTR model](templates/5utr.md) or a [promoter model with fixed flanks](templates/promoter.md).

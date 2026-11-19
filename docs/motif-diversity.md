@@ -28,7 +28,7 @@ With motifs, the function scans and filters motif occurrences, builds the compos
 
 A binary Sequence × Motif matrix records whether each motif occurs. PWM similarities are the best strand- and shift-aligned cosines of information-weighted contrasts, retaining informative flanks.
 
-For RNA, `reverse_complement=False` restricts PWM comparisons and FIMO scanning to the supplied orientation; shift alignment is retained. `select_candidates` inherits this setting from a `MotifCatalog`, while MEME-path and PWM-dictionary inputs require the explicit flag. Defaults remain `True` for DNA. Changing the setting relative to saved catalog hits triggers a fresh scan, including new q-values.
+For RNA, create the catalog with `call_motifs(..., reverse_complement=False)` or reload it with `load_motifs()`. To use a MEME file for RNA, first wrap it with `call_motifs(designs, catalog=path, reverse_complement=False)`. Selection uses the catalog’s strand setting for PWM alignment and FIMO scanning.
 
 Presence propagates through the motif similarity matrix:
 
@@ -65,27 +65,7 @@ print(selected.attrs["selection_method"])  # motif
 
 The returned table has the same sequence, score, and provenance columns as Hamming selection. An output directory additionally stores motif sites, presence matrices, PWM similarity, composition and position distances, match counts, CSV/FASTA, and the selection trace.
 
-## 6. Reference-data example
-
-Reuse saved designs and motifs from the K562 example to select a panel with the current filtering rules. The archived Top10 used the earlier motif catalog and filtering rules.
-
-```python
-from pathlib import Path
-import pandas as pd
-from MotifSift import call_motifs, select_candidates
-
-DATA = Path("examples/data")
-designs = pd.read_csv(DATA / "k562_candidates_1100.csv")
-motifs = call_motifs(
-    designs, catalog=DATA / "k562_catalog.meme",
-    hits=pd.read_csv(DATA / "k562_fimo_sites.csv"),
-)
-selected = select_candidates(
-    designs, motifs=motifs, top_n=10, min_score=20.,
-    output_dir="outputs/reference_top10",
-)
-print(selected[["selection_rank", "sequence_id", "score", "present_motifs"]])
-```
+See the [reference-data notebook](../examples/motif_diversity.ipynb) for selection from a saved catalog and hits.
 
 ## Outputs
 

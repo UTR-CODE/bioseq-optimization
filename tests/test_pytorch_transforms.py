@@ -1,9 +1,13 @@
+from tests.helpers import run_kernel
+
 import numpy as np
 import pytest
 import torch
 from torch import nn
-from sequence_optimization import SequencePredictor, onehot, optimize, random_seed_sequences, MultiTaskObjective
-from sequence_optimization.workflows import DESIGN_ALGORITHMS, generate_candidates
+from sequence_optimization import SequencePredictor, onehot, random_seed_sequences, MultiTaskObjective
+from sequence_optimization import available_algorithms
+
+DESIGN_ALGORITHMS = [name for name in available_algorithms() if name != "random"]
 
 class ActivityModel(nn.Module):
     def __init__(self, outputs=1):
@@ -91,25 +95,13 @@ def test_all_algorithms_accept_pytorch_predictor(algorithm):
     torch.manual_seed(3)
     scorer = SequencePredictor(ActivityModel(), tasks=['activity'])
     initial = random_seed_sequences(8,4,seed=3)
-    result = optimize(scorer,8,initial,['maximize'],4,algorithm=algorithm,
+    result = run_kernel(scorer,8,initial,['maximize'],4,algorithm=algorithm,
         budget=40,diversity=0,seed=3,generator_pretrain_epochs=1,generator_update_epochs=1,
         den_seed_pretrain_epochs=1)
     assert len(result.sequences)==4
     np.testing.assert_allclose(result.activities,scorer.score(result.sequences).scores,atol=1e-5)
 
 
-def test_workflow_infers_tasks_for_a_pytorch_model(tmp_path):
-    from sequence_optimization import SaturationConfig
-    scorer = SequencePredictor(ActivityModel())
-    sat = SaturationConfig(fractions=(.9,),selection='fraction',minimum_queries=4,
-        plateau_patience_queries=12,plateau_patience_rounds=10)
-    d, _ = generate_candidates(scorer,8,random_seed_sequences(8,4,seed=1),['maximize'],
-        output_dir=tmp_path/'inferred',num_candidates=4,algorithms=['basesearch'],
-        diversity=1,saturation=sat)
-    assert 'activity_task_0' in d and len(d)==4
-
-
-@pytest.mark.skipif(not torch.cuda.is_available(), reason='CUDA device required')
 def test_input_transform_uses_the_model_device():
     class EmbeddedModel(nn.Module):
         def __init__(self):

@@ -7,7 +7,7 @@ Inputs for the [motif-diversity workflow](../../docs/motif-diversity.md).
 | `k562_candidates_1100.csv` | 11 algorithms × 100 candidates; 1,084 unique 200-nt sequences |
 | `k562_catalog.meme` | 11 seqlet-derived motif models |
 | `k562_fimo_sites.csv` | 12,164 sites after p/q filtering and footprint consolidation |
-| `k562_expected_top10.csv` | Ordered reference panel |
+| `k562_archived_top10.csv` | Ordered panel from the original filtering rules |
 | `manifest.json` | Data provenance and SHA256 checksums |
 
 The source study used Malinois activity predictions for K562, HepG2, and SKNSH. Specificity is K562 activity minus the maximum off-target activity. Sequence IDs are SHA256-based identifiers. FIMO q-values retain the original catalog-wide scan values.

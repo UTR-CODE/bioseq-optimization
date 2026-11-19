@@ -1,3 +1,5 @@
+from tests.helpers import run_kernel
+
 import inspect
 
 import numpy as np
@@ -27,7 +29,7 @@ def test_multiple_constraints_filter_by_intersection_before_model_scoring():
     def excludes_aa(sequence):
         return float(sequence.find("AA") == -1)
 
-    result = so.genetic_algorithm_optimize(
+    result = run_kernel(
         so.CallableScorer(score),
         length=6,
         initial=["GGGGGG", "AAAAAA", "CCCCCC", "GCGCGC"],
@@ -35,7 +37,7 @@ def test_multiple_constraints_filter_by_intersection_before_model_scoring():
         constraint=[gc_at_most_half, excludes_aa],
         num_candidates=4,
         diversity=0,
-        budget=80,
+        algorithm='genetic_algorithm', budget=80,
         mutation_rate=0.3,
         seed=7,
     )
@@ -107,8 +109,8 @@ def test_soft_constraints_are_reproducible_and_report_probabilities():
         budget=40,
         seed=11,
     )
-    first = so.random_optimize(scorer, **options)
-    second = so.random_optimize(scorer, **options)
+    first = run_kernel(scorer, algorithm="random", **options)
+    second = run_kernel(scorer, algorithm="random", **options)
     np.testing.assert_array_equal(first.sequences, second.sequences)
     np.testing.assert_allclose(first.constraint_scores, second.constraint_scores)
     expected = soft_gc(first.sequences)
@@ -125,7 +127,7 @@ def test_soft_constraints_are_reproducible_and_report_probabilities():
 )
 def test_constraint_output_validation(constraint, match):
     with pytest.raises(ValueError, match=match):
-        so.random_optimize(
+        run_kernel(
             so.CallableScorer(lambda values: np.zeros(len(values))),
             length=3,
             initial=None,
@@ -133,7 +135,7 @@ def test_constraint_output_validation(constraint, match):
             constraint=constraint,
             num_candidates=2,
             diversity=0,
-            budget=8,
+            algorithm='random', budget=8,
             seed=3,
         )
 
@@ -141,7 +143,7 @@ def test_constraint_output_validation(constraint, match):
 def test_constraint_requires_callable_and_enough_feasible_sequences():
     scorer = so.CallableScorer(lambda values: np.zeros(len(values)))
     with pytest.raises(TypeError, match="callable"):
-        so.random_optimize(
+        run_kernel(
             scorer,
             length=2,
             initial=None,
@@ -149,10 +151,10 @@ def test_constraint_requires_callable_and_enough_feasible_sequences():
             constraint=[lambda values: np.ones(len(values)), "invalid"],
             num_candidates=2,
             diversity=0,
-            budget=8,
+            algorithm='random', budget=8,
         )
     with pytest.raises(ValueError, match="enough unique initial sequences"):
-        so.random_optimize(
+        run_kernel(
             scorer,
             length=2,
             initial=None,
@@ -160,7 +162,7 @@ def test_constraint_requires_callable_and_enough_feasible_sequences():
             constraint=lambda values: np.zeros(len(values)),
             num_candidates=2,
             diversity=0,
-            budget=8,
+            algorithm='random', budget=8,
         )
 
 
@@ -184,8 +186,7 @@ def test_saturation_uses_constraint_intersection():
         saturation=so.SaturationConfig(
             minimum_queries=8,
             plateau_patience_queries=8,
-            maximum_queries=40,
-        ),
+                    ),
         seed=5,
     )
     for selection in result.selections.values():

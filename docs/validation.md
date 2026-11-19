@@ -45,7 +45,3 @@ Interpret positional distances together with `matched_counts`. Report positional
 ## Computational cost
 
 Record total wall time, per-algorithm runtime, CPU time, proposal count, and actual model-scoring rows. For shared-GPU runs, also record queue time and batch utilization.
-
-## Current result inputs
-
-The current K562 and HepG2 catalogs and candidate pools are in `../../results/`. Their downstream panels have not yet been recomputed. The workspace manifest records the source and SHA-256 of each included file. No tests were run while assembling this workspace.

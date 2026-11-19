@@ -69,13 +69,13 @@ def _require_scorer(model):
         raise TypeError("Use a bioseq_models scorer or wrap a PyTorch model with SequencePredictor(model, tasks)")
 
 
-def _objective_for(model, objective):
+def _objective_for(objective, task_names=None):
     if isinstance(objective, str):
         if objective not in {"maximize", "minimize"}:
             raise ValueError("For one output, use objective='maximize' or objective='minimize'")
         return _MultiTaskObjective(directions=(objective,))
     if isinstance(objective, MultiTaskObjective):
-        return objective._for_tasks(getattr(model, "task_names", None))
+        return objective._for_tasks(task_names)
     if callable(objective):
         return CustomObjective(objective)
     return objective
@@ -89,7 +89,7 @@ def generate_designs(
     """Return one row per candidate, optimizer, and requested gain stage."""
     _require_scorer(model)
     return _generate_designs(
-        model, length, initial=initial, objective=_objective_for(model, objective),
+        model, length, initial=initial, objective=_objective_for(objective, getattr(model, "task_names", None)),
         num_candidates=num_candidates, gain_fractions=gain_fractions,
         score_threshold=score_threshold, algorithms=algorithms, constraint=constraint,
         fixed_region=fixed_region, is_CDS_optimized=is_CDS_optimized,
@@ -106,11 +106,11 @@ def call_motifs(
         _require_scorer(model)
     return _call_motifs(
         designs, model=model, reverse_complement=reverse_complement,
-        objective=_objective_for(model, objective), contributions=contributions,
+        objective=_objective_for(objective, getattr(model, "task_names", None)), contributions=contributions,
         catalog=catalog, hits=hits, output_dir=output_dir,
     )
 
 
 def select_candidates(designs, top_n=10, motifs=None, *, min_score=None, output_dir=None):
-    """Return a panel of up to top_n candidates."""
+    """Return exactly top_n candidates from the eligible pool."""
     return _select_candidates(designs, top_n=top_n, motifs=motifs, min_score=min_score, output_dir=output_dir)

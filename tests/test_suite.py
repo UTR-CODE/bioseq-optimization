@@ -1,3 +1,5 @@
+from tests.helpers import run_kernel
+
 import numpy as np
 import pytest
 import torch
@@ -7,7 +9,6 @@ from sequence_optimization import (
     CombinedScorer,
     SaturationConfig,
     SequencePredictor,
-    cross_entropy_optimize,
     generate_designs,
     random_seed_sequences,
 )
@@ -38,7 +39,7 @@ def test_generate_designs_returns_frame_with_one_row_per_candidate():
         initial=initial,
         objective=["maximize"],
         num_candidates=3,
-        budget=24,
+        score_threshold=0,
         diversity=0,
         seed=7,
     )
@@ -62,7 +63,7 @@ def test_generate_designs_requires_gradient_model_before_running():
             initial=["AAAA", "CCCC"],
             objective=["maximize"],
             num_candidates=1,
-            budget=4,
+            score_threshold=0,
             diversity=0,
         )
 
@@ -92,7 +93,6 @@ def test_generate_designs_unwraps_saturation_selection():
             fractions=(0.9,),
             minimum_queries=2,
             plateau_patience_queries=1,
-            maximum_queries=8,
         ),
         seed=4,
     )
@@ -114,7 +114,7 @@ def test_generate_designs_shares_model_predictions_between_runs():
         initial=["AAAA", "CCCC", "GGGG", "TTTT"],
         objective=["maximize"],
         num_candidates=2,
-        budget=4,
+        score_threshold=0,
         diversity=0,
     )
     # The shared cache means the second algorithm re-uses the first one's scores.
@@ -131,7 +131,7 @@ def test_generate_designs_returns_requested_candidate_count():
         initial=initial,
         objective=["maximize"],
         num_candidates=100,
-        budget=1000,
+        score_threshold=0,
         diversity=0,
     )
     assert len(frame) == 100
@@ -146,7 +146,7 @@ def test_generate_designs_random_cds_keeps_start_and_changes_synonymous_codons()
         initial=[reference],
         objective=["maximize"],
         num_candidates=4,
-        budget=20,
+        score_threshold=0,
         diversity=0,
         is_CDS_optimized=True,
         seed=19,
@@ -178,7 +178,7 @@ def test_generate_designs_cds_optimizes_each_reference_independently():
         initial=references,
         objective=["maximize"],
         num_candidates=2,
-        budget=8,
+        score_threshold=0,
         diversity=0,
         is_CDS_optimized=True,
         seed=23,
@@ -187,20 +187,6 @@ def test_generate_designs_cds_optimizes_each_reference_independently():
     assert len(frame) == 4
     assert set(frame["sequence"].str[:3]) == {"ATG"}
     assert set(frame["sequence"].str[-3:]).issubset({"TAA", "TAG", "TGA"})
-
-
-def test_generate_designs_rejects_budget_smaller_than_candidate_count():
-    with pytest.raises(ValueError, match="budget must be at least num_candidates"):
-        generate_designs(
-            CallableScorer(_count_g),
-            algorithms=["random"],
-            length=4,
-            initial=random_seed_sequences(length=4, count=10, seed=42),
-            objective=["maximize"],
-            num_candidates=10,
-            budget=8,
-            diversity=0,
-        )
 
 
 def test_generate_designs_adds_activity_columns_for_multi_task_models():
@@ -220,7 +206,7 @@ def test_generate_designs_adds_activity_columns_for_multi_task_models():
         initial=["AAAA", "CCCC", "GGGG", "TTTT"],
         objective=["minimize", "maximize"],
         num_candidates=2,
-        budget=4,
+        score_threshold=0,
         diversity=0,
     )
     assert "activity_dev" in frame.columns
@@ -240,7 +226,7 @@ def test_generate_designs_accepts_task_names_for_custom_scorers():
         objective=["maximize", "maximize"],
         tasks=["test", "control"],
         num_candidates=1,
-        budget=2,
+        score_threshold=0,
         diversity=0,
     )
     assert "activity_test" in frame.columns
@@ -263,7 +249,7 @@ def test_generate_designs_applies_objective_weights():
         initial=["AAAA", "CCCC", "GGGG", "TTTT", "ACGT", "CGTA"],
         objective=["maximize", "maximize"],
         num_candidates=2,
-        budget=6,
+        score_threshold=0,
         diversity=0,
         seed=3,
     )
@@ -283,7 +269,7 @@ def test_generate_designs_rejects_weights_without_directions_objective():
             initial=["AAAA", "CCCC"],
             objective=None,
             num_candidates=1,
-            budget=4,
+            score_threshold=0,
             diversity=0,
             weights=[1.0],
         )
@@ -300,64 +286,13 @@ def test_generate_designs_keeps_multiple_fixed_regions_unchanged():
         initial=initial,
         objective=["maximize"],
         num_candidates=3,
-        budget=24,
+        score_threshold=0,
         diversity=0,
         fixed_region=[[0, 2], [-2, None]],
         seed=11,
     )
     assert frame["sequence"].str[:2].eq("AC").all()
     assert frame["sequence"].str[-2:].eq("TT").all()
-
-
-def test_generate_designs_honours_explicit_budget_over_saturation_default():
-    queried = []
-
-    def score(values):
-        queried.extend(values)
-        return _count_g(values)
-
-    generate_designs(
-        CallableScorer(score),
-        algorithms=["genetic_algorithm"],
-        length=6,
-        initial=random_seed_sequences(length=6, count=8, seed=2),
-        objective=["maximize"],
-        num_candidates=2,
-        budget=20,
-        diversity=0,
-        seed=2,
-    )
-    # The explicit budget caps queries well below the saturation default.
-    assert len(queried) <= 20
-
-
-def test_generate_designs_rejects_conflicting_budget_and_saturation():
-    with pytest.raises(ValueError, match="budget and saturation"):
-        generate_designs(
-            CallableScorer(_count_g),
-            algorithms=["genetic_algorithm"],
-            length=6,
-            initial=["AAAAAA", "CCCCCC"],
-            objective=["maximize"],
-            num_candidates=1,
-            diversity=0,
-            budget=4,
-            saturation=SaturationConfig(fractions=(0.9,)),
-        )
-
-
-def test_generate_designs_rejects_saturation_for_random_search():
-    with pytest.raises(ValueError, match="not supported by random search"):
-        generate_designs(
-            CallableScorer(_count_g),
-            algorithms=["random"],
-            length=6,
-            initial=["AAAAAA"],
-            objective=["maximize"],
-            num_candidates=1,
-            diversity=0,
-            saturation=SaturationConfig(fractions=(0.9,)),
-        )
 
 
 def test_generate_designs_rejects_unknown_algorithm():
@@ -369,7 +304,7 @@ def test_generate_designs_rejects_unknown_algorithm():
             initial=["AAAA", "CCCC"],
             objective=["maximize"],
             num_candidates=1,
-            budget=4,
+            score_threshold=0,
             diversity=0,
         )
 
@@ -387,13 +322,13 @@ def test_cross_entropy_uses_initial_population_as_proposal_batch():
 
     model = BatchModel()
     initial = ["AAAA", "CCCC", "GGGG", "TTTT", "ACGT", "CGTA", "GTAC", "TACG"]
-    result = cross_entropy_optimize(
+    result = run_kernel(
         model,
         length=4,
         initial=initial,
         objective=["maximize"],
         num_candidates=2,
-        budget=16,
+        algorithm='cross_entropy_method', budget=16,
         diversity=0,
         seed=7,
     )
