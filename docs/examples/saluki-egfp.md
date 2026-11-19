@@ -7,8 +7,8 @@ Score a single-exon eGFP transcript with fixed UTRs. Optimize the CDS with synon
 ## 1. Load the model
 
 ```python
+import os
 from pathlib import Path
-from tempfile import mkdtemp
 
 import torch
 from bioseq_models import load_model
@@ -65,7 +65,8 @@ model = CDSScorer()
 seeds = [cds]
 print("Starting Saluki score:", float(model.score(seeds)[0, 0]))
 
-run = Path(mkdtemp(prefix="motifsift-example-"))
+run = Path("outputs/saluki_egfp_cds")
+os.makedirs(run, exist_ok=True)
 ```
 
 ## 2. Generate candidates

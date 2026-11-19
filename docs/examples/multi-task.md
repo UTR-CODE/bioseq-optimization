@@ -7,8 +7,8 @@ Decrease predicted developmental activity and increase predicted housekeeping ac
 ## 1. Load the model
 
 ```python
+import os
 from pathlib import Path
-from tempfile import mkdtemp
 
 import torch
 from bioseq_models import load_model
@@ -18,7 +18,8 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 model = load_model("deepstarr", device=device)
 objective = MultiTaskObjective(high=["housekeeping"], low=["developmental"])
 seeds = random_seed_sequences(249, 100, seed=42)
-run = Path(mkdtemp(prefix="motifsift-example-"))
+run = Path("outputs/deepstarr")
+os.makedirs(run, exist_ok=True)
 ```
 
 ## 2. Generate candidates

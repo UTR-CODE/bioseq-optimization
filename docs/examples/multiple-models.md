@@ -7,8 +7,8 @@ Favor K562 activity over HepG2 and WTC11. Each cell type uses its full ten-fold 
 ## 1. Load the model
 
 ```python
+import os
 from pathlib import Path
-from tempfile import mkdtemp
 
 import torch
 from bioseq_models import load_model
@@ -22,7 +22,8 @@ model = CombinedScorer({
 })
 objective = MultiTaskObjective(high=["K562"], low=["HepG2", "WTC11"])
 seeds = random_seed_sequences(230, 100, seed=42)
-run = Path(mkdtemp(prefix="motifsift-example-"))
+run = Path("outputs/mpralegnet")
+os.makedirs(run, exist_ok=True)
 ```
 
 ## 2. Generate candidates

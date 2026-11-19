@@ -7,9 +7,9 @@ Maximize the predicted mean ribosome load of a 50-nt 5′ UTR. Regenerate the 10
 ## 1. Load the model
 
 ```python
+import os
 import re
 from pathlib import Path
-from tempfile import mkdtemp
 
 import torch
 from bioseq_models import load_model
@@ -18,7 +18,8 @@ from MotifSift import call_motifs, generate_designs, random_seed_sequences, sele
 device = "cuda" if torch.cuda.is_available() else "cpu"
 model = load_model("optimus5prime", device=device)
 
-run = Path(mkdtemp(prefix="motifsift-example-"))
+run = Path("outputs/optimus_5utr")
+os.makedirs(run, exist_ok=True)
 ```
 
 ## 2. Generate candidates

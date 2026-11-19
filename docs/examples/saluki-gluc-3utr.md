@@ -7,8 +7,8 @@ Optimize a 150-nt 3′ UTR for Saluki-predicted mRNA stability. The HBB 5′ UTR
 ## 1. Load the model
 
 ```python
+import os
 from pathlib import Path
-from tempfile import mkdtemp
 
 import torch
 from bioseq_models import load_model
@@ -53,7 +53,8 @@ class UTRScorer:
 
 
 model = UTRScorer()
-run = Path(mkdtemp(prefix="motifsift-example-"))
+run = Path("outputs/saluki_gluc_3utr")
+os.makedirs(run, exist_ok=True)
 ```
 
 ## 2. Generate candidates
