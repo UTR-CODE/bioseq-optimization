@@ -50,6 +50,8 @@ panel = select_candidates(designs, motifs=motifs, top_n=10)
 - `call_motifs` uses the design objective for attribution. Use `reverse_complement=False` for RNA.
 - `select_candidates` returns a DataFrame of the selected sequences. Use `top_n` for panel size and `min_score` to enforce a minimum score.
 
+Optimizers run sequentially in the listed order. To repeat a run, keep the seed, predictor, and software and hardware environment fixed. For deterministic CUDA matrix multiplication with PyTorch, set `CUBLAS_WORKSPACE_CONFIG=:4096:8` before starting Python or the notebook kernel.
+
 Each step accepts an optional `output_dir` for saving its results. See [PyTorch models](pytorch-models.md), [motif discovery](motif-discovery.md), and [panel selection](motif-diversity.md).
 
 ## Resume a workflow

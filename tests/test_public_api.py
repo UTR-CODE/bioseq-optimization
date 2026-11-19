@@ -43,7 +43,7 @@ def test_model_adapters_and_named_weights():
         objective=MultiTaskObjective(high=["target"], low=["off"], weights={"target": 2}),
     )
     np.testing.assert_allclose(designs.score, designs.activity_target / 3)
-    assert designs.attrs["execution"] == "parallel"
+    assert designs.attrs["execution"] == "serial"
 
 
 def test_notebook_style_custom_objective_runs_with_gradients_and_ism(tmp_path):
@@ -62,7 +62,6 @@ def test_notebook_style_custom_objective_runs_with_gradients_and_ism(tmp_path):
         objective=specificity, constraint=without_homopolymers, output_dir=tmp_path,
     )
     assert set(designs.algorithm) == {"basesearch", "fast_seqprop"}
-    assert designs.attrs["batching"]["soft_backward_rows"] > 0
     np.testing.assert_allclose(designs.score, 2 * designs.activity_target - np.maximum(
         designs.activity_off1, designs.activity_off2,
     ))
@@ -101,7 +100,6 @@ def test_custom_scorer_receives_normalized_lists_and_accepts_a_soft_tensor():
         model, length=8, initial=['ACUCCUAU', 'GGUAAUUA'], num_candidates=2,
         algorithms=['basesearch', 'fast_seqprop'], score_threshold=6,
     )
-    assert designs.attrs['batching']['soft_backward_rows'] > 0
     assert all(set(sequence) <= set('ACGT') for sequence in designs.sequence)
     np.testing.assert_array_equal(designs.score, designs.sequence.str.count('G'))
 

@@ -37,7 +37,7 @@ def test_default_pool_has_eleven_algorithms_and_90_percent_gain(monkeypatch):
             np.zeros(count),count,activities=activity,task_names=scorer.task_names)
         return SaturationResult({.9:result},count,count,'plateau',[],selection='fraction')
     monkeypatch.setattr(suite,'optimize',fake)
-    designs=generate_designs(CountModel(),30,seed=2,parallel=False)
+    designs=generate_designs(CountModel(),30,seed=2)
     assert len(designs)==1100 and designs.algorithm.nunique()==11
     assert not designs.algorithm.eq('random').any()
     assert designs.groupby('algorithm').size().eq(100).all()

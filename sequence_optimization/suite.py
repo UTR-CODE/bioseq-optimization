@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from contextlib import contextmanager
 from dataclasses import replace, asdict, is_dataclass
 from pathlib import Path
 import hashlib
 import json
+import sys
+from threading import RLock
 import time
 from typing import Any
 
@@ -38,6 +41,54 @@ DIFFERENTIABLE_ALGORITHMS = frozenset(
 )
 
 
+_TORCH_SCORING_LOCK = RLock()
+
+
+@contextmanager
+def _reproducible_scoring():
+    import torch
+
+    # The backend flags are process-global, including when a caller uses threads.
+    with _TORCH_SCORING_LOCK:
+        tf32 = torch.backends.cuda.matmul.allow_tf32
+        deterministic = torch.are_deterministic_algorithms_enabled()
+        warn_only = torch.is_deterministic_algorithms_warn_only_enabled()
+        try:
+            torch.backends.cuda.matmul.allow_tf32 = False
+            torch.use_deterministic_algorithms(True, warn_only=warn_only or not deterministic)
+            with torch.backends.cudnn.flags(
+                enabled=torch.backends.cudnn.enabled,
+                benchmark=False, deterministic=True, allow_tf32=False,
+            ):
+                yield
+        finally:
+            torch.use_deterministic_algorithms(deterministic, warn_only=warn_only)
+            torch.backends.cuda.matmul.allow_tf32 = tf32
+
+
+class _DesignProgress:
+    def __init__(self, names):
+        self.names = names
+        self.completed = 0
+        self.started = time.monotonic()
+        self.next_refresh = self.started
+
+    def report(self, round_number=None, mean=None):
+        now = time.monotonic()
+        if round_number is not None and now < self.next_refresh:
+            return
+        self.next_refresh = now + 5
+        n = len(self.names)
+        filled = 20 * self.completed // n
+        bar = "#" * filled + "-" * (20 - filled)
+        status = f"[{bar}] {self.completed}/{n} optimizers complete | {now - self.started:.0f} s"
+        if self.completed < n:
+            status += f" | {self.names[self.completed]}"
+            if round_number is not None:
+                status += f" | round {round_number} | archive mean {mean:.4f}"
+        print(status, file=sys.stderr, flush=True)
+
+
 def _supports_soft_scoring(model: SequenceScorer | None) -> bool:
     if model is None or not callable(getattr(model, "score_soft", None)):
         return False
@@ -65,6 +116,7 @@ class _SharedScorer:
     def __init__(self, scorer: SequenceScorer) -> None:
         self.scorer = scorer
         self._cache: dict[str, tuple[np.ndarray, np.ndarray | None]] = {}
+        self.report_progress = None
 
     def __getattr__(self, name: str):
         return getattr(self.scorer, name)
@@ -120,11 +172,7 @@ def generate_designs(
     *,
     output_dir: str | Path | None = None,
     device: str | None = None,
-    parallel: bool = True,
     show_progress: bool = True,
-    max_batch_size: int = 512,
-    max_soft_batch_size: int = 64,
-    batch_wait_ms: float = 5.,
     algorithms: Sequence[str] | None = None,
     num_candidates: int = 100,
     diversity: int = 5,
@@ -154,11 +202,7 @@ def generate_designs(
         length: Sequence length to optimize
         initial: Starting sequences; None generates num_candidates random seeds
         objective: Optimization objective (e.g., ["maximize"], ["minimize", "maximize"])
-        parallel: Run CPU optimizers in separate processes with shared batched scoring
-        show_progress: Show live status and candidate-archive means in parallel mode
-        max_batch_size: Maximum discrete scoring batch in the shared service
-        max_soft_batch_size: Maximum differentiable scoring batch
-        batch_wait_ms: Window for combining requests from multiple optimizers
+        show_progress: Show the active optimizer and candidate-archive mean
         algorithms: Algorithm names to run (default: eleven non-random optimizers)
         num_candidates: Candidates per algorithm (default: 100)
         diversity: Minimum Hamming distance between candidates (default: 5)
@@ -189,13 +233,12 @@ def generate_designs(
     import torch
     if not isinstance(show_progress, bool):
         raise TypeError("show_progress must be a boolean")
-    if not isinstance(parallel, bool):
-        raise TypeError("parallel must be a boolean")
-    if any(isinstance(v, bool) or not isinstance(v, int) or v < 1
-           for v in (max_batch_size, max_soft_batch_size)):
-        raise ValueError("Batch sizes must be positive integers")
-    if not np.isfinite(batch_wait_ms) or batch_wait_ms < 0:
-        raise ValueError("batch_wait_ms must be finite and nonnegative")
+    removed = sorted(
+        {"parallel", "max_batch_size", "max_soft_batch_size", "batch_wait_ms"}
+        & common_kwargs.keys()
+    )
+    if removed:
+        raise TypeError(f"Remove {', '.join(removed)}; optimizers now run sequentially")
     if isinstance(model, torch.nn.Module) and not callable(getattr(model, "score", None)):
         tensor = next(model.parameters(), None)
         if tensor is None:
@@ -298,31 +341,28 @@ def generate_designs(
     all_rows, timings, stage_timings = [], [], []
     result_task_names = ()
     suite_started = time.perf_counter()
-    jobs = [(name, dict(shared_options)) for name in names]
-
-    batch_statistics = {}
-    if parallel:
-        from tempfile import TemporaryDirectory
-        from .parallel import run_batched_designs
-        with TemporaryDirectory(prefix="bioseq_design_batches_") as temp:
-            metrics_folder = output_dir if output_dir is not None else Path(temp)
-            metrics_folder.mkdir(parents=True, exist_ok=True)
-            completed, batch_statistics = run_batched_designs(
-                black_box_scorer, gradient_scorer, length, initial_values,
-                objective, num_candidates, jobs, alphabet=alphabet,
-                constraint=constraint, seed=seed, max_batch_size=max_batch_size,
-                max_soft_batch_size=max_soft_batch_size, batch_wait_ms=batch_wait_ms,
-                metrics_path=str(metrics_folder/"gpu_batches.csv"), show_progress=show_progress)
-    else:
-        completed = []
-        for offset, (name, algo_options) in enumerate(jobs):
+    progress = _DesignProgress(names) if show_progress else None
+    completed = []
+    with _reproducible_scoring():
+        for offset, name in enumerate(names):
             scorer = gradient_scorer if name in DIFFERENTIABLE_ALGORITHMS else black_box_scorer
+            if progress is not None:
+                if offset == 0:
+                    progress.report()
+                scorer.report_progress = progress.report
             started, cpu = time.perf_counter(), time.process_time()
-            result = optimize(scorer, length, initial_values, objective, num_candidates,
+            result = optimize(
+                scorer, length, initial_values, objective, num_candidates,
                 algorithm=name, alphabet=alphabet, constraint=constraint,
-                seed=seed+offset, **algo_options)
-            completed.append((result, dict(seconds=time.perf_counter()-started,
-                cpu_seconds=time.process_time()-cpu)))
+                seed=seed + offset, **shared_options,
+            )
+            completed.append((result, dict(
+                seconds=time.perf_counter() - started,
+                cpu_seconds=time.process_time() - cpu,
+            )))
+            if progress is not None:
+                progress.completed += 1
+                progress.report()
 
     for offset, (name, (raw_result, runtime)) in enumerate(zip(names, completed)):
         results = raw_result if isinstance(raw_result, list) else [raw_result]
@@ -400,8 +440,7 @@ def generate_designs(
                        score_threshold=score_threshold,
                        gain_fraction=None if score_threshold is not None or multiple_stages else resolved.fractions[0],
                        candidates_per_algorithm=num_candidates, initial_count=len(initial_values),
-                       minimum_hamming=diversity, execution="parallel" if parallel else "serial",
-                       batching=batch_statistics)
+                       minimum_hamming=diversity, execution="serial")
     if is_CDS_optimized:
         frame.attrs["cds_fixed_positions"] = resolve_fixed_positions(fixed_region, length)
     if multiple_stages:
