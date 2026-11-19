@@ -7,15 +7,17 @@ Maximize the predicted mean ribosome load of a 50-nt 5′ UTR. Reuse the 100 sta
 ## 1. Load the model
 
 ```python
+import re
 from pathlib import Path
 from tempfile import mkdtemp
 
 import pandas as pd
-from MotifSift import call_motifs, select_candidates
-from optimus_support import no_homopolymer6
-from reproduce import recorded_designs, recorded_model
+import torch
+from bioseq_models import load_model
+from MotifSift import call_motifs, generate_designs, select_candidates
 
-model = recorded_model("optimus5prime")
+device = "cuda" if torch.cuda.is_available() else "cpu"
+model = load_model("optimus5prime", device=device)
 seeds = pd.read_csv("data/optimus_initial_sequences.csv")["sequence"].tolist()
 
 run = Path(mkdtemp(prefix="motifsift-example-"))
@@ -23,11 +25,15 @@ run = Path(mkdtemp(prefix="motifsift-example-"))
 
 ## 2. Generate candidates
 
-Run the eleven optimizers and keep 100 candidates per optimizer. The displayed tables come from the full run reproduced by `examples/reproduce.py`.
+Run the eleven optimizers and keep 100 candidates per optimizer. The saved tables show the previous full run. New runs use the current MotifSift defaults.
 
 ```python
-designs = recorded_designs(
-    "optimus", model, length=50, initial=seeds, objective="maximize",
+def no_homopolymer6(sequences):
+    return [re.search(r"([ACGT])\1{5}", sequence) is None for sequence in sequences]
+
+
+designs = generate_designs(
+    model, length=50, initial=seeds, objective="maximize",
     constraint=no_homopolymer6,
     output_dir=run / "designs",
 )

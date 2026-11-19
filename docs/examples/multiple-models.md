@@ -10,26 +10,29 @@ Favor K562 activity over HepG2 and WTC11. Each cell type uses its full ten-fold 
 from pathlib import Path
 from tempfile import mkdtemp
 
-from MotifSift import CombinedScorer, MultiTaskObjective, call_motifs, select_candidates
-from reproduce import recorded_designs, recorded_model, recorded_seeds
+import pandas as pd
+import torch
+from bioseq_models import load_model
+from MotifSift import CombinedScorer, MultiTaskObjective, call_motifs, generate_designs, select_candidates
 
+device = "cuda" if torch.cuda.is_available() else "cpu"
 cells = ["K562", "HepG2", "WTC11"]
 model = CombinedScorer({
-    cell: recorded_model(f"agarwal_{cell.lower()}")
+    cell: load_model(f"agarwal_{cell.lower()}", device=device)
     for cell in cells
 })
 objective = MultiTaskObjective(high=["K562"], low=["HepG2", "WTC11"])
-seeds = recorded_seeds(230)
+seeds = pd.read_csv("data/enhancer_initial_sequences.csv")["mpralegnet"].tolist()
 run = Path(mkdtemp(prefix="motifsift-example-"))
 ```
 
 ## 2. Generate candidates
 
-Run the eleven optimizers and keep 100 candidates per optimizer. The notebook uses the recorded run settings from `examples/reproduce.py`.
+Run the eleven optimizers and keep 100 candidates per optimizer. The saved tables show the previous full run. New runs use the current MotifSift defaults.
 
 ```python
-designs = recorded_designs(
-    "mpralegnet", model, length=230, initial=seeds, objective=objective,
+designs = generate_designs(
+    model, length=230, initial=seeds, objective=objective,
     output_dir=run / "designs",
 )
 designs.groupby("algorithm")["score"].agg(["size", "median", "max"])

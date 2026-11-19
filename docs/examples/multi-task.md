@@ -10,22 +10,25 @@ Decrease predicted developmental activity and increase predicted housekeeping ac
 from pathlib import Path
 from tempfile import mkdtemp
 
-from MotifSift import MultiTaskObjective, call_motifs, select_candidates
-from reproduce import recorded_designs, recorded_model, recorded_seeds
+import pandas as pd
+import torch
+from bioseq_models import load_model
+from MotifSift import MultiTaskObjective, call_motifs, generate_designs, select_candidates
 
-model = recorded_model("deepstarr")
+device = "cuda" if torch.cuda.is_available() else "cpu"
+model = load_model("deepstarr", device=device)
 objective = MultiTaskObjective(high=["housekeeping"], low=["developmental"])
-seeds = recorded_seeds(249)
+seeds = pd.read_csv("data/enhancer_initial_sequences.csv")["deepstarr"].tolist()
 run = Path(mkdtemp(prefix="motifsift-example-"))
 ```
 
 ## 2. Generate candidates
 
-Run the eleven optimizers and keep 100 candidates per optimizer. The displayed tables come from the full run reproduced by `examples/reproduce.py`.
+Run the eleven optimizers and keep 100 candidates per optimizer. The saved tables show the previous full run. New runs use the current MotifSift defaults.
 
 ```python
-designs = recorded_designs(
-    "deepstarr", model, length=249, initial=seeds, objective=objective,
+designs = generate_designs(
+    model, length=249, initial=seeds, objective=objective,
     output_dir=run / "designs",
 )
 designs.groupby("algorithm")["score"].agg(["size", "median", "max"])

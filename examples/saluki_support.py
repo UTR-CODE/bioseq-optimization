@@ -3,7 +3,6 @@
 import numpy as np
 import pandas as pd
 import torch
-from bioseq_models import load_model
 from bioseq_models.adapters.saluki import annotation_tracks
 from torch.nn import functional as F
 
@@ -16,9 +15,9 @@ class ReporterScorer:
     task_names = ('half_life_score',)
     supports_soft_scoring = True
 
-    def __init__(self, length, device):
-        self.device = device
-        self.model = load_model('saluki', device=self.device, crosses=(0,), batch_size=32)
+    def __init__(self, model, length):
+        self.device = model.device
+        self.model = model
         self.network = self.model.model
         self.total_length = len(UTR5) + length + len(UTR3)
         self.annotations = dict(cds_start=len(UTR5), cds_end=len(UTR5)+length,

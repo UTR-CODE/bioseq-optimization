@@ -10,13 +10,15 @@ Score a single-exon eGFP transcript with fixed UTRs. Optimize the CDS with synon
 from pathlib import Path
 from tempfile import mkdtemp
 
-from MotifSift import SynonymousCodonSpace, call_motifs, select_candidates
+import torch
+from bioseq_models import load_model
+from MotifSift import SynonymousCodonSpace, call_motifs, generate_designs, select_candidates
 from saluki_support import ReporterScorer, codon_ism
-from reproduce import recorded_designs, recorded_device
 
-device = recorded_device(exact_arithmetic=True)
+device = "cuda" if torch.cuda.is_available() else "cpu"
 cds = "".join(Path("data/egfp.fasta").read_text().splitlines()[1:])
-model = ReporterScorer(len(cds), device=device)
+saluki = load_model("saluki", device=device, crosses=(0,))
+model = ReporterScorer(saluki, len(cds))
 seeds = [cds]
 print("Starting Saluki score:", float(model.score(seeds)[0, 0]))
 
@@ -25,11 +27,11 @@ run = Path(mkdtemp(prefix="motifsift-example-"))
 
 ## 2. Generate candidates
 
-Run the eleven optimizers and keep 100 candidates per optimizer. The displayed tables come from the full run reproduced by `examples/reproduce.py`.
+Run the eleven optimizers and keep 100 candidates per optimizer. The saved tables show the previous full run. New runs use the current MotifSift defaults.
 
 ```python
-designs = recorded_designs(
-    "saluki", model, length=len(cds), initial=seeds, objective="maximize",
+designs = generate_designs(
+    model, length=len(cds), initial=seeds, objective="maximize",
     gain_fractions=(0.5, 0.9), output_dir=run / "designs",
     is_CDS_optimized=True, fixed_region=[slice(len(cds) - 3, len(cds))],
 )
