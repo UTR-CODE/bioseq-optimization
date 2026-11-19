@@ -379,7 +379,7 @@ class CachedScorer:
         self.scorer, self.budget, self.count_repeated = scorer, budget, count_repeated
         self.query_count = 0
         self.model_query_count = 0
-        self._cache: dict[str, tuple[np.ndarray, np.ndarray]] = {}
+        self._cache: dict[str, tuple[float | np.ndarray, float | np.ndarray]] = {}
         self._rejected: set[str] = set()
         self.constraint_evaluator = None
         if constraint is not None:
@@ -489,52 +489,45 @@ class CachedScorer:
                 if current.uncertainties is None
                 else current.uncertainties
             )
-            self._cache.update(
-                {
-                    key: (
-                        np.asarray(score, dtype=np.float64).copy(),
-                        np.asarray(std, dtype=np.float64).copy(),
-                    )
+            if current.scores.ndim == 1:
+                self._cache.update(zip(accepted, zip(current.scores.tolist(), uncertainty.tolist())))
+            else:
+                self._cache.update({
+                    key: (score.copy(), std.copy())
                     for key, score, std in zip(accepted, current.scores, uncertainty)
-                }
-            )
+                })
             self.model_query_count += len(accepted)
         self.query_count += cost
-        rejected_score = np.asarray(np.finfo(np.float64).min)
-        scores = np.stack(
-            [
-                rejected_score
-                if str(value) in self._rejected
-                else self._cache[str(value)][0]
-                for value in values
-            ]
-        )
-        accepted_mask = np.asarray(
-            [str(value) not in self._rejected for value in values], dtype=bool
-        )
-        if accepted_mask.any() and hasattr(self.scorer, "scores_for"):
-            scores = np.asarray(scores, dtype=np.float64)
-            scores[accepted_mask] = self.scorer.scores_for(values[accepted_mask])
-        uncertainties = np.stack(
-            [
-                np.zeros_like(rejected_score)
-                if str(value) in self._rejected
-                else self._cache[str(value)][1]
-                for value in values
-            ]
-        )
-        if accepted_mask.any() and hasattr(self.scorer, "uncertainties_for"):
-            current = self.scorer.uncertainties_for(values[accepted_mask])
-            if current is not None:
-                uncertainties = np.asarray(uncertainties, dtype=np.float64)
-                uncertainties[accepted_mask] = current
+        rejected = (np.finfo(np.float64).min, 0.0)
+        accepted_mask = np.fromiter((value not in self._rejected for value in values),
+                                    dtype=bool, count=len(values))
+        # Fetch each cached row once. Scalar scores and uncertainties can be
+        # materialized without allocating a NumPy array for every cached value.
+        pairs = [self._cache[value] if accepted else rejected
+                 for value, accepted in zip(values, accepted_mask)]
+        scores, uncertainties = (np.asarray(column, dtype=np.float64) for column in zip(*pairs))
+        if accepted_mask.any():
+            accepted = values if accepted_mask.all() else values[accepted_mask]
+            rescore = getattr(self.scorer, "scores_for", None)
+            if rescore is not None:
+                scores[accepted_mask] = rescore(accepted)
+            rescore_uncertainty = getattr(self.scorer, "uncertainties_for", None)
+            if rescore_uncertainty is not None:
+                current = rescore_uncertainty(accepted)
+                if current is not None:
+                    uncertainties[accepted_mask] = current
         return ScoreBatch(scores, uncertainties)
 
     def constraints_passed(self, sequences) -> np.ndarray:
+        threshold_filter = getattr(self.scorer, "thresholds_passed", None)
+        has_bounds = threshold_filter is not None and getattr(
+            self.scorer, "has_prediction_bounds", True
+        )
+        if self.constraint_evaluator is None and not has_bounds:
+            return np.ones(np.asarray(sequences).size, dtype=bool)
         values = normalize_nucleotide_sequences(sequences)
         passed = self.hard_constraints_passed(values)
-        threshold_filter = getattr(self.scorer, "thresholds_passed", None)
-        if threshold_filter is not None:
+        if has_bounds:
             passed &= np.asarray(threshold_filter(values), dtype=bool)
         return passed
 

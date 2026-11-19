@@ -498,13 +498,17 @@ class _TrackingScorer(CachedScorer):
         )
         passed = self.constraints_passed(tracked)
         if passed.any():
-            accepted = tracked[passed]
-            self.monitor.observe(
-                accepted,
-                ScoreBatch(
+            if not objective_changed and passed.all():
+                accepted, observation = tracked, batch
+            else:
+                accepted = tracked[passed]
+                observation = ScoreBatch(
                     self.current_scores(accepted),
                     self.current_uncertainties(accepted),
-                ),
+                )
+            self.monitor.observe(
+                accepted,
+                observation,
                 self.query_count,
                 advance_round=self._observation_group_depth == 0,
             )
