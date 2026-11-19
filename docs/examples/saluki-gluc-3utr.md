@@ -29,6 +29,8 @@ length = 150
 prefix = utr5 + cds
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
+torch.backends.cuda.matmul.allow_tf32 = False
+torch.backends.cudnn.allow_tf32 = False
 saluki = load_model(
     "saluki", device=device,
     cds_start=len(utr5), cds_end=len(prefix),

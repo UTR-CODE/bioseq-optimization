@@ -2,7 +2,7 @@
 
 [Notebook](../../examples/enhancer.ipynb) · [Installation](../installation.md)
 
-Design 200-nt enhancers for K562. The objective subtracts the higher of the two off-target predictions from the K562 prediction.
+Design 200-nt enhancers for K562. The Malinois predictor adds two fixed 200-nt assay flanks, and its network scores the resulting 600-nt construct. The objective subtracts the higher off-target prediction from the K562 prediction.
 
 ## 1. Load the model and define the objective
 
@@ -15,8 +15,10 @@ from bioseq_models import load_model
 from MotifSift import call_motifs, generate_designs, random_seed_sequences, select_candidates
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
+torch.backends.cuda.matmul.allow_tf32 = False
+torch.backends.cudnn.allow_tf32 = False
 predictor = load_model("malinois", device=device)
-# The Malinois network takes a 600-nt construct with the enhancer in the middle.
+# Extract the fixed flanks from a placeholder construct.
 reference = predictor.encoder(["A" * 200]).transpose(1, 2)
 left, right = reference[:, :200], reference[:, -200:]
 
@@ -52,6 +54,8 @@ os.makedirs(run, exist_ok=True)
 The scoring adapter adds the same fixed flanks to soft inputs as the pretrained predictor uses for sequence strings.
 
 ## 2. Generate candidates
+
+The saved tables are from a full rerun with base seed 42 and FP32 inference. That run used the assay’s archived GPU batch sizes (1,024 discrete and 128 differentiable).
 
 ```python
 seeds = random_seed_sequences(200, 100, seed=42)

@@ -16,6 +16,8 @@ from bioseq_models import load_model
 from MotifSift import call_motifs, generate_designs, random_seed_sequences, select_candidates
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
+torch.backends.cuda.matmul.allow_tf32 = False
+torch.backends.cudnn.allow_tf32 = False
 model = load_model("optimus5prime", device=device)
 
 run = Path("outputs/optimus_5utr")
