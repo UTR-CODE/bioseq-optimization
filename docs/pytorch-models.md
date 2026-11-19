@@ -2,7 +2,7 @@
 
 Models from `bioseq_models` already implement MotifSift's scoring interface and can be used directly.
 
-For your own PyTorch model, wrap it once with `SequencePredictor(model, tasks)`. List task names in the same order as the model outputs. The adapter implements `score()` for nucleotide strings and `score_soft()` for differentiable sequence optimization. It uses the device on which you placed the model.
+For a model with its own scoring methods, see the [scoring interface](custom-scorers.md). To adapt a PyTorch `forward()` method, wrap the model once with `SequencePredictor(model, tasks)`. List task names in the same order as the model outputs. The adapter implements `score()` for nucleotide strings and `score_soft()` for differentiable sequence optimization. It uses the device on which you placed the model.
 
 ```python
 from MotifSift import SequencePredictor, generate_designs

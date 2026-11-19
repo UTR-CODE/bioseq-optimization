@@ -1,5 +1,6 @@
 """The public workflow over the optimization and motif engines."""
 
+import re
 from dataclasses import dataclass
 from typing import Mapping, Sequence
 
@@ -34,7 +35,7 @@ class CombinedScorer(_CombinedScorer):
     """Present named single-output models as one multi-output scorer."""
 
     def __init__(self, models):
-        super().__init__(models.values(), names=models.keys())
+        super().__init__([_ScorerAdapter(model) for model in models.values()], names=models.keys())
 
 
 @dataclass(frozen=True)
@@ -64,9 +65,31 @@ class MultiTaskObjective:
         return _MultiTaskObjective(high=high, low=low, weights=ordered)
 
 
-def _require_scorer(model):
-    if not callable(getattr(model, "score", None)):
-        raise TypeError("Use a bioseq_models scorer or wrap a PyTorch model with SequencePredictor(model, tasks)")
+class _ScorerAdapter:
+    """Keep the public scoring contract independent of engine batch types."""
+
+    def __init__(self, model):
+        if not callable(getattr(model, "score", None)):
+            raise TypeError("Supply score(sequences) or wrap a PyTorch model with SequencePredictor(model, tasks)")
+        self.model = model
+
+    def __getattr__(self, name):
+        return getattr(self.model, name)
+
+    def score(self, sequences):
+        values = [str(sequence).upper().replace("U", "T") for sequence in sequences]
+        if any(re.fullmatch(r"[ACGTN]+", val) is None for val in values):
+            raise ValueError("Sequences must be nonempty and contain only A, C, G, T, U, or N")
+        return self.model.score(values)
+
+    @property
+    def score_soft(self):
+        method = getattr(self.model, "score_soft", None)
+        return self._score_soft if callable(method) else None
+
+    def _score_soft(self, probabilities):
+        result = self.model.score_soft(probabilities)
+        return result if isinstance(result, tuple) else (result, None)
 
 
 def _objective_for(objective, task_names=None):
@@ -87,9 +110,9 @@ def generate_designs(
     fixed_region=None, is_CDS_optimized=False, seed=0, output_dir=None,
 ):
     """Return one row per candidate, optimizer, and requested gain stage."""
-    _require_scorer(model)
+    scorer = _ScorerAdapter(model)
     return _generate_designs(
-        model, length, initial=initial, objective=_objective_for(objective, getattr(model, "task_names", None)),
+        scorer, length, initial=initial, objective=_objective_for(objective, getattr(model, "task_names", None)),
         num_candidates=num_candidates, gain_fractions=gain_fractions,
         score_threshold=score_threshold, algorithms=algorithms, constraint=constraint,
         fixed_region=fixed_region, is_CDS_optimized=is_CDS_optimized,
@@ -102,10 +125,9 @@ def call_motifs(
     objective=None, contributions=None, catalog=None, hits=None,
 ):
     """Discover motifs using the objective saved with the designs."""
-    if model is not None:
-        _require_scorer(model)
+    scorer = _ScorerAdapter(model) if model is not None else None
     return _call_motifs(
-        designs, model=model, reverse_complement=reverse_complement,
+        designs, model=scorer, reverse_complement=reverse_complement,
         objective=_objective_for(objective, getattr(model, "task_names", None)), contributions=contributions,
         catalog=catalog, hits=hits, output_dir=output_dir,
     )

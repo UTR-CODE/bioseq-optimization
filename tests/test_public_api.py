@@ -83,3 +83,29 @@ def test_single_output_minimization_uses_all_default_optimizers():
     assert designs.algorithm.nunique() == 11
     assert designs.groupby("algorithm").size().eq(2).all()
     np.testing.assert_allclose(designs.score, -designs.activity_activity)
+
+
+def test_custom_scorer_receives_normalized_lists_and_accepts_a_soft_tensor():
+    class ListScorer:
+        def score(self, sequences):
+            assert type(sequences) is list
+            assert all(set(sequence) <= set('ACGTN') for sequence in sequences)
+            return [sequence.count('G') for sequence in sequences]
+
+        def score_soft(self, probabilities):
+            assert probabilities.shape[1:] == (8, 4)
+            return probabilities[:, :, 2].sum(dim=1)
+
+    model = ListScorer()
+    designs = generate_designs(
+        model, length=8, initial=['ACUCCUAU', 'GGUAAUUA'], num_candidates=2,
+        algorithms=['basesearch', 'fast_seqprop'], score_threshold=6,
+    )
+    assert designs.attrs['batching']['soft_backward_rows'] > 0
+    assert all(set(sequence) <= set('ACGT') for sequence in designs.sequence)
+    np.testing.assert_array_equal(designs.score, designs.sequence.str.count('G'))
+
+    combined = CombinedScorer({'activity': model})
+    np.testing.assert_array_equal(combined.score(['guN']).scores, [[1]])
+    with pytest.raises(ValueError, match='contain only A, C, G, T, U, or N'):
+        combined.score(['GUX'])

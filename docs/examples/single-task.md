@@ -2,7 +2,7 @@
 
 [Notebook](../../examples/single-task.ipynb) · [Installation](../installation.md)
 
-Maximize the predicted mean ribosome load of a 50-nt 5′ UTR. Reuse the 100 starting sequences and exclude runs of six identical bases, as in the Extended Data analysis. Install MEME Suite with the notebook dependencies. The first model load downloads the pretrained checkpoint.
+Maximize the predicted mean ribosome load of a 50-nt 5′ UTR. Regenerate the 100 starting sequences from the Extended Data analysis and exclude homopolymers of six bases or longer. Install MEME Suite with the notebook dependencies. The first model load downloads the pretrained checkpoint.
 
 ## 1. Load the model
 
@@ -11,14 +11,12 @@ import re
 from pathlib import Path
 from tempfile import mkdtemp
 
-import pandas as pd
 import torch
 from bioseq_models import load_model
-from MotifSift import call_motifs, generate_designs, select_candidates
+from MotifSift import call_motifs, generate_designs, random_seed_sequences, select_candidates
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 model = load_model("optimus5prime", device=device)
-seeds = pd.read_csv("data/optimus_initial_sequences.csv")["sequence"].tolist()
 
 run = Path(mkdtemp(prefix="motifsift-example-"))
 ```
@@ -31,6 +29,11 @@ Run the eleven optimizers and keep 100 candidates per optimizer. The saved table
 def no_homopolymer6(sequences):
     return [re.search(r"([ACGT])\1{5}", sequence) is None for sequence in sequences]
 
+
+seeds = random_seed_sequences(50, 100, seed=42).tolist()
+refill = random_seed_sequences(50, 100, seed=20261117).tolist()
+seeds = list(dict.fromkeys(seeds + refill))
+seeds = [sequence for sequence, keep in zip(seeds, no_homopolymer6(seeds)) if keep][:100]
 
 designs = generate_designs(
     model, length=50, initial=seeds, objective="maximize",
