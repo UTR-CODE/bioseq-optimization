@@ -1,0 +1,140 @@
+{
+  "reference_environment": {
+    "engine_commit": "59e662b9b56dde8892184015c8f812c01fc94c46",
+    "bioseq_models_commit": "84a5075c3656127d99027c38705212a2de6e62c9",
+    "python": "3.10.15",
+    "torch": "2.5.1",
+    "cuda": "11.8",
+    "cudnn": 90100,
+    "gpu": "NVIDIA GeForce RTX 4090",
+    "meme_suite": "5.5.7",
+    "python_packages": {
+      "numpy": "1.26.1",
+      "pandas": "2.2.3",
+      "numba": "0.60.0",
+      "scipy": "1.14.1",
+      "tangermeme": "1.2.0"
+    },
+    "environment": {
+      "CUBLAS_WORKSPACE_CONFIG": ":4096:8",
+      "OMP_NUM_THREADS": "1",
+      "OPENBLAS_NUM_THREADS": "1",
+      "MKL_NUM_THREADS": "1",
+      "NUMBA_NUM_THREADS": "1"
+    },
+    "weights_sha256": {
+      "dream_legnet": "ce8bf7a2bee83bc4d47062b2a06d290e6af8d4d3ba198bbed2cd6299331bc5f4",
+      "optimus5prime": "7b58549d44e33addcf88876bb7ef35fd1dfa6404083da47619ef258ea513526c",
+      "saluki_human_f0_c0": "b0e4be9145db8625f0530adbbfff7b17f0ee0f0aa33b204a5cdbe9af41a9f4f6"
+    }
+  },
+  "output_hash_definition": "SHA-256 of notebook output files; the catalog background path header is normalized",
+  "repeat_check": "Independent executions matched for the 5′ UTR and Gluc 3′ UTR notebooks.",
+  "experiments": [
+    {
+      "key": "Promoter",
+      "source_notebook": "examples/dream-legnet-promoter.ipynb",
+      "notebook_code_sha256": "c61ca72d7070110332904d42c5b487be0add9f204404ee24bb1c980683e1d8e9",
+      "artifact_sha256": {
+        "designs/designs.csv": "37ab8c6c93df3333b86d7a0eab5941cadff9087af0f5fcc937fe08cbb251754e",
+        "motifs/seqlets.csv": "7970f7fe723228b1e690079aef1d2f9c1a94af80b6ab87154441a40228891376",
+        "motifs/motif_sites.csv": "3a610d43e1f4630354f59a7670e730b9e03cb3c9f8dcb6469c1ce79e5547156f",
+        "motifs/catalog.meme": "3b777cc821e4157e2d288a6fbd108fb18de442d8146b4381e1e024e0d2461ab2",
+        "selected/retained_catalog.meme": "3b777cc821e4157e2d288a6fbd108fb18de442d8146b4381e1e024e0d2461ab2",
+        "selected/unique_candidates.csv": "fe27ea0e730380cc10df47ba46afe6dee5dfdc4613fafa3ed8acc73fd0b6eb19",
+        "selected/motif_sites.csv": "3a610d43e1f4630354f59a7670e730b9e03cb3c9f8dcb6469c1ce79e5547156f",
+        "selected/selected_sequences.csv": "7ea585700beb946983da62a79e8926750e0b0e27ef187483cb93a0c612398f4c"
+      },
+      "length": 80,
+      "figure_gain_fraction": 0.9,
+      "integrated_n": 1100,
+      "seqlets": 574,
+      "motifs": 4,
+      "top10_coverage": 4
+    },
+    {
+      "key": "5UTR",
+      "source_notebook": "examples/single-task.ipynb",
+      "notebook_code_sha256": "caf44e286a7ee024f066c80c8332ff17d1c54bad95f70383224dcbcd887eec94",
+      "artifact_sha256": {
+        "designs/designs.csv": "f5e7a94dbd502abe9e44e9cf0d075b226ce7633fb2f6f8f4e0528cdc806fbba3",
+        "motifs/seqlets.csv": "672253d3163534af7638f08c18d00ac5c6ef627048e369ea35e34e0012abda15",
+        "motifs/motif_sites.csv": "fd79714fdd93813600b0cb0269f7f8985687f5ce73c84562bbf1074fd883af44",
+        "motifs/catalog.meme": "b86201de8766089b0b25d179dd64f8adc4c9cb14d1941fce47c07ace103fbeab",
+        "selected/retained_catalog.meme": "b86201de8766089b0b25d179dd64f8adc4c9cb14d1941fce47c07ace103fbeab",
+        "selected/unique_candidates.csv": "ee88109468e58efbf188335d9039729c3336c62e4397dc492802294de0e635bb",
+        "selected/motif_sites.csv": "fd79714fdd93813600b0cb0269f7f8985687f5ce73c84562bbf1074fd883af44",
+        "selected/selected_sequences.csv": "1f11532510ebce06fc815c3c60b3c07855772d390f68205d0a7775d5dbe21c31"
+      },
+      "length": 50,
+      "figure_gain_fraction": 0.9,
+      "integrated_n": 1096,
+      "seqlets": 114,
+      "motifs": 6,
+      "top10_coverage": 6
+    },
+    {
+      "key": "CDS_eGFP",
+      "source_notebook": "examples/saluki-egfp.ipynb",
+      "notebook_code_sha256": "92d8acf23bb685ca662fa505381505dc80f14065811ffea2073070be71c51318",
+      "artifact_sha256": {
+        "designs/designs.csv": "acaa3f03d56788ac0780c26d5f28fe6ff67a55753101da4d06ed6f07249ab747",
+        "motifs/seqlets.csv": "ace5fa0b3b4c406ef35474031adf6cf28573749c57bb726c3e6207edecab8b18",
+        "motifs/motif_sites.csv": "9ae826d477881bbf104be4d7dcb3b176d9ceb458108fdc657e6c6c226e9868a5",
+        "motifs/catalog.meme": "f280b59759dd9bcb7a8245f0b3f0e7174a2d259303259ec9ed88309e1282415a",
+        "selected/retained_catalog.meme": "f280b59759dd9bcb7a8245f0b3f0e7174a2d259303259ec9ed88309e1282415a",
+        "selected/unique_candidates.csv": "76696aca72cc611e0a121e81e583892036292c397b3505b8887964634ba9746d",
+        "selected/motif_sites.csv": "9ae826d477881bbf104be4d7dcb3b176d9ceb458108fdc657e6c6c226e9868a5",
+        "selected/selected_sequences.csv": "e0cbd6182c0cfc4928f4ab9bc5e4e79a5d0ba14d62af770614a72d250445c24e"
+      },
+      "length": 720,
+      "figure_gain_fraction": 0.9,
+      "integrated_n": 1100,
+      "seqlets": 1839,
+      "motifs": 6,
+      "top10_coverage": 6
+    },
+    {
+      "key": "CDS_Gluc",
+      "source_notebook": "examples/saluki-gluc-cds.ipynb",
+      "notebook_code_sha256": "7f6f3342084d03d245cc4d25e1f247ba7cf60a8b572600721b42f802388f7b98",
+      "artifact_sha256": {
+        "designs/designs.csv": "3f8506383ac7db7610c31588d0e3844b40fa9565932121a8c3a51703c3e439f9",
+        "motifs/seqlets.csv": "723686b76570e93597de55c08143a133d74f24cbe36bc2f3744f932b96dc9900",
+        "motifs/motif_sites.csv": "665938302e2a1db3dce9f43c36c135009cb6a05fe296fa04bc6bbb62c21411fa",
+        "motifs/catalog.meme": "a27f01386a971bd10b40a36d40ccd7c2108c51a19ba5cf70251de233fd127337",
+        "selected/retained_catalog.meme": "a27f01386a971bd10b40a36d40ccd7c2108c51a19ba5cf70251de233fd127337",
+        "selected/unique_candidates.csv": "915c0b10b1ed5f57e6531ac768d852bc8e63bedf5ad707188761ee7e6b5c1ce7",
+        "selected/motif_sites.csv": "665938302e2a1db3dce9f43c36c135009cb6a05fe296fa04bc6bbb62c21411fa",
+        "selected/selected_sequences.csv": "2e499919baa06327ae21e1f14fedf5a682bde5086ae6457839e6284d6ba9f05f"
+      },
+      "length": 558,
+      "figure_gain_fraction": 0.9,
+      "integrated_n": 1100,
+      "seqlets": 1594,
+      "motifs": 14,
+      "top10_coverage": 14
+    },
+    {
+      "key": "3UTR",
+      "source_notebook": "examples/saluki-gluc-3utr.ipynb",
+      "notebook_code_sha256": "012b5780f5a211d98f4f92946dd59c6e6d05d01bab8e5b6550d22e557964a53d",
+      "artifact_sha256": {
+        "designs/designs.csv": "db136386c85ebce9ea53206be7562c88dfece3b48cc136ed8a58323f319ea34f",
+        "motifs/seqlets.csv": "b26dc16ffd5c3957a32a31f80851d8f9135b1791a4ce2237c2a53d40250bc2db",
+        "motifs/motif_sites.csv": "8655df8e162263ea455aac604c171826e78f0dd152fc02087439f3463e83af1d",
+        "motifs/catalog.meme": "bbbf388f886ce3558b60f0cc9bd27cebd52b7479f6a22354fee66f86e3d535b5",
+        "selected/retained_catalog.meme": "bbbf388f886ce3558b60f0cc9bd27cebd52b7479f6a22354fee66f86e3d535b5",
+        "selected/unique_candidates.csv": "863c57f4549aa08509f56911dd06c28858d57ba5f8fd9181ba1fb62da0f5d18e",
+        "selected/motif_sites.csv": "8655df8e162263ea455aac604c171826e78f0dd152fc02087439f3463e83af1d",
+        "selected/selected_sequences.csv": "04a0a1c573c34a08a8af43ae2661110962f3d3e2083d6e2c7e4ae9504bae1d14"
+      },
+      "length": 150,
+      "figure_gain_fraction": 0.9,
+      "integrated_n": 1100,
+      "seqlets": 1232,
+      "motifs": 8,
+      "top10_coverage": 8
+    }
+  ]
+}

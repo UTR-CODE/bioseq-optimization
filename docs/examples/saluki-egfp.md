@@ -59,7 +59,7 @@ class CDSScorer:
             probabilities,
             right.to(probabilities).expand(batch, -1, -1),
         ], dim=1)
-        return saluki.score_soft(full_transcripts)
+        return saluki.score_soft(full_transcripts.clamp(0, 1))
 
 
 model = CDSScorer()
@@ -69,8 +69,6 @@ run = Path("outputs/saluki_egfp_cds")
 ```
 
 ## 2. Generate candidates
-
-The saved outputs show an earlier full run.
 
 ```python
 designs = generate_designs(

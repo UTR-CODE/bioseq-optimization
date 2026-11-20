@@ -16,7 +16,7 @@ motifs = ["tangermeme>=1.3,<2", "scipy>=1.10"]
 dev = ["pytest>=7.4", "build>=1", "ruff>=0.8"]
 
 [project.urls]
-Repository = "https://github.com/UTR-CODE/bioseq-optimization"
+Repository = "https://github.com/xinhe-bio/MotifSift"
 
 [tool.setuptools]
 license-files = ["THIRD_PARTY_NOTICES.md"]
