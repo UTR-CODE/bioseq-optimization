@@ -14,5 +14,3 @@ python -m pip install 'bioseq-models @ git+https://github.com/UTR-CODE/bioseq-mo
 ```
 
 The workflow notebooks save results under `outputs/`. Set `run` to a new folder to keep a previous run and rerun the example.
-
-In a standalone Python script, put model loading and workflow calls inside `if __name__ == "__main__":`.

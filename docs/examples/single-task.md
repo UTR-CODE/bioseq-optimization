@@ -2,12 +2,11 @@
 
 [Notebook](../../examples/single-task.ipynb) · [Installation](../installation.md)
 
-Maximize the predicted mean ribosome load of a 50-nt 5′ UTR. Start with 100 random sequences. MotifSift replaces seeds that contain homopolymers of six bases or longer. Install MEME Suite with the notebook dependencies. The first model load downloads the pretrained checkpoint.
+Maximize predicted mean ribosome load for a 50-nt 5′ UTR. Exclude homopolymers of six or more bases.
 
 ## 1. Load the model
 
 ```python
-import os
 import re
 from pathlib import Path
 
@@ -21,12 +20,9 @@ torch.backends.cudnn.allow_tf32 = False
 model = load_model("optimus5prime", device=device)
 
 run = Path("outputs/optimus_5utr")
-os.makedirs(run, exist_ok=True)
 ```
 
 ## 2. Generate candidates
-
-Run the eleven optimizers and keep 100 candidates per optimizer. The saved tables show the previous full run, which used a prefiltered seed pool. New runs use the current MotifSift defaults.
 
 ```python
 def no_homopolymer6(sequences):
@@ -45,13 +41,8 @@ designs.groupby("algorithm")["score"].agg(["size", "median", "max"])
 
 ## 3. Discover motifs
 
-Extract positive seqlets from in silico mutagenesis scores and discover motifs with XSTREME.
-
 ```python
-motifs = call_motifs(
-    designs, model=model, reverse_complement=False,
-    output_dir=run / "motifs",
-)
+motifs = call_motifs(designs, model, reverse_complement=False, output_dir=run / "motifs")
 motifs.support.query("retained")[["motif_id", "seqlets", "parents", "sites_on_unique_DNA"]]
 ```
 

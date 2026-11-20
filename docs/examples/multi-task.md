@@ -2,12 +2,11 @@
 
 [Notebook](../../examples/multi-task.ipynb) · [Installation](../installation.md)
 
-Decrease predicted developmental activity and increase predicted housekeeping activity in 249-nt enhancers. Install MEME Suite with the notebook dependencies. The first model load downloads the pretrained checkpoint.
+Increase predicted housekeeping activity and decrease developmental activity in 249-nt enhancers.
 
 ## 1. Load the model
 
 ```python
-import os
 from pathlib import Path
 
 import torch
@@ -19,12 +18,9 @@ model = load_model("deepstarr", device=device)
 objective = MultiTaskObjective(high=["housekeeping"], low=["developmental"])
 seeds = random_seed_sequences(249, 100, seed=42)
 run = Path("outputs/deepstarr")
-os.makedirs(run, exist_ok=True)
 ```
 
 ## 2. Generate candidates
-
-Run the eleven optimizers and keep 100 candidates per optimizer. The saved tables show the previous full run. New runs use the current MotifSift defaults.
 
 ```python
 designs = generate_designs(
@@ -36,13 +32,8 @@ designs.groupby("algorithm")["score"].agg(["size", "median", "max"])
 
 ## 3. Discover motifs
 
-Extract positive seqlets from in silico mutagenesis scores and discover motifs with XSTREME.
-
 ```python
-motifs = call_motifs(
-    designs, model=model,
-    output_dir=run / "motifs",
-)
+motifs = call_motifs(designs, model, output_dir=run / "motifs")
 motifs.support.query("retained")[["motif_id", "seqlets", "parents", "sites_on_unique_DNA"]]
 ```
 

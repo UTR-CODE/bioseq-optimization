@@ -2,12 +2,11 @@
 
 [Notebook](../../examples/multiple-models.ipynb) · [Installation](../installation.md)
 
-Favor K562 activity over HepG2 and WTC11. Each cell type uses its full ten-fold pretrained MPRALegNet ensemble. The objective combines the predictions on their native scale. Install MEME Suite with the notebook dependencies. The first model load downloads the pretrained checkpoint.
+Favor K562 activity over HepG2 and WTC11 using the ten-fold MPRALegNet ensemble for each cell type.
 
 ## 1. Load the model
 
 ```python
-import os
 from pathlib import Path
 
 import torch
@@ -23,12 +22,11 @@ model = CombinedScorer({
 objective = MultiTaskObjective(high=["K562"], low=["HepG2", "WTC11"])
 seeds = random_seed_sequences(230, 100, seed=42)
 run = Path("outputs/mpralegnet")
-os.makedirs(run, exist_ok=True)
 ```
 
 ## 2. Generate candidates
 
-Run the eleven optimizers and keep 100 candidates per optimizer. The saved tables show the previous full run. New runs use the current MotifSift defaults.
+The saved outputs show an earlier full run.
 
 ```python
 designs = generate_designs(
@@ -40,13 +38,8 @@ designs.groupby("algorithm")["score"].agg(["size", "median", "max"])
 
 ## 3. Discover motifs
 
-Extract positive seqlets from in silico mutagenesis scores and discover motifs with XSTREME.
-
 ```python
-motifs = call_motifs(
-    designs, model=model,
-    output_dir=run / "motifs",
-)
+motifs = call_motifs(designs, model, output_dir=run / "motifs")
 motifs.support.query("retained")[["motif_id", "seqlets", "parents", "sites_on_unique_DNA"]]
 ```
 

@@ -2,12 +2,11 @@
 
 [Notebook](../../examples/saluki-egfp.ipynb) · [Installation](../installation.md)
 
-Score a single-exon eGFP transcript with fixed UTRs. Optimize the CDS with synonymous substitutions and retain the terminal stop codon. Install MEME Suite with the notebook dependencies. The first model load downloads the pretrained checkpoint.
+Optimize the eGFP CDS for predicted mRNA stability. Keep translation and both UTRs fixed.
 
 ## 1. Load the model
 
 ```python
-import os
 from pathlib import Path
 
 import torch
@@ -65,15 +64,13 @@ class CDSScorer:
 
 model = CDSScorer()
 seeds = [cds]
-print("Starting Saluki score:", float(model.score(seeds)[0, 0]))
 
 run = Path("outputs/saluki_egfp_cds")
-os.makedirs(run, exist_ok=True)
 ```
 
 ## 2. Generate candidates
 
-Run the eleven optimizers and keep 100 candidates per optimizer. The saved design summary comes from the previous full search. The motif and panel tables come from reanalyzing its 90% gain candidates.
+The saved outputs show an earlier full run.
 
 ```python
 designs = generate_designs(
@@ -86,14 +83,11 @@ designs.groupby(["algorithm", "gain_fraction"])["score"].agg(["size", "median", 
 
 ## 3. Discover motifs
 
-Analyze the 90% gain stage with synonymous-codon attribution and forward-strand motif discovery.
+Use the 90% gain stage for motif discovery and panel selection.
 
 ```python
 designs = designs.loc[designs["gain_fraction"].eq(0.9)].copy()
-motifs = call_motifs(
-    designs, model, reverse_complement=False,
-    output_dir=run / "motifs",
-)
+motifs = call_motifs(designs, model, reverse_complement=False, output_dir=run / "motifs")
 motifs.support.query("retained")[["motif_id", "seqlets", "parents", "sites_on_unique_DNA"]]
 ```
 

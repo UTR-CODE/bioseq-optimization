@@ -2,12 +2,11 @@
 
 [Notebook](../../examples/saluki-gluc-3utr.ipynb) · [Installation](../installation.md)
 
-Optimize a 150-nt 3′ UTR for Saluki-predicted mRNA stability. The HBB 5′ UTR and Gluc CDS are fixed. Saluki scores the full single-exon transcript.
+Optimize a 150-nt Gluc 3′ UTR for predicted mRNA stability. Keep the HBB 5′ UTR and Gluc CDS fixed.
 
 ## 1. Load the model
 
 ```python
-import os
 from pathlib import Path
 
 import torch
@@ -56,12 +55,9 @@ class UTRScorer:
 
 model = UTRScorer()
 run = Path("outputs/saluki_gluc_3utr")
-os.makedirs(run, exist_ok=True)
 ```
 
 ## 2. Generate candidates
-
-Start with 100 random 3′ UTRs. Each of the eleven optimizers retains 100 candidates at 90% of the observed gain. The saved tables come from the full Gluc run with these starting sequences and the same Saluki checkpoint. Reruns use the current MotifSift defaults.
 
 ```python
 seeds = random_seed_sequences(length, 100, seed=42)
@@ -73,8 +69,6 @@ designs.groupby("algorithm")["score"].agg(["size", "median", "max"])
 ```
 
 ## 3. Discover motifs
-
-Analyze the 3′ UTR in transcript orientation.
 
 ```python
 motifs = call_motifs(designs, model, reverse_complement=False, output_dir=run / "motifs")

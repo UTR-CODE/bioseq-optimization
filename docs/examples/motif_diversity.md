@@ -1,6 +1,6 @@
 # Reference motif-diversity selection
 
-Reuse saved designs and motifs from the K562 example to select a panel with the current filtering rules. The archived Top10 used the earlier motif catalog and filtering rules.
+Select a panel from the bundled K562 designs and motif hits.
 
 ```python
 from pathlib import Path

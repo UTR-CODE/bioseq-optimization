@@ -1,13 +1,64 @@
-# Reproduce the original Malinois K562 motif catalog
+# Malinois for K562 enhancer design
 
-[Notebook](../../examples/enhancer.ipynb) · [Installation](../installation.md)
+[Installation](../installation.md)
 
-The paper workflow starts from the archived 1,100 optimizer records and their Malinois ISM contributions for 1,084 unique enhancers. These are the inputs in the separate K562 13-motif reproduction bundle. The example data used by the [motif diversity tutorial](../motif-diversity.md) come from a different run.
+Design 200-nt enhancers that favor K562 activity over HepG2 and SK-N-SH.
 
-    export MOTIFSIFT_K562_ARCHIVE=/path/to/K562_13motifs_reproduction_20261119
+## 1. Load Malinois
 
-Run the notebook with the historical seqlet caller and MEME Suite 5.5.9 on PATH. The notebook calls the current MotifSift library and runs single-pass XSTREME from 4,229 positive seqlets, followed by FIMO site support and spatial redundancy filtering. It checks all 9,464 physical sites against the archive and expects 13 final motifs. The panel uses the same 20th-percentile specificity cutoff as the study.
+```python
+from pathlib import Path
 
-For an exact historical replay using the native discovery catalog and archived FIMO scans, run `python scripts/reproduce.py replay --output runs/replay` from the reproduction bundle. The bundle also includes the historical seqlet function and commands for reproducing discovery from frozen ISM.
+import torch
+from bioseq_models import load_model
+from MotifSift import call_motifs, generate_designs, random_seed_sequences, select_candidates
 
-The notebook's optional fresh-design cell uses FP32, base seed 42 and fixed batches with the current optimizers. The original candidates were generated using a shared GPU scoring service with dynamic batches. The exact paper replay uses the archived candidates and their original scores.
+device = "cuda" if torch.cuda.is_available() else "cpu"
+torch.backends.cuda.matmul.allow_tf32 = False
+torch.backends.cudnn.allow_tf32 = False
+model = load_model("malinois", device=device, batch_size=1024)
+run = Path("outputs/malinois_k562")
+```
+
+Malinois adds fixed flanks when it encodes DNA strings. Use the same flanks for gradient-based scoring.
+
+```python
+context = model.encoder(["A" * 200]).transpose(1, 2)
+
+def add_flanks(probabilities):
+    batch = len(probabilities)
+    left = context[:, :200].to(probabilities).expand(batch, -1, -1)
+    right = context[:, -200:].to(probabilities).expand(batch, -1, -1)
+    return torch.cat((left, probabilities, right), dim=1).transpose(1, 2)
+
+model.soft_encoder = add_flanks
+
+def specificity(y):
+    return y["K562_log2FC"] - torch.maximum(y["HepG2_log2FC"], y["SKNSH_log2FC"])
+```
+
+## 2. Generate candidates
+
+```python
+seeds = random_seed_sequences(200, 100, seed=42)
+designs = generate_designs(
+    model, length=200, initial=seeds, objective=specificity, seed=42,
+    output_dir=run / "designs",
+)
+designs.groupby("algorithm")["score"].agg(["size", "median", "max"])
+```
+
+## 3. Discover motifs
+
+```python
+motifs = call_motifs(designs, model, output_dir=run / "motifs")
+motifs.support.query("retained")[["motif_id", "seqlets", "parents", "sites_on_unique_DNA"]]
+```
+
+## 4. Select a panel
+
+```python
+gate = float(designs.drop_duplicates("sequence").score.quantile(0.2))
+selected = select_candidates(designs, motifs=motifs, top_n=10, min_score=gate, output_dir=run / "selected")
+selected[["selection_rank", "sequence", "score", "present_motifs"]]
+```
